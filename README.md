@@ -7,7 +7,7 @@
 ![Platform](https://img.shields.io/badge/platform-Server%20(Java)-blue)
 ![Status](https://img.shields.io/badge/status-Alpha-lightgrey)
 
-**JANGBOGO(장보고)**는 여러 온라인 쇼핑몰의 **구매내역을 수집**하여 **로컬 파일(NDJSON/JSON)** 에 저장하는 프로젝트입니다.  
+**JANGBOGO**는 여러 온라인 쇼핑몰의 **구매내역을 수집**하여 **로컬 파일(NDJSON/JSON)** 에 저장하는 프로젝트입니다.  
 본 저장소의 **UI는 “설정 관리 전용”**으로, 수집 파이프라인 실행/스케줄·사이트별 활성화·크롤러 옵션 등을 간단한 Bootstrap 5 페이지에서 제어합니다.  
 (즉, **거래 내역을 보여주는 대시보드가 아닌** _관리자 설정 화면_ 입니다.)
 
