@@ -129,19 +129,6 @@ security:
 
 ---
 
-## 🔌 REST API (요약)
-
-- `GET  /api/config` – 현재 설정 조회  
-- `PUT  /api/config` – 설정 저장(유효성 검사)  
-- `POST /api/collect/start` – 즉시 수집 시작(선택: `sites` 필터)  
-- `POST /api/collect/stop` – 진행 중 수집 중단 요청  
-- `GET  /api/status` – 마지막/현재 실행 상태, 최근 로그 일부  
-- `GET  /api/sites` – 사용 가능한 어댑터 목록/상태
-
-요청/응답 예시는 `/server/src/test/resources/api/*.http` 등에 포함할 예정입니다.
-
----
-
 ## 🧩 설정용 최소 UI (Bootstrap 5)
 
 - 경로: `src/main/resources/static/admin/index.html`  
