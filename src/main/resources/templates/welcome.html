@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org"
+      xmlns:layout="http://www.ultraq.net.nz/thymeleaf/layout"
+      layout:decorate="~{layout}">
+<head>
+    <title layout:title-pattern="$DECORATOR_TITLE - $CONTENT_TITLE">Welcome</title>
+</head>
+<body>
+<div layout:fragment="content">
+    <h1 class="mb-4 text-primary">🎉 Welcome to JangBoGo!!</h1>
+    <p>Thymeleaf 템플릿 레이아웃 예시 페이지입니다.</p>
+
+    <form>
+        <div class="mb-3">
+            <label for="userName" class="form-label">이름</label>
+            <input type="text" class="form-control" id="userName" placeholder="이름을 입력하세요">
+        </div>
+        <button type="submit" class="btn btn-success">확인</button>
+    </form>
+
+    <hr>
+
+    <h3>샘플 테이블</h3>
+    <table class="table table-bordered">
+        <thead>
+            <tr><th>상품</th><th>가격</th><th>재고</th></tr>
+        </thead>
+        <tbody>
+            <tr><td>아메리카노</td><td>₩2,500</td><td>99</td></tr>
+            <tr><td>카페라떼</td><td>₩3,000</td><td>48</td></tr>
+        </tbody>
+    </table>
+</div>
+</body>
+</html>
