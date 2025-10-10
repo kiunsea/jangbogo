@@ -1,0 +1,34 @@
+spring:
+  application:
+    name: jangbogo
+
+  devtools:
+    restart:
+      enabled: true
+    livereload:
+      enabled: true
+
+  thymeleaf:
+    cache: false
+
+  resources:
+    cache:
+      period: 0
+    chain:
+      cache: false
+
+  datasource:
+    url: jdbc:sqlite:./db/jangbogo-dev.db
+    driver-class-name: org.sqlite.JDBC
+    hikari:
+      maximum-pool-size: 5
+      connection-init-sql: "PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL;"
+
+  sql:
+    init:
+      mode: always
+      continue-on-error: true
+      encoding: UTF-8
+
+server:
+  port: 8282
