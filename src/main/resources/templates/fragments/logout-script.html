@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <!-- 로그아웃 및 사용자 정보 공통 스크립트 Fragment -->
+</head>
+<body>
+    <!-- 로그아웃 스크립트 Fragment -->
+    <th:block th:fragment="logoutScript">
+        <script>
+            // 페이지 로드 시 현재 사용자 정보 가져오기
+            document.addEventListener('DOMContentLoaded', async function() {
+                await loadCurrentUser();
+            });
+            
+            /**
+             * 현재 사용자 정보를 로드하여 표시
+             */
+            async function loadCurrentUser() {
+                try {
+                    const response = await fetch('/api/session-check');
+                    const data = await response.json();
+                    
+                    if (data.authenticated && data.username) {
+                        // 모든 사용자 표시 요소 업데이트
+                        updateUserDisplay(data.username);
+                    } else {
+                        // 세션이 없고 현재 로그인 페이지가 아니면 로그인 페이지로 리다이렉트
+                        if (window.location.pathname !== '/signin') {
+                            window.location.href = '/signin';
+                        }
+                    }
+                } catch (error) {
+                    console.error('사용자 정보 로드 실패:', error);
+                }
+            }
+            
+            /**
+             * 페이지 내 모든 사용자 표시 요소 업데이트
+             * @param {string} username - 사용자 이름
+             */
+            function updateUserDisplay(username) {
+                // header.html의 사용자 표시
+                const headerUser = document.getElementById('currentUser');
+                if (headerUser) {
+                    headerUser.textContent = username;
+                }
+                
+                // index.html의 사용자 표시
+                const pageUser = document.getElementById('currentUserPage');
+                if (pageUser) {
+                    pageUser.textContent = username;
+                }
+                
+                // 다른 페이지의 사용자 표시 (있다면)
+                const allUserElements = document.querySelectorAll('[data-user-display]');
+                allUserElements.forEach(element => {
+                    element.textContent = username;
+                });
+            }
+            
+            /**
+             * 로그아웃 처리 (공통 함수)
+             */
+            async function handleLogout() {
+                if (!confirm('로그아웃 하시겠습니까?')) {
+                    return;
+                }
+                
+                try {
+                    const response = await fetch('/api/logout', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        }
+                    });
+                    
+                    const data = await response.json();
+                    
+                    if (data.success) {
+                        alert('로그아웃되었습니다.');
+                        window.location.href = '/signin';
+                    } else {
+                        alert('로그아웃 실패: ' + data.message);
+                    }
+                } catch (error) {
+                    console.error('로그아웃 오류:', error);
+                    alert('로그아웃 처리 중 오류가 발생했습니다.');
+                }
+            }
+            
+            /**
+             * 페이지별 로그아웃 버튼용 alias 함수
+             */
+            function handleLogoutFromPage() {
+                return handleLogout();
+            }
+        </script>
+    </th:block>
+</body>
+</html>
+

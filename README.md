@@ -129,6 +129,97 @@ security:
 
 ---
 
+## 🔐 Admin 계정 설정 가이드
+
+프로젝트는 3가지 방법으로 Admin 계정을 안전하게 관리할 수 있습니다.
+
+### Option 1: 환경변수 사용 (권장)
+
+환경변수를 통해 설정값을 주입합니다:
+
+```bash
+# Windows PowerShell
+$env:ADMIN_ID="your_admin_id"
+$env:ADMIN_PASS="your_secure_password"
+./gradlew bootRun
+
+# Linux/Mac
+export ADMIN_ID=your_admin_id
+export ADMIN_PASS=your_secure_password
+./gradlew bootRun
+```
+
+`application.yml`에서 자동으로 환경변수를 읽습니다:
+```yaml
+admin:
+  id: ${ADMIN_ID:admin}      # 환경변수가 없으면 'admin' 사용
+  pass: ${ADMIN_PASS:admin1234}
+```
+
+### Option 2: Profile별 설정 파일 분리
+
+개발/운영 환경을 분리하여 관리합니다:
+
+**개발 환경 실행:**
+```bash
+./gradlew bootRun --args='--spring.profiles.active=local'
+```
+- 설정 파일: `src/main/resources/application-local.yml`
+- 개발용 계정 정보 포함 (Git 커밋 가능)
+
+**운영 환경 실행:**
+```bash
+java -jar build/libs/jangbogo-1.0.0.jar --spring.profiles.active=prod
+```
+- 설정 파일: `src/main/resources/application-prod.yml`
+- 운영 계정 정보 포함 (Git 커밋 금지 - `.gitignore` 처리됨)
+
+### Option 3: 외부 Properties 파일 (최고 보안)
+
+민감한 정보를 프로젝트 외부 파일로 분리합니다:
+
+**1) 설정 파일 생성:**
+```bash
+# config/admin.properties.example 파일을 복사
+cp config/admin.properties.example config/admin.properties
+
+# 실제 값으로 수정
+# admin.id=your_real_admin_id
+# admin.pass=your_real_secure_password
+```
+
+**2) 자동 로드:**
+`application.yml`에서 자동으로 `config/admin.properties` 파일을 import합니다:
+```yaml
+spring:
+  config:
+    import: optional:file:./config/admin.properties
+```
+
+**3) 보안:**
+- `config/admin.properties`는 `.gitignore`에 등록되어 Git에 커밋되지 않음
+- 운영 서버에 수동으로 배포 필요
+- 파일 권한 설정 권장 (Linux: `chmod 600`)
+
+### 설정 파일 우선순위
+
+다음 순서로 설정값이 적용됩니다 (나중 것이 우선):
+1. `application.yml` (기본값)
+2. `config/admin.properties` (외부 파일)
+3. `application-{profile}.yml` (profile 설정)
+4. 환경변수 `${ADMIN_ID}`, `${ADMIN_PASS}` (최우선)
+
+### 보안 체크리스트
+
+- ✅ `config/admin.properties`를 `.gitignore`에 추가
+- ✅ `application-prod.yml`을 `.gitignore`에 추가
+- ✅ 운영 환경에서는 환경변수 또는 외부 파일 사용
+- ✅ 강력한 비밀번호 사용 (최소 12자, 대소문자+숫자+특수문자)
+- ⚠️ Git에 민감정보 커밋하지 않기
+- ⚠️ 운영 DB 파일(`*.db`)도 `.gitignore` 처리
+
+---
+
 ## 🧩 설정용 최소 UI (Bootstrap 5)
 
 - 경로: `src/main/resources/static/admin/index.html`  

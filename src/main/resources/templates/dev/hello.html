@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>Hello AJAX</title>
+    <script>
+        function fetchMessage() {
+            fetch('/api/message')
+                .then(response => response.json())
+                .then(data => {
+                    alert("서버 응답: " + data.message);
+                })
+                .catch(error => {
+                    alert("에러 발생: " + error);
+                });
+        }
+    </script>
+</head>
+<body>
+    <h1>장보고 AJAX 테스트 페이지</h1>
+    <button onclick="fetchMessage()">메시지 가져오기</button>
+</body>
+</html>
+

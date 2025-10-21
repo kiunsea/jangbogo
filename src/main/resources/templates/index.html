@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org"
+      xmlns:layout="http://www.ultraq.net.nz/thymeleaf/layout"
+      layout:decorate="~{layout}">
+<head>
+    <title layout:title-pattern="$DECORATOR_TITLE - $CONTENT_TITLE">Welcome</title>
+    <style>
+        .page-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+        }
+        .user-info-box {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            background: #f8f9fa;
+            padding: 10px 20px;
+            border-radius: 8px;
+            border: 1px solid #dee2e6;
+        }
+        .user-name {
+            font-weight: 600;
+            color: #495057;
+        }
+        .btn-logout-page {
+            background: #dc3545;
+            border: none;
+            color: white;
+            padding: 8px 20px;
+            border-radius: 5px;
+            font-size: 0.9rem;
+            transition: all 0.3s;
+        }
+        .btn-logout-page:hover {
+            background: #c82333;
+            color: white;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(220, 53, 69, 0.3);
+        }
+    </style>
+</head>
+<body>
+<div layout:fragment="content">
+    <div class="page-header mt-3">
+        <h1 class="mb-0 text-primary">장보고 관리화면</h1>
+        <div class="user-info-box">
+            <span class="user-name">
+                <i class="bi bi-person-circle"></i>
+                <span id="currentUserPage">사용자</span>
+            </span>
+            <button class="btn btn-logout-page btn-sm" onclick="handleLogoutFromPage()">
+                <i class="bi bi-box-arrow-right"></i> 로그아웃
+            </button>
+        </div>
+    </div>
+    
+    <hr class="mb-3" style="border-top: 1px dotted gray;">
+		<div id="card" class="card">
+			<div class="card-body">
+				<h5 id="card-title" class="card-title">쇼핑 데이터 수집(자동화)</h5>
+				<p class="card-text">온라인/오프라인 쇼핑몰에서 구매한 상품들을 자동으로 수집하여 저장합니다.<br/>
+				쇼핑몰 계정 정보는 개인 브라우저에 암호화되어 저장되므로 브라우저 변경시 다시 연결하셔야 합니다.</p>
+			</div>
+			<hr class="mb-3" style="border-top: 1px dotted gray;">
+
+			<div id="automall_div" class="card-body">
+				<h5 class="card-title">쇼핑몰 목록</h5>
+				<div id="mall_list">
+					<div class="mb-3">
+						<div class="d-flex align-items-center">
+							<i class="bi bi-shop"></i>&nbsp; <span>SSG(신세계)</span>
+						</div>
+						<div class="ps-3 mb-2">
+							<ul class="list-group">
+								<li class="list-group-item">URL : <a
+									class="icon-link icon-link-hover" href="https://www.ssg.com"
+									target="_blank"> https://www.ssg.com </a>
+								</li>
+								<li class="list-group-item">신세계, 이마트, 트레이더스, 노브랜드</li>
+								<li class="list-group-item">
+									<button id="btn_signin_ssg" type="button"
+										class="btn btn-primary btn-sm btn-block"
+										onclick="javascript:openSigninMallForm(1)">계정연결</button>
+								</li>
+							</ul>
+						</div>
+					</div>
+					<div class="mb-3">
+						<div class="d-flex align-items-center">
+							<i class="bi bi-shop"></i>&nbsp; <span>OASIS(오아시스)</span>
+						</div>
+						<div class="ps-3 mb-2">
+							<ul class="list-group">
+								<li class="list-group-item">URL : <a
+									class="icon-link icon-link-hover"
+									href="https://www.oasis.co.kr" target="_blank">
+										https://www.oasis.co.kr </a>
+								</li>
+								<li class="list-group-item">
+									<button id="btn_signin_oasis" type="button"
+										class="btn btn-primary btn-sm btn-block"
+										onclick="javascript:openSigninMallForm(2)">계정연결</button>
+								</li>
+							</ul>
+						</div>
+					</div>
+				</div>
+				<!-- 쇼핑몰 로그인 팝업 시작 -->
+				<div id="ModalSigninMall" class="modal fade" tabindex="-1"
+					role="dialog" aria-labelledby="signinMallModal" aria-hidden="true">
+					<div class="modal-dialog">
+						<div class="modal-content">
+							<div class="modal-header">
+								<h5 id="signinMallModal_title" class="modal-title">Modal
+									title</h5>
+								<button type="button" class="btn-close" data-bs-dismiss="modal"
+									aria-label="Close"></button>
+							</div>
+							<div class="modal-body">
+								<div class="input-group mb-2">
+									<input id="usrid_mall" type="text" class="form-control"
+										placeholder="아이디" value="">&nbsp; <input
+										id="usrpass_mall" type="password" class="form-control"
+										placeholder="비밀번호">
+								</div>
+							</div>
+							<div class="modal-footer">
+								<button type="button" class="btn btn-secondary"
+									data-bs-dismiss="modal">Close</button>
+								<button id="btn_connect_mall" type="button"
+									class="btn btn-primary">계정연결</button>
+							</div>
+						</div>
+					</div>
+				</div>
+				<!-- 쇼핑몰 로그인 팝업 끝 -->
+                <script type="text/javascript">
+                
+                /**
+                 * 쇼핑몰 정보 초기화
+                 */
+                    document.addEventListener('DOMContentLoaded', function() {//dom 이 준비되면 실행
+                        const _doc = window.document;
+                        var path = "/api/getinfo";
+
+                        var _ajax = new XMLHttpRequest();
+                        _ajax.onreadystatechange = function () {
+                            if (checkAjaxSuc(_ajax)) {
+                                var resMsg = _ajax.responseText;
+                                if (resMsg.length > 0) {
+                                    
+                                    let resJo = JSON.parse(resMsg);
+                                    var usrid_ssg = resJo.usrid_ssg;
+                                    var usrid_ssg = resJo.usrid_ssg;
+
+                                    alert("[DOMContentLoaded] msg : "+resJo.message);
+                                    alert("[DOMContentLoaded] usrid_ssg : "+resJo.usrid_ssg);
+                                    alert("[DOMContentLoaded] user.name : "+resJo.user.name);
+
+                                    if (usrid_ssg && usrid_ssg) {
+                                        _doc.querySelector("#usrid_ssg").value = usrid_ssg;
+                                        _doc.querySelector("#usrpass_ssg").value = usrid_ssg;
+                                    }
+
+                                    var usrid_hanaro = resJo.usrid_hanaro;
+                                    var usrpass_ssg = resJo.usrpass_ssg;
+
+                                    if (usrid_hanaro && usrpass_ssg) {
+                                        _doc.querySelector("#usrid_hanaro").value = usrid_hanaro;
+                                        _doc.querySelector("#usrpass_ssg").value = usrpass_ssg;
+                                    }
+                                    
+                                }
+                            }
+                        };
+                        sendGet(_ajax, path);
+                    });
+
+                    /**
+                     * 쇼핑몰 연결 팝업
+                     */
+                    function openSigninMallForm(seqm) {
+                        const _doc = window.document;
+
+                        if (_doc.malls[seqm] && _doc.malls[seqm].status == 1) {
+                            connectMall(seqm);
+                        } else {
+                            let inp_id = _doc.querySelector("#usrid_mall");
+                            let inp_pw = _doc.querySelector("#usrpass_mall");
+                            
+                            //초기화
+                            inp_id.value = "";
+                            inp_pw.value = "";
+                            inp_id.disabled = false;
+                            inp_pw.disabled = false;
+
+                            if (seqm == 1) {
+                                _doc.querySelector('#signinMallModal_title').innerText = "SSG 계정연결";
+                            } else if (seqm == 2) {
+                                _doc.querySelector('#signinMallModal_title').innerText = "오아시스 계정연결";
+                            }
+                            _doc.querySelector('#btn_connect_mall').setAttribute('onclick', 'javascript:connectMall('+ seqm +')');
+                            var myModal = bootstrap.Modal.getOrCreateInstance(_doc.querySelector('#ModalSigninMall'));
+                            myModal.show();
+                        }
+                    }
+
+                    /**
+                     * 쇼핑몰에 연결 시도
+                     */
+                    function connectMall(seqm) {
+                        const _doc = window.document;
+
+                        var statusTo = -1;
+                        if (_doc.malls[seqm] && _doc.malls[seqm].status == 1) {
+                            if (!confirm("연결을 해제할까요?")) {
+                                return -1;
+                            }
+                            statusTo = 0;
+                        } else {
+                            statusTo = 1;
+                        }
+
+                        let inp_id = _doc.querySelector("#usrid_mall");
+                        let inp_pw = _doc.querySelector("#usrpass_mall");
+                        let frm_conn = _doc.querySelector("#mall_account_"+_doc.malls[seqm].id);
+                        let btn_conn = _doc.querySelector("#btn_connect_mall");
+                        let btn_signin = _doc.querySelector("#btn_signin_"+_doc.malls[seqm].id);
+                        
+                        attachSpinnerButton(btn_conn);
+
+                        var path = "/jbs/jbg";
+                        var params = "cmd=connectToMall"
+                        params += "&seq="+seqm;
+                        params += "&usrid="+inp_id.value;
+                        params += "&usrpass="+inp_pw.value;
+                        params += "&statusTo="+statusTo; //요청하려는 연결 상태
+                        
+                        var _ajax = new XMLHttpRequest();
+                        _ajax.onreadystatechange = function () {
+                            if (checkAjaxSuc(_ajax)) {
+                                var resMsg = _ajax.responseText;
+                                if (resMsg.length > 0) {
+                                    var resJson = JSON.parse(resMsg);
+                                    var alertMsg = null;
+                                    var btn_txt = "계정연결";
+                                    var btn_class = "btn btn-primary";
+                                    if (resJson.code == "000") {
+                                        var status = _doc.malls[seqm].status = resJson.status;                                                            
+                                        if (status == 1) {
+                                            localStorage.setItem(resJson.cip_id_key, resJson.cip_id_val);
+                                            localStorage.setItem(resJson.cip_pw_key, resJson.cip_pw_val);
+                                            inp_id.disabled = true;
+                                            inp_pw.disabled = true;
+                                            btn_txt = '연결해제';
+                                            btn_class = 'btn btn-outline-success';
+                                            hideElement(frm_conn);
+                                        } else {
+                                            localStorage.removeItem(resJson.cip_id_key);
+                                            localStorage.removeItem(resJson.cip_pw_key);
+                                            inp_id.disabled = false;
+                                            inp_pw.disabled = false;
+                                            btn_txt = '계정연결';
+                                            showElement(frm_conn);
+                                        }                                                            
+                                    }
+                                    
+                                    if (resJson.msg) {
+                                        alert(resJson.msg);
+                                    }
+
+                                    removeSpinnerButton(btn_conn, "계정연결");
+                                    btn_signin.innerText = btn_txt;
+                                    btn_signin.className = btn_class;
+
+                                    var myModal = bootstrap.Modal.getOrCreateInstance(_doc.querySelector('#ModalSigninMall'));
+                                    myModal.hide();
+                                }
+                            }
+                        };
+                        sendPost(_ajax,
+                            path,
+                            params);
+                    }
+                </script>
+			</div>
+		</div>
+		
+	</div>
+</body>
+</html>

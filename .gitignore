@@ -35,3 +35,11 @@ out/
 
 ### VS Code ###
 .vscode/
+
+### Custom Security Settings ###
+# 민감한 설정 파일들 (보안상 git에 커밋하지 않음)
+config/admin.properties
+src/main/resources/application-prod.yml
+*.db
+logs/
+*.log

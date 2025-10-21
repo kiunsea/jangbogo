@@ -2,10 +2,12 @@
 <html lang="ko" xmlns:th="http://www.thymeleaf.org" xmlns:layout="http://www.ultraq.net.nz/thymeleaf/layout">
 <head th:replace="fragments/header.html :: head"></head>
 <body>
-<div th:replace="fragments/header.html"></div>
-<main class="container">
+<main class="container pt-3">
     <div layout:fragment="content"></div>
 </main>
 <div th:replace="fragments/footer.html"></div>
+
+<!-- 로그아웃 공통 스크립트 (모든 layout 사용 페이지에 자동 포함) -->
+<div th:replace="fragments/logout-script :: logoutScript"></div>
 </body>
 </html>

@@ -1,0 +1,26 @@
+# Local 개발 환경 설정
+# 사용법: --spring.profiles.active=local
+
+admin:
+  id: admin_local
+  pass: admin1234_local
+
+spring:
+  datasource:
+    url: jdbc:sqlite:./db/jangbogo-dev.db
+    driver-class-name: org.sqlite.JDBC
+    hikari:
+      maximum-pool-size: 5
+      connection-init-sql: "PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL;"
+
+  sql:
+    init:
+      mode: always
+      continue-on-error: true
+      encoding: UTF-8
+
+logging:
+  level:
+    com.jiniebox.jangbogo: DEBUG
+    org.springframework.web: DEBUG
+

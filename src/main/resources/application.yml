@@ -2,6 +2,10 @@ spring:
   application:
     name: jangbogo
 
+  # Option 3: 별도 properties 파일 import
+  config:
+    import: optional:file:./config/admin.properties
+    
   devtools:
     restart:
       enabled: true
@@ -32,3 +36,9 @@ spring:
 
 server:
   port: 8282
+
+# Admin 설정 (Option 1: 환경변수 사용)
+# 환경변수가 없으면 기본값 사용
+admin:
+  id: ${ADMIN_ID:admin_main}
+  pass: ${ADMIN_PASS:admin1234_main}
