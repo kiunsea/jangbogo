@@ -151,15 +151,13 @@
                                 if (resMsg.length > 0) {
                                     let resJson = JSON.parse(resMsg);
                                     var alertMsg = null;
-                                    if (resJson.code == "000") {
+                                    if (resJson.code == 200) {
                                         if (resJson.malls) {
-                                            let failedAuthMalls = resJson.failedAuthMalls;
-                                            let malls = _doc.malls = resJson.malls;
+                                            let malls = _doc.malls = JSON.parse(resJson.malls);
                                             Object.keys(malls).forEach(key => {
                                                 const mall = malls[key];
                                                 if (_doc.querySelector("#btn_signin_"+mall.id)) { //사용 가능 쇼핑몰
-                                                    let cipidval = localStorage.getItem(mall.cipidkey);
-                                                    if ((!failedAuthMalls.includes(mall.seq+"")) && mall.status == 1 && cipidval) {
+                                                    if (mall.account_status == 1) {
                                                         if (mall.usrid) {
                                                             _doc.querySelector("#usrid_mall").value = mall.usrid;
                                                             _doc.querySelector("#usrpass_mall").value = "**********";
@@ -169,14 +167,14 @@
                                                         _doc.querySelector("#btn_signin_"+mall.id).textContent = '연결해제';
                                                         _doc.querySelector("#btn_signin_"+mall.id).className = 'btn btn-outline-success';
                                                         hideElement(_doc.querySelector("#mall_account_"+mall.id));
-                                                        mall.status = 1;
+                                                        mall.account_status = 1;
                                                     } else {
                                                         _doc.querySelector("#usrid_mall").disabled = false;;
                                                         _doc.querySelector("#usrpass_mall").disabled = false;;
                                                         _doc.querySelector("#btn_signin_"+mall.id).textContent = '계정연결';
                                                         _doc.querySelector("#btn_signin_"+mall.id).className = 'btn btn-primary';
                                                         showElement(_doc.querySelector("#mall_account_"+mall.id));
-                                                        mall.status = 0;
+                                                        mall.account_status = 0;
                                                     }
                                                 }
                                             });

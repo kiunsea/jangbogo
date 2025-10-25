@@ -5,7 +5,7 @@ import org.apache.logging.log4j.Logger;
 import org.json.simple.JSONArray;
 import org.json.simple.JSONObject;
 
-import com.jiniebox.jangbogo.dao.JbgAccessDataAccessObject;
+import com.jiniebox.jangbogo.dao.JbgMallDataAccessObject;
 import com.jiniebox.jangbogo.service.mall.Emart;
 import com.jiniebox.jangbogo.service.mall.Oasis;
 import com.jiniebox.jangbogo.service.mall.Ssg;
@@ -25,7 +25,7 @@ public class MallOrderUpdater {
     public JSONArray collectItems(String seqMall, String mallId, String mallPw) throws Exception {
 
         // 수집 시작 전에 로그인 시간 갱신
-        JbgAccessDataAccessObject jaDao = new JbgAccessDataAccessObject();
+        JbgMallDataAccessObject jaDao = new JbgMallDataAccessObject();
         JSONObject accessInfo = jaDao.getAccessInfo(seqMall);
         if (accessInfo == null) {
             jaDao.add(seqMall, 1, null, null);

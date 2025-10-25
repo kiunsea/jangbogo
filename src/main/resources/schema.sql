@@ -8,17 +8,10 @@ CREATE TABLE IF NOT EXISTS jbg_mall (
   seq INTEGER PRIMARY KEY AUTOINCREMENT,
   id TEXT NOT NULL,
   name TEXT NOT NULL DEFAULT '0',
-  details TEXT
-);
-
---------------------------------------------------------
--- 테이블 jbg_access 구조
---------------------------------------------------------
-CREATE TABLE IF NOT EXISTS jbg_access (
-  seq_jbgmall INTEGER PRIMARY KEY AUTOINCREMENT,
-  account_status INTEGER NOT NULL DEFAULT 0, -- 서비스 이용 가능 여부(0:이용 불가, 1:이용 가능)
+  details TEXT,
   encrypt_key TEXT, -- Encrypt SecretKey
   encrypt_iv TEXT, -- Encrypt IvParameterSpec
+  account_status INTEGER NOT NULL DEFAULT 0, -- 서비스 이용 가능 여부(0:이용 불가, 1:이용 가능)
   last_signin_time INTEGER -- 마지막 접속 시간 (millisecond)
 );
 

@@ -11,7 +11,7 @@ import org.openqa.selenium.WebDriver;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import com.jiniebox.jangbogo.config.JangbogoConfig;
-import com.jiniebox.jangbogo.dao.JbgAccessDataAccessObject;
+import com.jiniebox.jangbogo.dao.JbgMallDataAccessObject;
 import com.jiniebox.jangbogo.service.ifc.MallSession;
 import com.jiniebox.jangbogo.service.mall.Emart;
 import com.jiniebox.jangbogo.service.mall.Oasis;
@@ -119,7 +119,7 @@ public class JangBoGoManager {
             }
 
             if (validUser) {
-                JbgAccessDataAccessObject jaDao = new JbgAccessDataAccessObject();
+                JbgMallDataAccessObject jaDao = new JbgMallDataAccessObject();
 
                 int chkRst = -1;
                 if (seqMall != null) {
@@ -198,7 +198,7 @@ public class JangBoGoManager {
      */
     private boolean elapsedSigninTime(String seqMall) throws Exception {
 
-        JbgAccessDataAccessObject jaDao = new JbgAccessDataAccessObject();
+        JbgMallDataAccessObject jaDao = new JbgMallDataAccessObject();
         JSONObject accessInfo = jaDao.getAccessInfo(seqMall);
 
         Object lastSigninTime = accessInfo != null ? accessInfo.get("time") : 0;

@@ -18,7 +18,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.jiniebox.jangbogo.config.JangbogoConfig;
 import com.jiniebox.jangbogo.config.SessionConstants;
-import com.jiniebox.jangbogo.dao.JbgAccessDataAccessObject;
+import com.jiniebox.jangbogo.dao.JbgMallDataAccessObject;
 import com.jiniebox.jangbogo.service.JangBoGoManager;
 
 import jakarta.servlet.http.HttpSession;
@@ -175,12 +175,7 @@ public class AdminController {
     }
     
     /**
-     * 보호된 API - Interceptor에서 세션 체크 수행
-     * GET /malls/getinfo
-     * 
-     * 주의: 개별 세션 체크 코드 제거됨 (Interceptor에서 전역 처리)
-     * 이 메서드에 도달했다면 이미 인증된 상태입니다.
-     * 
+     * 쇼핑몰 정보 목록
      * @throws Exception 
      */
     @GetMapping("/malls/getinfo")
@@ -201,34 +196,15 @@ public class AdminController {
         node.put("code", 200);
         node.put("currentUser", username);
         
-        JbgAccessDataAccessObject jaDao = new JbgAccessDataAccessObject();
-        List<JSONObject> malls = jaDao.getAccessInfos();
+        JbgMallDataAccessObject jaDao = new JbgMallDataAccessObject();
+        List<JSONObject> malls = jaDao.getAllMalls();
         JangBoGoManager.addCippKeys(malls); // browser local storage 에서 조회하기 위한 id key 와 pw key 를 설정
         
+        node.put("malls", malls.toString());
         
-        //TODO 이후 작업 계속
+
         
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
+        //TODO 이후는 테스트 코드로 삭제 예정
         
         // 사용자 정의 설정 값 가져오기 예제
         // 방법 1: 직접 접근
