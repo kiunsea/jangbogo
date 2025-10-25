@@ -138,44 +138,67 @@
 				<!-- 쇼핑몰 로그인 팝업 끝 -->
                 <script type="text/javascript">
                 
-                /**
-                 * 쇼핑몰 정보 초기화
-                 */
+                    /**
+                     * 쇼핑몰 정보 초기화
+                     */
                     document.addEventListener('DOMContentLoaded', function() {//dom 이 준비되면 실행
                         const _doc = window.document;
-                        var path = "/api/getinfo";
-
+                        var path = "/malls/getinfo";
                         var _ajax = new XMLHttpRequest();
                         _ajax.onreadystatechange = function () {
                             if (checkAjaxSuc(_ajax)) {
                                 var resMsg = _ajax.responseText;
                                 if (resMsg.length > 0) {
-                                    
-                                    let resJo = JSON.parse(resMsg);
-                                    var usrid_ssg = resJo.usrid_ssg;
-                                    var usrid_ssg = resJo.usrid_ssg;
+                                    let resJson = JSON.parse(resMsg);
+                                    var alertMsg = null;
+                                    if (resJson.code == "000") {
+                                        if (resJson.malls) {
+                                            let failedAuthMalls = resJson.failedAuthMalls;
+                                            let malls = _doc.malls = resJson.malls;
+                                            Object.keys(malls).forEach(key => {
+                                                const mall = malls[key];
+                                                if (_doc.querySelector("#btn_signin_"+mall.id)) { //사용 가능 쇼핑몰
+                                                    let cipidval = localStorage.getItem(mall.cipidkey);
+                                                    if ((!failedAuthMalls.includes(mall.seq+"")) && mall.status == 1 && cipidval) {
+                                                        if (mall.usrid) {
+                                                            _doc.querySelector("#usrid_mall").value = mall.usrid;
+                                                            _doc.querySelector("#usrpass_mall").value = "**********";
+                                                        }
+                                                        _doc.querySelector("#usrid_mall").disabled = true;;
+                                                        _doc.querySelector("#usrpass_mall").disabled = true;                                        
+                                                        _doc.querySelector("#btn_signin_"+mall.id).textContent = '연결해제';
+                                                        _doc.querySelector("#btn_signin_"+mall.id).className = 'btn btn-outline-success';
+                                                        hideElement(_doc.querySelector("#mall_account_"+mall.id));
+                                                        mall.status = 1;
+                                                    } else {
+                                                        _doc.querySelector("#usrid_mall").disabled = false;;
+                                                        _doc.querySelector("#usrpass_mall").disabled = false;;
+                                                        _doc.querySelector("#btn_signin_"+mall.id).textContent = '계정연결';
+                                                        _doc.querySelector("#btn_signin_"+mall.id).className = 'btn btn-primary';
+                                                        showElement(_doc.querySelector("#mall_account_"+mall.id));
+                                                        mall.status = 0;
+                                                    }
+                                                }
+                                            });
+                                        }
+                                        if (resJson.boxes) {
+                                            _doc.boxes = resJson.boxes;
+                                        }
+                                        if (resJson.rules) {
+                                            const div_rules = _doc.querySelector("#rules");
 
-                                    alert("[DOMContentLoaded] msg : "+resJo.message);
-                                    alert("[DOMContentLoaded] usrid_ssg : "+resJo.usrid_ssg);
-                                    alert("[DOMContentLoaded] user.name : "+resJo.user.name);
-
-                                    if (usrid_ssg && usrid_ssg) {
-                                        _doc.querySelector("#usrid_ssg").value = usrid_ssg;
-                                        _doc.querySelector("#usrpass_ssg").value = usrid_ssg;
+                                            let rules = _doc.rules = resJson.rules;
+                                            Object.keys(rules).forEach(key => {
+                                                const rule = rules[key];
+                                                createRuleCard(div_rules, rule);
+                                            });
+                                        }
                                     }
-
-                                    var usrid_hanaro = resJo.usrid_hanaro;
-                                    var usrpass_ssg = resJo.usrpass_ssg;
-
-                                    if (usrid_hanaro && usrpass_ssg) {
-                                        _doc.querySelector("#usrid_hanaro").value = usrid_hanaro;
-                                        _doc.querySelector("#usrpass_ssg").value = usrpass_ssg;
-                                    }
-                                    
                                 }
                             }
                         };
-                        sendGet(_ajax, path);
+                        sendGet(_ajax,
+                            path);
                     });
 
                     /**

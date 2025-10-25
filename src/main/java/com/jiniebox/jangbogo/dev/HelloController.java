@@ -1,4 +1,4 @@
-package com.jiniebox.jangbogo;
+package com.jiniebox.jangbogo.dev;
 
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -21,4 +21,3 @@ public class HelloController {
         return Map.of("message", "장보고 프로젝트 AJAX 응답입니다!");
     }
 }
-

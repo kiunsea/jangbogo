@@ -28,17 +28,49 @@ repositories {
 
 dependencies {
     implementation 'nz.net.ultraq.thymeleaf:thymeleaf-layout-dialect:3.2.1'
-	implementation 'org.springframework.boot:spring-boot-starter-thymeleaf'
-	implementation 'org.springframework.boot:spring-boot-starter'
-	implementation 'org.springframework.boot:spring-boot-starter-web'
-	implementation 'org.springframework.boot:spring-boot-starter-jdbc'
+	
+	// Spring Boot Starters - Logback 제외하고 Log4j2 사용
+	implementation('org.springframework.boot:spring-boot-starter-thymeleaf') {
+		exclude group: 'org.springframework.boot', module: 'spring-boot-starter-logging'
+	}
+	implementation('org.springframework.boot:spring-boot-starter') {
+		exclude group: 'org.springframework.boot', module: 'spring-boot-starter-logging'
+	}
+	implementation('org.springframework.boot:spring-boot-starter-web') {
+		exclude group: 'org.springframework.boot', module: 'spring-boot-starter-logging'
+	}
+	implementation('org.springframework.boot:spring-boot-starter-jdbc') {
+		exclude group: 'org.springframework.boot', module: 'spring-boot-starter-logging'
+	}
+	
+	// Log4j2 추가
+	implementation 'org.springframework.boot:spring-boot-starter-log4j2'
+	
 	implementation 'org.xerial:sqlite-jdbc:3.45.3.0'
+	
+	// Selenium WebDriver
+	implementation 'org.seleniumhq.selenium:selenium-java:4.15.0'
+	implementation 'org.seleniumhq.selenium:selenium-chrome-driver:4.15.0'
+	implementation 'org.seleniumhq.selenium:selenium-edge-driver:4.15.0'
+	implementation 'org.seleniumhq.selenium:selenium-firefox-driver:4.15.0'
+	
+	// JSON Simple
+	implementation 'com.googlecode.json-simple:json-simple:1.1.1'
+	
+	// Jackson YAML (YAML 파일 읽기/쓰기)
+	implementation 'com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.15.3'
 	
 	compileOnly 'org.projectlombok:lombok'
 	annotationProcessor 'org.projectlombok:lombok'
-	testImplementation 'org.springframework.boot:spring-boot-starter-test'
+	
+	testImplementation('org.springframework.boot:spring-boot-starter-test') {
+		exclude group: 'org.springframework.boot', module: 'spring-boot-starter-logging'
+	}
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
-	developmentOnly 'org.springframework.boot:spring-boot-devtools'
+	
+	developmentOnly('org.springframework.boot:spring-boot-devtools') {
+		exclude group: 'org.springframework.boot', module: 'spring-boot-starter-logging'
+	}
 }
 
 tasks.named('test') {

@@ -15,12 +15,11 @@ CREATE TABLE IF NOT EXISTS jbg_mall (
 -- 테이블 jbg_access 구조
 --------------------------------------------------------
 CREATE TABLE IF NOT EXISTS jbg_access (
-  seq_jbgmall INTEGER NOT NULL,
+  seq_jbgmall INTEGER PRIMARY KEY AUTOINCREMENT,
   account_status INTEGER NOT NULL DEFAULT 0, -- 서비스 이용 가능 여부(0:이용 불가, 1:이용 가능)
   encrypt_key TEXT, -- Encrypt SecretKey
   encrypt_iv TEXT, -- Encrypt IvParameterSpec
-  last_signin_time INTEGER, -- 마지막 접속 시간 (millisecond)
-  UNIQUE (seq_jbgmall, seq_user)
+  last_signin_time INTEGER -- 마지막 접속 시간 (millisecond)
 );
 
 --------------------------------------------------------

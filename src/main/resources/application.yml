@@ -42,3 +42,16 @@ server:
 admin:
   id: ${ADMIN_ID:admin_main}
   pass: ${ADMIN_PASS:admin1234_main}
+
+# 사용자 정의 설정 (Custom Configuration)
+jangbogo:
+  config:
+    localdb-name: jangbogo-dev
+    localdb-path: ./db
+    max-retry-count: 3
+    timeout-seconds: 30
+    debug-mode: true
+    app-version: 1.0.0
+    mall_signin_delay: 21600000
+    default_web_driver: chrome # chrome, edge
+    browser_headless: false

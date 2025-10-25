@@ -41,5 +41,14 @@ out/
 config/admin.properties
 src/main/resources/application-prod.yml
 *.db
+
+### Mall Account Files ###
+# 쇼핑몰 계정 정보 파일 (민감 정보 포함)
+config/mall_account.yml
+config/backup/mall_account_*.yml
+
+### Log Files ###
 logs/
 *.log
+*.log.*
+*.gz
