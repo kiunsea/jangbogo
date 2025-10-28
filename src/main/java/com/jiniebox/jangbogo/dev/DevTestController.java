@@ -37,6 +37,9 @@ public class DevTestController {
     @Autowired
     private MallAccountYmlExample mallAccountYmlExample;
     
+    @Autowired
+    private JangbogoConfigExample jangbogoConfigExample;
+    
     /**
      * 모든 예제 실행
      * GET /dev/test-mall-account
@@ -74,6 +77,20 @@ public class DevTestController {
         try {
             mallAccountYmlExample.simpleGetExample();
             return "✓ 계정 조회 완료! 콘솔 로그를 확인하세요.";
+        } catch (Exception e) {
+            return "✗ 실패: " + e.getMessage();
+        }
+    }
+    
+    /**
+     * JangbogoConfig 예제 실행
+     * GET /dev/test-config
+     */
+    @GetMapping("/test-config")
+    public String testConfig() {
+        try {
+            jangbogoConfigExample.runAllExamples();
+            return "✓ 설정 예제 실행 완료! 콘솔 로그를 확인하세요.";
         } catch (Exception e) {
             return "✗ 실패: " + e.getMessage();
         }

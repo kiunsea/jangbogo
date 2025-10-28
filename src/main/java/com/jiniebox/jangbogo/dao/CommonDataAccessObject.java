@@ -7,8 +7,8 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.beans.factory.annotation.Autowired;
 
-import com.jiniebox.jangbogo.config.JangbogoConfig;
-import com.jiniebox.jangbogo.utils.ExceptionUtil;
+import com.jiniebox.jangbogo.dto.JangbogoConfig;
+import com.jiniebox.jangbogo.util.ExceptionUtil;
 
 public class CommonDataAccessObject {
     

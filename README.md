@@ -46,26 +46,117 @@
 
 ---
 
-## 📁 프로젝트 구조(예시)
+## 📁 프로젝트 구조
+
+### 소스 패키지 구조
 
 ```
 JANGBOGO/
-├─ server/                                # Spring Boot
-│  ├─ src/main/java/...
-│  │  ├─ com.jiniebox.jangbogo
-│  │  │  ├─ api/                         # REST 컨트롤러
-│  │  │  ├─ service/                     # 수집/스케줄/보안 로직
-│  │  │  ├─ adapters/                    # 쇼핑몰별 어댑터
-│  │  │  └─ config/                      # 설정 바인딩/밸리데이션
-│  ├─ src/main/resources/
-│  │  ├─ static/admin/                   # 설정용 최소 UI (Bootstrap 페이지)
-│  │  │  └─ index.html
-│  │  └─ application.yml
-│  ├─ build.gradle.kts
-│  └─ NOTICE
-├─ LICENSE
-└─ README.md
+├─ src/main/java/com/jiniebox/jangbogo/
+│  ├─ ctrl/                              # Controller - 클라이언트 요청 처리
+│  │  └─ AdminController.java           # 관리자 API 엔드포인트
+│  │
+│  ├─ dao/                               # Data Access Object - 데이터베이스 연결 및 처리
+│  │  ├─ CommonDataAccessObject.java    # 공통 DAO 기반 클래스
+│  │  ├─ JbgMallDataAccessObject.java   # 쇼핑몰 정보 DAO
+│  │  └─ JbgOrderDataAccessObject.java  # 주문 정보 DAO
+│  │
+│  ├─ dev/                               # Development - 개발 테스트용
+│  │  ├─ DevTestController.java         # 개발 테스트 엔드포인트
+│  │  ├─ JangbogoConfigExample.java     # 설정 사용 예제
+│  │  └─ MallAccountYmlExample.java     # 계정 관리 예제
+│  │
+│  ├─ dto/                               # Data Transfer Object - 데이터 전송 객체
+│  │  ├─ JangbogoConfig.java            # 장보고 설정 정보
+│  │  ├─ MallAccount.java               # 쇼핑몰 계정 정보
+│  │  └─ MallAccountYml.java            # 쇼핑몰 계정 YAML 구조
+│  │
+│  ├─ svc/                               # Service - 쇼핑몰 접속 및 요청 처리
+│  │  ├─ JangBoGoManager.java           # 장보고 메인 서비스
+│  │  ├─ MallOrderUpdater.java          # 주문 내역 수집
+│  │  ├─ MallOrderUpdaterRunner.java    # 수집 실행기
+│  │  ├─ MallAccountYmlService.java     # 계정 관리 서비스
+│  │  ├─ ifc/                            # Interface - 서비스 인터페이스
+│  │  │  ├─ MallSession.java
+│  │  │  ├─ PurchasedCollector.java
+│  │  │  └─ ReceiptCollector.java
+│  │  ├─ mall/                           # 쇼핑몰별 구현체
+│  │  │  ├─ Coupang.java
+│  │  │  ├─ Emart.java
+│  │  │  ├─ Hanaro.java
+│  │  │  ├─ Oasis.java
+│  │  │  └─ Ssg.java
+│  │  └─ util/                           # 서비스 유틸리티
+│  │     └─ WebDriverManager.java       # Selenium WebDriver 관리
+│  │
+│  ├─ sys/                               # System - 시스템 설정 및 인증
+│  │  ├─ AuthInterceptor.java           # 인증 인터셉터
+│  │  ├─ SessionConstants.java          # 세션 상수 관리
+│  │  ├─ WebMvcConfig.java              # Spring MVC 설정
+│  │  ├─ UserSession.java               # 사용자 세션 정보
+│  │  └─ EnvSYS.java                    # 시스템 환경 상수
+│  │
+│  ├─ util/                              # Utility - 유틸리티 클래스
+│  │  ├─ ExceptionUtil.java             # 예외 처리 유틸
+│  │  ├─ JinieboxUtil.java              # 범용 유틸리티
+│  │  ├─ JSONUtil.java                  # JSON 처리 유틸
+│  │  └─ NumberUtil.java                # 숫자 처리 유틸
+│  │
+│  └─ JangbogoApplication.java          # Spring Boot 메인 클래스
+│
+├─ src/main/resources/
+│  ├─ templates/                         # Thymeleaf 템플릿
+│  │  ├─ index.html                      # 메인 페이지
+│  │  ├─ signin.html                     # 로그인 페이지
+│  │  ├─ layout.html                     # 레이아웃 베이스
+│  │  └─ fragments/                      # 공통 프래그먼트
+│  │     ├─ header.html
+│  │     ├─ footer.html
+│  │     └─ logout-script.html
+│  ├─ static/                            # 정적 리소스
+│  │  └─ js/
+│  │     └─ jangbogo.js                  # 공통 JavaScript
+│  ├─ application.yml                    # 메인 설정 파일
+│  ├─ application-local.yml              # 로컬 환경 설정
+│  ├─ application-prod.yml               # 운영 환경 설정
+│  ├─ log4j2-spring.xml                  # 로그 설정
+│  ├─ schema.sql                         # DB 스키마
+│  └─ data.sql                           # 초기 데이터
+│
+├─ config/                               # 외부 설정 파일
+│  ├─ admin.properties                   # Admin 계정 (Git 제외)
+│  ├─ admin.properties.example           # Admin 계정 예제
+│  ├─ jbg_config.yml                     # 장보고 설정
+│  ├─ jbg_config.yml.example             # 장보고 설정 예제
+│  ├─ mall_account.yml                   # 쇼핑몰 계정 (Git 제외)
+│  ├─ mall_account.yml.example           # 쇼핑몰 계정 예제
+│  └─ backup/                            # 자동 백업 폴더
+│
+├─ db/                                   # SQLite 데이터베이스
+│  └─ jangbogo-dev.db
+│
+├─ logs/                                 # 로그 파일
+│  ├─ jangbogo.log
+│  └─ error.log
+│
+├─ build.gradle                          # Gradle 빌드 설정
+├─ gradle.properties                     # Gradle 속성
+├─ LICENSE                               # AGPL-3.0 라이선스
+├─ NOTICE                                # 고지 사항
+└─ README.md                             # 프로젝트 문서
 ```
+
+### 패키지 상세 설명
+
+| 패키지 | Full Name | 설명 |
+|--------|-----------|------|
+| **ctrl** | **Controller** | 클라이언트 요청 처리<br/>- REST API 엔드포인트 정의<br/>- HTTP 요청/응답 처리<br/>- 세션 관리 |
+| **dao** | **Data Access Object** | 데이터베이스 연결 및 처리<br/>- JDBC를 통한 DB 접근<br/>- CRUD 쿼리 실행<br/>- 트랜잭션 관리 |
+| **dev** | **Development** | 개발 테스트용<br/>- 개발용 테스트 API<br/>- 예제 코드<br/>- 디버깅 도구 |
+| **dto** | **Data Transfer Object** | 데이터 전송 객체<br/>- 장보고 설정 정보 관리<br/>- 쇼핑몰 계정 정보<br/>- YAML/JSON 바인딩 |
+| **svc** | **Service** | 쇼핑몰 접속 및 요청 처리<br/>- 비즈니스 로직 구현<br/>- 쇼핑몰별 크롤링<br/>- WebDriver 관리 |
+| **sys** | **System** | 시스템 설정 및 인증<br/>- 인증/권한 관리<br/>- 세션 관리<br/>- 시스템 상수 정의 |
+| **util** | **Utility** | 유틸리티 클래스<br/>- 공통 함수<br/>- 데이터 변환<br/>- 예외 처리 헬퍼 |
 
 ---
 

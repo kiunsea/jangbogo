@@ -47,6 +47,10 @@ src/main/resources/application-prod.yml
 config/mall_account.yml
 config/backup/mall_account_*.yml
 
+### Jangbogo Config Files ###
+# 장보고 설정 파일 (선택적으로 커밋 가능, 하지만 민감 정보 포함 시 제외)
+# config/jbg_config.yml
+
 ### Log Files ###
 logs/
 *.log

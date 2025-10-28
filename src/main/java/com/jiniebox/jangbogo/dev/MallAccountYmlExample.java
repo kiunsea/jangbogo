@@ -7,7 +7,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import com.jiniebox.jangbogo.dto.MallAccount;
-import com.jiniebox.jangbogo.service.MallAccountYmlService;
+import com.jiniebox.jangbogo.svc.MallAccountYmlService;
 
 /**
  * MallAccountYmlService 사용 예제

@@ -9,8 +9,8 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.simple.JSONObject;
 
-import com.jiniebox.jangbogo.utils.ExceptionUtil;
-import com.jiniebox.jangbogo.utils.JinieboxUtil;
+import com.jiniebox.jangbogo.util.ExceptionUtil;
+import com.jiniebox.jangbogo.util.JinieboxUtil;
 
 /**
  * 쇼핑몰 정보 DAO (통합)

@@ -48,11 +48,8 @@ dependencies {
 	
 	implementation 'org.xerial:sqlite-jdbc:3.45.3.0'
 	
-	// Selenium WebDriver
-	implementation 'org.seleniumhq.selenium:selenium-java:4.15.0'
-	implementation 'org.seleniumhq.selenium:selenium-chrome-driver:4.15.0'
-	implementation 'org.seleniumhq.selenium:selenium-edge-driver:4.15.0'
-	implementation 'org.seleniumhq.selenium:selenium-firefox-driver:4.15.0'
+	// Selenium WebDriver (selenium-java에 모든 드라이버 포함)
+	implementation 'org.seleniumhq.selenium:selenium-java:4.25.0'
 	
 	// JSON Simple
 	implementation 'com.googlecode.json-simple:json-simple:1.1.1'

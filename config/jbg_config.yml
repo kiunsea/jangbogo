@@ -1,0 +1,28 @@
+# jbg_config.yml
+# 장보고 프로젝트 설정 파일
+# 주의: 이 파일은 application.yml보다 우선순위가 높습니다.
+
+# 데이터베이스 설정
+localdb-name: jangbogo-dev
+localdb-path: ./db
+
+# 재시도 및 타임아웃 설정
+max-retry-count: 3
+timeout-seconds: 30
+
+# 디버그 설정
+debug-mode: true
+
+# 애플리케이션 정보
+app-version: 1.0.0
+
+# 쇼핑몰 로그인 지연 시간 (밀리초)
+# 21600000ms = 6시간
+mall-signin-delay: 21600000
+
+# 기본 웹 드라이버 설정
+default-web-driver: chrome  # chrome, edge, firefox
+
+# 브라우저 헤드리스 모드 설정
+browser-headless: false
+
