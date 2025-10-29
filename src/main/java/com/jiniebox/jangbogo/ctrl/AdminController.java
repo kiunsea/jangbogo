@@ -2,6 +2,9 @@ package com.jiniebox.jangbogo.ctrl;
 
 import java.util.List;
 
+import javax.crypto.SecretKey;
+import javax.crypto.spec.IvParameterSpec;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.simple.JSONObject;
@@ -20,10 +23,13 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.jiniebox.jangbogo.dao.JbgMallDataAccessObject;
 import com.jiniebox.jangbogo.dto.JangbogoConfig;
 import com.jiniebox.jangbogo.svc.JangBoGoManager;
+import com.jiniebox.jangbogo.svc.MallAccountYmlService;
 import com.jiniebox.jangbogo.sys.EnvSYS;
 import com.jiniebox.jangbogo.sys.SessionConstants;
+import com.jiniebox.jangbogo.util.StringEncrypter;
 
 import jakarta.servlet.http.HttpSession;
+import java.io.IOException;
 
 /**
  * 관리자 컨트롤러 (개선 버전)
@@ -48,6 +54,9 @@ public class AdminController {
     
     @Autowired
     private JangBoGoManager jangBoGoManager;
+    
+    @Autowired
+    private MallAccountYmlService mallAccountYmlService;
     
     /**
      * 로그인 API
@@ -202,9 +211,7 @@ public class AdminController {
         node.put("currentUser", username);
         
         JbgMallDataAccessObject jaDao = new JbgMallDataAccessObject();
-        List<JSONObject> malls = jaDao.getAllMalls();
-        JangBoGoManager.addCippKeys(malls); // browser local storage 에서 조회하기 위한 id key 와 pw key 를 설정
-        
+        List<JSONObject> malls = jaDao.getAllMalls(false);
         node.put("malls", malls.toString());
         
 
@@ -285,11 +292,11 @@ public class AdminController {
             logger.info("쇼핑몰 연결 요청 - seq: {}, statusTo: {}, usrid: {}", 
                        seqMall, statusTo, (usrid != null && !usrid.isEmpty() ? "***" : "empty"));
             
+            JbgMallDataAccessObject jaDao = new JbgMallDataAccessObject();
             String username = (String) session.getAttribute(SessionConstants.SESSION_USERNAME_KEY);
             
             // 연결 해제 처리
             if ("0".equals(statusTo)) {
-                JbgMallDataAccessObject jaDao = new JbgMallDataAccessObject();
                 jaDao.setAccountStatus(seqMall, 0);
                 
                 response.put("success", true);
@@ -316,10 +323,75 @@ public class AdminController {
                     /**
                      * 연결테스트에 성공한 경우
                      */
-                    //TODO 나머지 처리
+                    // TODO 나머지 처리
                     // 1. 암호화 키 생성
                     // 2. ID/Pass 암호화
                     // 3. File 과 DB 저장
+
+                    SecretKey key = StringEncrypter.generateKey(256);
+                    IvParameterSpec iv = StringEncrypter.generateIv();
+
+                    // 생성한 encrypt 키들을 base64로 변환하여 db에 저장 (갱신)
+                    String keyBase64 = StringEncrypter.encodeSecretKeyToBase64(key);
+                    String ivBase64 = StringEncrypter.encodeIvToBase64(iv);
+                    jaDao.update(seqMall, 1, keyBase64, ivBase64);
+                    
+                    //암호화된 계정 정보 생성
+                    String cipherUsrId = StringEncrypter.encrypt(StringEncrypter.ALGORITHM, "%" + usrid, key, iv);
+                    String cipherUsrPw = StringEncrypter.encrypt(StringEncrypter.ALGORITHM, "%" + usrpass, key, iv);
+
+                    // mall_account.yml에 계정 정보 저장
+                    try {
+                        // seqMall로부터 쇼핑몰 정보 조회 (site ID 획득)
+                        JSONObject mallInfo = jaDao.getMall(seqMall);
+                        
+                        if (mallInfo == null) {
+                            logger.error("쇼핑몰 정보를 찾을 수 없습니다: seq={}", seqMall);
+                            response.put("success", false);
+                            response.put("code", "003");
+                            response.put("message", "쇼핑몰 정보를 찾을 수 없습니다.");
+                            response.put("status", 0);
+                            return response;
+                        }
+                        
+                        // 쇼핑몰 ID 추출 (mall_account.yml의 site 필드로 사용)
+                        String mallSite = mallInfo.get("id").toString(); // jbg_mall.id 컬럼 값 (예: "coupang", "gmarket")
+                        
+                        logger.debug("쇼핑몰 정보 조회 완료 - seq: {}, site: {}", seqMall, mallSite);
+                        
+                        // mall_account.yml에 계정 정보 저장
+                        //    - seq: 쇼핑몰 시퀀스 (seqMall)
+                        //    - site: 쇼핑몰 ID (mallSite)
+                        //    - id: 암호화된 사용자 ID (cipherUsrId)
+                        //    - pass: 암호화된 사용자 비밀번호 (cipherUsrPw)
+                        mallAccountYmlService.saveAccountBySeq(
+                            seqMall,         // seq: 쇼핑몰 시퀀스 번호
+                            mallSite,        // site: 쇼핑몰 ID
+                            cipherUsrId,     // id: 암호화된 사용자 ID
+                            cipherUsrPw      // pass: 암호화된 사용자 비밀번호
+                        );
+                        
+                        logger.info("mall_account.yml에 계정 정보 저장 완료 - seq: {}, site: {}", 
+                                    seqMall, mallSite);
+                        
+                    } catch (IOException e) {
+                        // YAML 파일 저장 실패
+                        logger.error("mall_account.yml 저장 실패 - seqMall: {}", seqMall, e);
+                        // DB 업데이트는 성공했지만 YAML 저장 실패 - 경고만 남기고 계속 진행
+                        logger.warn("계정 정보 저장 중 오류가 발생했지만 연결은 완료되었습니다: {}", e.getMessage());
+                    } catch (Exception e) {
+                        // 쇼핑몰 정보 조회 실패 등 기타 오류
+                        logger.error("쇼핑몰 계정 정보 저장 처리 중 오류 발생 - seqMall: {}", seqMall, e);
+                        // DB 업데이트는 성공했지만 후처리 실패 - 경고만 남기고 계속 진행
+                        logger.warn("계정 정보 저장 처리 중 오류가 발생했지만 연결은 완료되었습니다: {}", e.getMessage());
+                    }
+                    
+                    // 저장 성공 응답
+                    response.put("success", true);
+                    resCode = EnvSYS.RESCODE_SUCC;
+                    resMsg = "연결 완료 및 계정 정보 저장 완료";
+                    response.put("status", 1);
+                    
                 } else if (resultConn == 0) {
                     // 연결테스트에 실패한 경우
                     response.put("status", 2);
@@ -331,8 +403,7 @@ public class AdminController {
                     resMsg = "마지막 시도 이후 일정 시간이 경과되어야만 합니다.(30분 이상)";
                 }
                 
-            }
-            else {
+            } else {
                 response.put("success", false);
                 resCode = "002";
                 resMsg = "잘못된 요청입니다.";

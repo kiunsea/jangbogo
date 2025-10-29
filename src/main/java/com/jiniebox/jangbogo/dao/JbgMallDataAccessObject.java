@@ -30,61 +30,65 @@ public class JbgMallDataAccessObject extends CommonDataAccessObject {
     
     // ========== 쇼핑몰 조회 메서드 ==========
     
-    /**
-     * 쇼핑몰 전체 목록 조회 (기본 정보만)
-     * 
-     * @return 쇼핑몰 목록 (seq, id, name, details)
-     * @throws Exception
-     */
-    public List<JSONObject> getMalls() throws Exception {
-        LocalDBConnection conn = null;
-        try {
-            conn = new LocalDBConnection();
-            StringBuffer querySb = new StringBuffer("SELECT seq, id, name, details");
-            querySb.append(" FROM jbg_mall");
-            log.debug("LOCALDB-QUERY------------------------------------------------------------------------------");
-            log.debug(querySb);
-            ResultSet rset = conn.executeQuery(querySb.toString());
-
-            List<JSONObject> malls = null;
-            if (rset != null) {
-                malls = new ArrayList<JSONObject>();
-                JSONObject mJson = null;
-                while (rset.next()) {
-                    mJson = new JSONObject();
-                    mJson.put("seq", rset.getInt("seq"));
-                    mJson.put("id", rset.getString("id"));
-                    mJson.put("name", rset.getString("name"));
-                    mJson.put("details", rset.getString("details"));
-                    malls.add(mJson);
-                }
-                return malls;
-            } else {
-                return null;
-            }
-        } catch (Exception e) {
-            log.error("* 프로그램 수행중 에러 발생");
-            log.error(ExceptionUtil.getExceptionInfo(e));
-            throw e;
-        } finally {
-            if (conn != null) {
-                conn.close();
-            }
-        }
-    }
+//    /**
+//     * 쇼핑몰 전체 목록 조회 (기본 정보만)
+//     * 
+//     * @return 쇼핑몰 목록 (seq, id, name, details)
+//     * @throws Exception
+//     */
+//    public List<JSONObject> getMalls() throws Exception {
+//        LocalDBConnection conn = null;
+//        try {
+//            conn = new LocalDBConnection();
+//            StringBuffer querySb = new StringBuffer("SELECT seq, id, name, details");
+//            querySb.append(" FROM jbg_mall");
+//            log.debug("LOCALDB-QUERY------------------------------------------------------------------------------");
+//            log.debug(querySb);
+//            ResultSet rset = conn.executeQuery(querySb.toString());
+//
+//            List<JSONObject> malls = null;
+//            if (rset != null) {
+//                malls = new ArrayList<JSONObject>();
+//                JSONObject mJson = null;
+//                while (rset.next()) {
+//                    mJson = new JSONObject();
+//                    mJson.put("seq", rset.getInt("seq"));
+//                    mJson.put("id", rset.getString("id"));
+//                    mJson.put("name", rset.getString("name"));
+//                    mJson.put("details", rset.getString("details"));
+//                    malls.add(mJson);
+//                }
+//                return malls;
+//            } else {
+//                return null;
+//            }
+//        } catch (Exception e) {
+//            log.error("* 프로그램 수행중 에러 발생");
+//            log.error(ExceptionUtil.getExceptionInfo(e));
+//            throw e;
+//        } finally {
+//            if (conn != null) {
+//                conn.close();
+//            }
+//        }
+//    }
     
     /**
      * 쇼핑몰 전체 목록 조회 (모든 필드 포함)
      * 
+     * @param addEncField 암호화 정보 추가 여부
      * @return 쇼핑몰 목록 (모든 필드)
      * @throws Exception
      */
-    public List<JSONObject> getAllMalls() throws Exception {
+    public List<JSONObject> getAllMalls(boolean addEncField) throws Exception {
         LocalDBConnection conn = null;
         try {
             conn = new LocalDBConnection();
-            StringBuffer querySb = new StringBuffer("SELECT seq, id, name, details, ");
-            querySb.append("encrypt_key, encrypt_iv, account_status, last_signin_time");
+            StringBuffer querySb = new StringBuffer("SELECT seq, id, name, details");
+            if (addEncField) {
+                querySb.append(", encrypt_key, encrypt_iv");
+            }
+            querySb.append(", account_status, last_signin_time");
             querySb.append(" FROM jbg_mall");
             log.debug("LOCALDB-QUERY------------------------------------------------------------------------------");
             log.debug(querySb);
@@ -100,8 +104,10 @@ public class JbgMallDataAccessObject extends CommonDataAccessObject {
                     mJson.put("id", rset.getString("id"));
                     mJson.put("name", rset.getString("name"));
                     mJson.put("details", rset.getString("details"));
-                    mJson.put("encrypt_key", rset.getString("encrypt_key"));
-                    mJson.put("encrypt_iv", rset.getString("encrypt_iv"));
+                    if (addEncField) {
+                        mJson.put("encrypt_key", rset.getString("encrypt_key"));
+                        mJson.put("encrypt_iv", rset.getString("encrypt_iv"));
+                    }
                     mJson.put("account_status", rset.getInt("account_status"));
                     mJson.put("last_signin_time", rset.getLong("last_signin_time"));
                     malls.add(mJson);

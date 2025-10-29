@@ -62,11 +62,25 @@ public class MallAccountYmlService {
             return new MallAccountYml();
         }
         
+        // 파일이 비어있는 경우 처리
+        if (file.length() == 0) {
+            logger.warn("mall_account.yml 파일이 비어있습니다. 빈 객체를 반환합니다.");
+            return new MallAccountYml();
+        }
+        
         try {
             MallAccountYml yaml = yamlMapper.readValue(file, MallAccountYml.class);
             logger.debug("mall_account.yml 파일 읽기 성공: {} accounts", 
                         yaml.getAccountCount());
             return yaml;
+        } catch (com.fasterxml.jackson.databind.exc.MismatchedInputException e) {
+            // 빈 파일이거나 잘못된 형식인 경우
+            if (e.getMessage() != null && e.getMessage().contains("No content to map")) {
+                logger.warn("mall_account.yml 파일이 비어있거나 잘못된 형식입니다. 빈 객체를 반환합니다.");
+                return new MallAccountYml();
+            }
+            logger.error("mall_account.yml 파일 읽기 실패", e);
+            throw new IOException("YAML 파일 읽기 실패: " + e.getMessage(), e);
         } catch (Exception e) {
             logger.error("mall_account.yml 파일 읽기 실패", e);
             throw new IOException("YAML 파일 읽기 실패: " + e.getMessage(), e);
@@ -215,35 +229,6 @@ public class MallAccountYmlService {
     }
     
     /**
-     * 계정 삭제
-     */
-    public boolean removeAccount(String site) throws IOException {
-        if (site == null || site.isEmpty()) {
-            throw new IllegalArgumentException("사이트명은 필수입니다.");
-        }
-        
-        MallAccountYml yaml = readYaml();
-        boolean removed = yaml.removeAccount(site);
-        
-        if (removed) {
-            writeYaml(yaml);
-            logger.info("계정 삭제 완료: {}", site);
-        } else {
-            logger.warn("삭제할 계정을 찾을 수 없습니다: {}", site);
-        }
-        
-        return removed;
-    }
-    
-    /**
-     * 계정 존재 여부 확인
-     */
-    public boolean hasAccount(String site) throws IOException {
-        MallAccountYml yaml = readYaml();
-        return yaml.hasAccount(site);
-    }
-    
-    /**
      * 등록된 모든 사이트명 조회
      */
     public List<String> getAllSites() throws IOException {
@@ -257,6 +242,122 @@ public class MallAccountYmlService {
     public int getAccountCount() throws IOException {
         MallAccountYml yaml = readYaml();
         return yaml.getAccountCount();
+    }
+    
+    /**
+     * seq로 계정 조회
+     */
+    public Optional<MallAccount> getAccountBySeq(String seq) throws IOException {
+        if (seq == null || seq.isEmpty()) {
+            throw new IllegalArgumentException("seq는 필수입니다.");
+        }
+        
+        MallAccountYml yaml = readYaml();
+        return yaml.getAccountBySeq(seq);
+    }
+    
+    /**
+     * seq 기반 계정 추가 또는 업데이트
+     * 
+     * 규칙:
+     * 1. 같은 seq가 있으면 강제 업데이트
+     * 2. 같은 site가 있지만 seq가 다르면, 기존 항목을 제거하고 새로 추가 (site 중복 방지)
+     * 3. 둘 다 없으면 새로 추가
+     */
+    public void saveAccountBySeq(String seq, String site, String id, String pass) throws IOException {
+        if (seq == null || seq.isEmpty()) {
+            throw new IllegalArgumentException("seq는 필수입니다.");
+        }
+        if (site == null || site.isEmpty()) {
+            throw new IllegalArgumentException("사이트명은 필수입니다.");
+        }
+        
+        MallAccount account = new MallAccount(seq, site, id, pass);
+        
+        MallAccountYml yaml = readYaml();
+        
+        // 기존 항목 확인 (로깅용)
+        Optional<MallAccount> existingBySeq = yaml.getAccountBySeq(seq);
+        Optional<MallAccount> existingBySite = yaml.getAccountBySite(site);
+        
+        if (existingBySeq.isPresent()) {
+            logger.debug("기존 계정 업데이트 (seq 기준) - seq: {}, site: {}", seq, site);
+        } else if (existingBySite.isPresent() && !seq.equals(existingBySite.get().getSeq())) {
+            logger.info("기존 계정 제거 후 추가 (site 중복 방지) - site: {}, 기존 seq: {}, 새 seq: {}", 
+                       site, existingBySite.get().getSeq(), seq);
+        }
+        
+        yaml.addOrUpdateAccountBySeq(account);
+        writeYaml(yaml);
+        
+        logger.info("계정 저장 완료 - seq: {}, site: {}", seq, site);
+    }
+    
+    /**
+     * seq 기반 계정 추가 또는 업데이트 (MallAccount 객체 사용)
+     * 
+     * 규칙:
+     * 1. 같은 seq가 있으면 강제 업데이트
+     * 2. 같은 site가 있지만 seq가 다르면, 기존 항목을 제거하고 새로 추가 (site 중복 방지)
+     * 3. 둘 다 없으면 새로 추가
+     */
+    public void saveAccountBySeq(MallAccount account) throws IOException {
+        if (account == null || account.getSeq() == null || account.getSeq().isEmpty()) {
+            throw new IllegalArgumentException("계정 정보 또는 seq가 올바르지 않습니다.");
+        }
+        
+        MallAccountYml yaml = readYaml();
+        
+        // 기존 항목 확인 (로깅용)
+        Optional<MallAccount> existingBySeq = yaml.getAccountBySeq(account.getSeq());
+        Optional<MallAccount> existingBySite = account.getSite() != null ? 
+                yaml.getAccountBySite(account.getSite()) : Optional.empty();
+        
+        if (existingBySeq.isPresent()) {
+            logger.debug("기존 계정 업데이트 (seq 기준) - seq: {}, site: {}", 
+                        account.getSeq(), account.getSite());
+        } else if (existingBySite.isPresent() && !account.getSeq().equals(existingBySite.get().getSeq())) {
+            logger.info("기존 계정 제거 후 추가 (site 중복 방지) - site: {}, 기존 seq: {}, 새 seq: {}", 
+                       account.getSite(), existingBySite.get().getSeq(), account.getSeq());
+        }
+        
+        yaml.addOrUpdateAccountBySeq(account);
+        writeYaml(yaml);
+        
+        logger.info("계정 저장 완료 - seq: {}, site: {}", account.getSeq(), account.getSite());
+    }
+    
+    /**
+     * seq 기반 계정 삭제
+     */
+    public boolean removeAccountBySeq(String seq) throws IOException {
+        if (seq == null || seq.isEmpty()) {
+            throw new IllegalArgumentException("seq는 필수입니다.");
+        }
+        
+        MallAccountYml yaml = readYaml();
+        boolean removed = yaml.removeAccountBySeq(seq);
+        
+        if (removed) {
+            writeYaml(yaml);
+            logger.info("계정 삭제 완료 - seq: {}", seq);
+        } else {
+            logger.warn("삭제할 계정을 찾을 수 없습니다: seq={}", seq);
+        }
+        
+        return removed;
+    }
+    
+    /**
+     * seq 기반 계정 존재 여부 확인
+     */
+    public boolean hasAccountBySeq(String seq) throws IOException {
+        if (seq == null || seq.isEmpty()) {
+            return false;
+        }
+        
+        MallAccountYml yaml = readYaml();
+        return yaml.hasAccountBySeq(seq);
     }
     
     /**

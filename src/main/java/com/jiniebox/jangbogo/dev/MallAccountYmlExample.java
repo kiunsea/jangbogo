@@ -35,7 +35,6 @@ public class MallAccountYmlExample {
             example4_getSpecificAccount();
             example5_updateAccount();
             example6_getAllSites();
-            example7_removeAccount();
             example8_getAccountCount();
             
             System.out.println("\n========================================");
@@ -168,32 +167,6 @@ public class MallAccountYmlExample {
         System.out.println("등록된 사이트:");
         for (int i = 0; i < sites.size(); i++) {
             System.out.println("  " + (i + 1) + ". " + sites.get(i));
-        }
-        
-        System.out.println();
-    }
-    
-    /**
-     * 예제 7: 계정 삭제
-     */
-    public void example7_removeAccount() throws Exception {
-        System.out.println("=== 예제 7: 계정 삭제 ===");
-        
-        String siteToDelete = "oasis";
-        
-        // 삭제 전 확인
-        if (mallAccountService.hasAccount(siteToDelete)) {
-            System.out.println(siteToDelete + " 계정이 존재합니다. 삭제를 진행합니다...");
-            
-            boolean removed = mallAccountService.removeAccount(siteToDelete);
-            
-            if (removed) {
-                System.out.println("✓ " + siteToDelete + " 계정 삭제 완료");
-            } else {
-                System.out.println("✗ 계정 삭제 실패");
-            }
-        } else {
-            System.out.println(siteToDelete + " 계정이 존재하지 않습니다.");
         }
         
         System.out.println();

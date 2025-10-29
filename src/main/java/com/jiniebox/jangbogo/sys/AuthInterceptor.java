@@ -124,8 +124,14 @@ public class AuthInterceptor implements HandlerInterceptor {
             }
         }
         
-        // 제외 경로 체크
-        return EXCLUDE_PATHS.stream().anyMatch(requestURI::startsWith);
+        // 제외 경로 체크 (정확히 일치하거나 시작하는 경로)
+        for (String excludePath : EXCLUDE_PATHS) {
+            if (requestURI.equals(excludePath) || requestURI.startsWith(excludePath + "/")) {
+                return true;
+            }
+        }
+        
+        return false;
     }
     
     /**

@@ -34,45 +34,6 @@ public class JangBoGoManager {
     private JangbogoConfig jangbogoConfig;
 
     /**
-     * browser local storage 에서 조회하기 위한 ciphered id key
-     * 
-     * @param seqMall
-     * @return
-     */
-    public static String getCipidkey(String seqMall) {
-        return "jangbogo^" + seqMall + "%i";
-    }
-    
-    /**
-     * browser local storage 에서 조회하기 위한 ciphered pw key
-     * 
-     * @param seqMall
-     * @param seqUser
-     * @return
-     */
-    public static String getCippwkey(String seqMall) {
-        return "jangbogo^" + seqMall + "%p";
-    }
-    
-    /**
-     * 쇼핑몰 계정 정보를 조회하기 위한 id와 pw 의 keys를 malls 에 일괄 추가
-     * browser local storage 에서 조회하기 위한 id key 와 pw key
-     * 
-     * @param malls
-     * @param seqUser
-     */
-    public static void addCippKeys(List<JSONObject> malls) {
-        // browser local storage 에서 조회하기 위한 id key 와 pw key 를 설정
-        JSONObject mallJson = null;
-        Iterator<JSONObject> mallIter = malls.iterator();
-        while (mallIter.hasNext()) {
-            mallJson = mallIter.next();
-            mallJson.put("cipidkey", getCipidkey(mallJson.get("seq").toString()));
-            mallJson.put("cippwkey", getCippwkey(mallJson.get("seq").toString()));
-        }
-    }
-    
-    /**
      * 쇼핑몰 목록에 사용자 아이디 원본값을 저장하여 반환한다.
      * 
      * @param malls

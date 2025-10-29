@@ -35,13 +35,31 @@ public class HomeController {
      */
     @GetMapping("/signin")
     public String signin(HttpSession session) {
-        // 이미 로그인되어 있으면 메인 페이지로 리다이렉트
-        Boolean isLoggedIn = (Boolean) session.getAttribute(SessionConstants.SESSION_ADMIN_KEY);
-        
-        if (isLoggedIn != null && isLoggedIn) {
-            return "redirect:/";
+        // 세션 체크 (AuthInterceptor와 동일한 로직 사용)
+        if (session != null) {
+            Boolean isLoggedIn = (Boolean) session.getAttribute(SessionConstants.SESSION_ADMIN_KEY);
+            
+            // 세션 유효성 검사 (타임아웃 체크 포함)
+            if (isLoggedIn != null && isLoggedIn) {
+                // 세션 타임아웃 체크
+                Long loginTime = (Long) session.getAttribute(SessionConstants.SESSION_LOGIN_TIME_KEY);
+                if (loginTime != null) {
+                    long elapsedMinutes = (System.currentTimeMillis() - loginTime) / (1000 * 60);
+                    if (elapsedMinutes <= SessionConstants.SESSION_TIMEOUT_MINUTES) {
+                        // 유효한 세션이면 메인 페이지로 리다이렉트
+                        return "redirect:/";
+                    } else {
+                        // 세션 타임아웃 - 세션 무효화
+                        session.invalidate();
+                    }
+                } else {
+                    // loginTime이 없어도 로그인 상태면 메인으로 이동 (하위 호환성)
+                    return "redirect:/";
+                }
+            }
         }
         
+        // 로그인되지 않았거나 세션이 만료된 경우 로그인 페이지 표시
         return "signin";
     }
     

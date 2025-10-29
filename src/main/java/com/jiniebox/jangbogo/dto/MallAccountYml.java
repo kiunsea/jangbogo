@@ -40,7 +40,16 @@ public class MallAccountYml {
     }
     
     /**
-     * 계정 추가 (중복 시 업데이트)
+     * seq로 계정 조회
+     */
+    public Optional<MallAccount> getAccountBySeq(String seq) {
+        return accounts.stream()
+                .filter(account -> seq != null && seq.equals(account.getSeq()))
+                .findFirst();
+    }
+    
+    /**
+     * 계정 추가 (중복 시 업데이트) - site 기준
      */
     public void addOrUpdateAccount(MallAccount newAccount) {
         // 기존 계정 찾기
@@ -49,6 +58,7 @@ public class MallAccountYml {
         if (existing.isPresent()) {
             // 업데이트
             MallAccount existingAccount = existing.get();
+            existingAccount.setSeq(newAccount.getSeq());
             existingAccount.setId(newAccount.getId());
             existingAccount.setPass(newAccount.getPass());
         } else {
@@ -58,17 +68,46 @@ public class MallAccountYml {
     }
     
     /**
-     * 계정 삭제
+     * seq 기반 계정 추가/업데이트
+     * 
+     * 규칙:
+     * 1. 같은 seq가 있으면 강제 업데이트
+     * 2. 같은 site가 있지만 seq가 다르면, 기존 항목을 제거하고 새로 추가 (site 중복 방지)
+     * 3. 둘 다 없으면 새로 추가
      */
-    public boolean removeAccount(String site) {
-        return accounts.removeIf(account -> site.equals(account.getSite()));
+    public void addOrUpdateAccountBySeq(MallAccount newAccount) {
+        if (newAccount.getSeq() == null || newAccount.getSeq().isEmpty()) {
+            throw new IllegalArgumentException("seq는 필수입니다.");
+        }
+        
+        // 같은 seq가 있는지 확인 (우선 처리)
+        Optional<MallAccount> existingBySeq = getAccountBySeq(newAccount.getSeq());
+        
+        if (existingBySeq.isPresent()) {
+            // 같은 seq가 있으면 강제 업데이트
+            MallAccount existingAccount = existingBySeq.get();
+            existingAccount.setSite(newAccount.getSite());
+            existingAccount.setId(newAccount.getId());
+            existingAccount.setPass(newAccount.getPass());
+            return;
+        }
+        
+        // 새 항목 추가
+        accounts.add(newAccount);
     }
     
     /**
-     * 특정 사이트 계정 존재 여부
+     * 계정 삭제 - seq 기준
      */
-    public boolean hasAccount(String site) {
-        return getAccountBySite(site).isPresent();
+    public boolean removeAccountBySeq(String seq) {
+        return accounts.removeIf(account -> seq != null && seq.equals(account.getSeq()));
+    }
+    
+    /**
+     * 특정 seq 계정 존재 여부
+     */
+    public boolean hasAccountBySeq(String seq) {
+        return getAccountBySeq(seq).isPresent();
     }
     
     /**
