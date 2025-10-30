@@ -18,18 +18,14 @@ public class MallOrderUpdaterRunner  implements Runnable {
      * 서버 환경 변경시 log4j.properties 설정 정보도 함께 변경 필요
      */
     private Logger log = LogManager.getLogger(MallOrderUpdaterRunner.class);
-    private String seqStore, seqPendBox, seqMall, mallId, mallPw;
+    private String seqMall, mallId, mallPw;
     
     /**
-     * @param seqUser
-     * @param seqPendBox 등록대기 박스
      * @param seqMall 수집할 쇼핑몰
      * @param mallId
      * @param mallPw
      */
-    public MallOrderUpdaterRunner(String seqStore, String seqPendBox, String seqMall, String mallId, String mallPw) {
-        this.seqStore = seqStore;
-        this.seqPendBox = seqPendBox; //등록대기 보관함
+    public MallOrderUpdaterRunner(String seqMall, String mallId, String mallPw) {
         this.seqMall = seqMall;
         this.mallId = mallId;
         this.mallPw = mallPw;
@@ -83,6 +79,8 @@ public class MallOrderUpdaterRunner  implements Runnable {
 //                    fcmNoti.sendNotifications(usrTokens, titleStr, bodySb.toString());
 //                }
 //            }
+            
+            
             
         } catch (Exception e) {
             log.debug(ExceptionUtil.getExceptionInfo(e));

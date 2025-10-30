@@ -2,6 +2,16 @@
 -- SQLite 환경에 맞게 테이블 정의
 
 --------------------------------------------------------
+-- 테이블 jbg_item 구조
+--------------------------------------------------------
+CREATE TABLE IF NOT EXISTS jbg_item (
+  seq INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL DEFAULT '0',
+  seq_order INTEGER,
+  insert_time INTEGER -- 등록시간(millisecond)
+);
+
+--------------------------------------------------------
 -- 테이블 jbg_mall 구조
 --------------------------------------------------------
 CREATE TABLE IF NOT EXISTS jbg_mall (
@@ -23,5 +33,5 @@ CREATE TABLE IF NOT EXISTS jbg_order (
   serial_num TEXT NOT NULL DEFAULT '0', -- 시리얼 번호 (영수증 바코드 또는 주문번호)
   date_time INTEGER NOT NULL DEFAULT 0, -- 구매일자(YYYYMMDD)
   mall_name TEXT, -- 매장명
-  seq_jbgmall INTEGER NOT NULL
+  seq_mall INTEGER NOT NULL
 );

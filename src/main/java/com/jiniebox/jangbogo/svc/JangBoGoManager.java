@@ -120,9 +120,13 @@ public class JangBoGoManager {
      * @param mallPw
      * @throws Exception
      */
-    public void updateItems(String seqStore, String seqPendBox, String seqMall, String mallId, String mallPw) throws Exception {
-        if (this.elapsedSigninTime(seqMall)) {
-            new Thread(new MallOrderUpdaterRunner(seqStore, seqPendBox, seqMall, mallId, mallPw)).start();
+    public void updateItems(String seqMall, String mallId, String mallPw) throws Exception {
+        
+        new Thread(new MallOrderUpdaterRunner(seqMall, mallId, mallPw)).start();
+        
+        
+//        if (this.elapsedSigninTime(seqMall)) {
+//            new Thread(new MallOrderUpdaterRunner(seqMall, mallId, mallPw)).start();
 //            try {
 //                // 스레드들이 동시 실행되지 않도록 2초 동안 대기
 //                Thread.sleep(2000); // 2000 밀리초 = 2초
@@ -130,9 +134,10 @@ public class JangBoGoManager {
 //                e.printStackTrace();
 //                log.error(ExceptionUtil.getExceptionInfo(e));
 //            }
-        } else {
-            logger.debug("사용자의 [" + seqMall + "] 사이트 접속 가능 시간이 아니기 때문에 작업이 취소되었습니다.");
-        }
+//        } else {
+//            logger.debug("사용자의 [" + seqMall + "] 사이트 접속 가능 시간이 아니기 때문에 작업이 취소되었습니다.");
+//        }
+        
     }
     
     /**

@@ -26,3 +26,10 @@ default-web-driver: chrome  # chrome, edge, firefox
 # 브라우저 헤드리스 모드 설정
 browser-headless: false
 
+# 앱 시작 시 자동 업데이트 설정 (시작여부와 몰 간 딜레이)
+auto-update-items-on-startup: true
+startup-update-sleep-ms: 1500
+
+# 자동 수집 주기(밀리초). 예: 3600000 = 1시간
+auto-collect-interval-ms: 3600000
+

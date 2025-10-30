@@ -66,11 +66,17 @@
 			<hr class="mb-3" style="border-top: 1px dotted gray;">
 
 			<div id="automall_div" class="card-body">
-				<h5 class="card-title">쇼핑몰 목록</h5>
+				<div class="d-flex align-items-center justify-content-between">
+					<h5 class="card-title mb-0">쇼핑몰 목록</h5>
+					<button type="button" class="btn btn-secondary btn-sm" onclick="autoCollectSelected()">자동수집</button>
+				</div>
 				<div id="mall_list">
 					<div class="mb-3">
 						<div class="d-flex align-items-center">
 							<i class="bi bi-shop"></i>&nbsp; <span>SSG(신세계)</span>
+							<div class="ms-auto">
+								<input type="checkbox" class="form-check-input mall-check" value="1">
+							</div>
 						</div>
 						<div class="ps-3 mb-2">
 							<ul class="list-group">
@@ -90,6 +96,9 @@
 					<div class="mb-3">
 						<div class="d-flex align-items-center">
 							<i class="bi bi-shop"></i>&nbsp; <span>OASIS(오아시스)</span>
+							<div class="ms-auto">
+								<input type="checkbox" class="form-check-input mall-check" value="2">
+							</div>
 						</div>
 						<div class="ps-3 mb-2">
 							<ul class="list-group">
@@ -179,6 +188,9 @@
                                                         showElement(_doc.querySelector("#mall_account_"+mall.id));
                                                         mall.account_status = 0;
                                                     }
+                                                    // 체크박스 상태 반영 (auto_collect)
+                                                    const cb = _doc.querySelector('input.mall-check[value="'+ mall.seq +'"]');
+                                                    if (cb) { cb.checked = (mall.auto_collect == 1); }
                                                 }
                                             });
                                         }
@@ -313,6 +325,87 @@
                             path,
                             params);
                     }
+
+                    // 선택된 쇼핑몰 자동수집 즉시 실행
+                    function autoCollectSelected() {
+                        const _doc = window.document;
+                        const checked = Array.from(_doc.querySelectorAll('input.mall-check:checked'))
+                            .map(el => String(el.value));
+                        if (!checked.length) {
+                            alert('선택된 쇼핑몰이 없습니다.');
+                            return;
+                        }
+
+                        var _ajax = new XMLHttpRequest();
+                        _ajax.onreadystatechange = function () {
+                            if (checkAjaxSuc(_ajax)) {
+                                var resMsg = _ajax.responseText || '';
+                                try {
+                                    var resJson = JSON.parse(resMsg);
+                                    if (resJson) {
+                                        var errs = [];
+                                        if (Array.isArray(resJson.decryptionFailed) && resJson.decryptionFailed.length) {
+                                            errs = errs.concat(resJson.decryptionFailed.map(String));
+                                        }
+                                        if (Array.isArray(resJson.skipped) && resJson.skipped.length) {
+                                            errs = errs.concat(resJson.skipped.map(String));
+                                        }
+
+                                        if (errs.length) {
+                                            alert('계정 정보 처리 오류로 자동수집을 진행할 수 없습니다.\n문제 발생 mall seq: ' + errs.join(', ') + '\n각 쇼핑몰에서 "계정연결"을 다시 시도해 주세요.');
+                                            // 오류난 쇼핑몰들을 UI에서 해제 상태로 전환
+                                            errs.forEach(function(seq){
+                                                try {
+                                                    var mall = findMallBySeq(seq);
+                                                    if (!mall) return;
+                                                    mall.account_status = 0; mall.status = 0;
+                                                    var btn = document.querySelector('#btn_signin_' + mall.id);
+                                                    if (btn) {
+                                                        btn.innerText = '계정연결';
+                                                        btn.className = 'btn btn-primary btn-sm btn-block';
+                                                        btn.setAttribute('onclick', 'javascript:openSigninMallForm(' + seq + ')');
+                                                    }
+                                                } catch(e) { /* ignore per item */ }
+                                            });
+                                        } else if (resJson.message) {
+                                            alert(resJson.message);
+                                        }
+                                    }
+                                } catch (e) {
+                                    // ignore
+                                }
+                            }
+                        };
+                        _ajax.open('POST', '/malls/auto-collect', true);
+                        _ajax.setRequestHeader('Content-Type', 'application/json;charset=UTF-8');
+                        // 실행 전에 체크박스 상태 저장
+                        saveAutoCollectFlagsFromUI(function() {
+                            _ajax.send(JSON.stringify({ seqs: checked }));
+                        });
+                    }
+
+                    // 체크박스 전체 상태 저장 (체크된 seq만 전달, 나머지는 0 처리)
+                    function saveAutoCollectFlagsFromUI(done) {
+                        const _doc = window.document;
+                        const checked = Array.from(_doc.querySelectorAll('input.mall-check:checked'))
+                            .map(el => String(el.value));
+                        var xhr = new XMLHttpRequest();
+                        xhr.onreadystatechange = function() {
+                            if (checkAjaxSuc(xhr)) {
+                                if (typeof done === 'function') done();
+                            }
+                        };
+                        xhr.open('POST', '/malls/auto-collect/flags', true);
+                        xhr.setRequestHeader('Content-Type', 'application/json;charset=UTF-8');
+                        xhr.send(JSON.stringify({ seqs: checked }));
+                    }
+
+                    // 체크박스 변경 시 즉시 저장
+                    document.addEventListener('change', function(e) {
+                        if (e.target && e.target.matches('input.mall-check')) {
+                            saveAutoCollectFlagsFromUI();
+                        }
+                    });
                 </script>
 			</div>
 		</div>

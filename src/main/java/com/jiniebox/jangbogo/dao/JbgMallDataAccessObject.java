@@ -84,11 +84,12 @@ public class JbgMallDataAccessObject extends CommonDataAccessObject {
         LocalDBConnection conn = null;
         try {
             conn = new LocalDBConnection();
+            ensureAutoCollectColumn(conn);
             StringBuffer querySb = new StringBuffer("SELECT seq, id, name, details");
             if (addEncField) {
                 querySb.append(", encrypt_key, encrypt_iv");
             }
-            querySb.append(", account_status, last_signin_time");
+            querySb.append(", account_status, last_signin_time, auto_collect");
             querySb.append(" FROM jbg_mall");
             log.debug("LOCALDB-QUERY------------------------------------------------------------------------------");
             log.debug(querySb);
@@ -110,6 +111,7 @@ public class JbgMallDataAccessObject extends CommonDataAccessObject {
                     }
                     mJson.put("account_status", rset.getInt("account_status"));
                     mJson.put("last_signin_time", rset.getLong("last_signin_time"));
+                    mJson.put("auto_collect", safeGetInt(rset, "auto_collect", 0));
                     malls.add(mJson);
                 }
                 return malls;
@@ -138,8 +140,9 @@ public class JbgMallDataAccessObject extends CommonDataAccessObject {
         LocalDBConnection conn = null;
         try {
             conn = new LocalDBConnection();
+            ensureAutoCollectColumn(conn);
             StringBuffer querySb = new StringBuffer("SELECT seq, id, name, details, ");
-            querySb.append("encrypt_key, encrypt_iv, account_status, last_signin_time");
+            querySb.append("encrypt_key, encrypt_iv, account_status, last_signin_time, auto_collect");
             querySb.append(" FROM jbg_mall");
             querySb.append(" WHERE seq=" + seq);
             log.debug("LOCALDB-QUERY------------------------------------------------------------------------------");
@@ -158,6 +161,7 @@ public class JbgMallDataAccessObject extends CommonDataAccessObject {
                     mJson.put("encrypt_iv", rset.getString("encrypt_iv"));
                     mJson.put("account_status", rset.getInt("account_status"));
                     mJson.put("last_signin_time", rset.getLong("last_signin_time"));
+                    mJson.put("auto_collect", safeGetInt(rset, "auto_collect", 0));
                 }
                 return mJson;
             } else {
@@ -171,6 +175,62 @@ public class JbgMallDataAccessObject extends CommonDataAccessObject {
             if (conn != null) {
                 conn.close();
             }
+        }
+    }
+
+    // ========== Auto-collect flag helpers ==========
+
+    private void ensureAutoCollectColumn(LocalDBConnection conn) {
+        try {
+            // Try simple select; if column missing, SQLite will throw an exception
+            conn.executeQuery("SELECT auto_collect FROM jbg_mall LIMIT 1");
+        } catch (Exception e) {
+            try {
+                conn.txOpen();
+                conn.txExecuteUpdate("ALTER TABLE jbg_mall ADD COLUMN auto_collect INTEGER DEFAULT 0");
+                conn.txCommit();
+                log.info("Added missing column: jbg_mall.auto_collect");
+            } catch (Exception ex) {
+                try { conn.txRollBack(); } catch (Exception ignore) {}
+                // Ignore if already exists from race, otherwise rethrow
+                log.debug("ensureAutoCollectColumn: {}", ex.getMessage());
+            }
+        }
+    }
+
+    private int safeGetInt(ResultSet rset, String col, int defVal) {
+        try { return rset.getInt(col); } catch (Exception e) { return defVal; }
+    }
+
+    /**
+     * 선택된 seq들만 auto_collect=1로 저장하고 나머지는 0으로 초기화
+     */
+    public void saveAutoCollectFlags(List<String> selectedSeqs) throws Exception {
+        LocalDBConnection conn = null;
+        try {
+            conn = new LocalDBConnection();
+            ensureAutoCollectColumn(conn);
+            conn.txOpen();
+            conn.txExecuteUpdate("UPDATE jbg_mall SET auto_collect=0");
+            if (selectedSeqs != null && !selectedSeqs.isEmpty()) {
+                String inClause = String.join(",", selectedSeqs.stream().map(s -> s.replaceAll("[^0-9]", "")).toList());
+                if (!inClause.isEmpty()) {
+                    conn.txExecuteUpdate("UPDATE jbg_mall SET auto_collect=1 WHERE seq IN (" + inClause + ")");
+                }
+            }
+            conn.txCommit();
+        } catch (SQLException e) {
+            log.error("* 아이고!! ㅜ.ㅜ 데이터베이스 업데이트 에러 발생");
+            log.error(ExceptionUtil.getExceptionInfo(e));
+            if (conn != null) conn.txRollBack();
+            throw e;
+        } catch (Exception e) {
+            log.error("* 데이터베이스 업데이트 에러 발생");
+            log.error(ExceptionUtil.getExceptionInfo(e));
+            if (conn != null) conn.txRollBack();
+            throw e;
+        } finally {
+            if (conn != null) conn.close();
         }
     }
     

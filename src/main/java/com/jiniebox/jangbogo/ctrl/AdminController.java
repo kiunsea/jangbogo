@@ -2,8 +2,11 @@ package com.jiniebox.jangbogo.ctrl;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.ArrayList;
+import java.util.Optional;
 
 import javax.crypto.SecretKey;
+import javax.crypto.BadPaddingException;
 import javax.crypto.spec.IvParameterSpec;
 
 import org.apache.logging.log4j.LogManager;
@@ -465,6 +468,144 @@ public class AdminController {
         response.put("msg", resMsg);
         
         return response;
+    }
+
+    /**
+     * 선택한 쇼핑몰들에 대한 자동 수집 즉시 실행
+     * POST /malls/auto-collect
+     */
+    @PostMapping("/malls/auto-collect")
+    @ResponseBody
+    public JsonNode autoCollectSelected(@RequestBody AutoCollectRequest req) {
+        ObjectMapper objectMapper = new ObjectMapper();
+        ObjectNode response = objectMapper.createObjectNode();
+
+        List<String> processed = new ArrayList<>();
+        List<String> skipped = new ArrayList<>();
+        List<String> decryptionFailed = new ArrayList<>();
+
+        try {
+            if (req == null || req.getSeqs() == null || req.getSeqs().isEmpty()) {
+                response.put("success", false);
+                response.put("message", "선택된 쇼핑몰이 없습니다.");
+                return response;
+            }
+
+            long sleepMs = 500; // 즉시 실행 간 간격(경미한 완충)
+            JbgMallDataAccessObject jaDao = new JbgMallDataAccessObject();
+
+            for (String seq : req.getSeqs()) {
+                try {
+                    JSONObject mall = jaDao.getMall(seq);
+                    if (mall == null) { 
+                        skipped.add(seq);
+                        try { jaDao.update(seq, 0, null, null); } catch (Exception ignore) {}
+                        continue; 
+                    }
+
+                    String encKeyBase64 = mall.get("encrypt_key") != null ? mall.get("encrypt_key").toString() : "";
+                    String encIvBase64  = mall.get("encrypt_iv")  != null ? mall.get("encrypt_iv").toString()  : "";
+                    if (encKeyBase64.isEmpty() || encIvBase64.isEmpty()) { 
+                        skipped.add(seq);
+                        try { jaDao.update(seq, 0, null, null); } catch (Exception ignore) {}
+                        continue; 
+                    }
+
+                    Optional<com.jiniebox.jangbogo.dto.MallAccount> accOpt = mallAccountYmlService.getAccountBySeq(seq);
+                    if (accOpt.isEmpty()) { 
+                        skipped.add(seq);
+                        try { jaDao.update(seq, 0, null, null); } catch (Exception ignore) {}
+                        continue; 
+                    }
+
+                    String cipherUsrId = accOpt.get().getId();
+                    String cipherUsrPw = accOpt.get().getPass();
+                    if (cipherUsrId == null || cipherUsrId.isEmpty() || cipherUsrPw == null || cipherUsrPw.isEmpty()) { 
+                        skipped.add(seq);
+                        try { jaDao.update(seq, 0, null, null); } catch (Exception ignore) {}
+                        continue; 
+                    }
+
+                    javax.crypto.SecretKey secKey = StringEncrypter.decodeBase64ToSecretKey(encKeyBase64.trim());
+                    javax.crypto.spec.IvParameterSpec ivSpec = StringEncrypter.decodeBase64ToIv(encIvBase64.trim());
+
+                    String id = StringEncrypter.decrypt(StringEncrypter.ALGORITHM, cipherUsrId, secKey, ivSpec);
+                    String pw = StringEncrypter.decrypt(StringEncrypter.ALGORITHM, cipherUsrPw, secKey, ivSpec);
+                    if (id != null && id.startsWith("%")) id = id.substring(1);
+                    if (pw != null && pw.startsWith("%")) pw = pw.substring(1);
+                    if (id == null || pw == null) { 
+                        skipped.add(seq);
+                        try { jaDao.update(seq, 0, null, null); } catch (Exception ignore) {}
+                        continue; 
+                    }
+
+                    jangBoGoManager.updateItems(seq, id, pw);
+                    processed.add(seq);
+
+                    try { Thread.sleep(sleepMs); } catch (InterruptedException ignore) {}
+                } catch (BadPaddingException bpe) {
+                    logger.warn("Auto-collect decryption failed for mall seq={} (BadPaddingException)", seq);
+                    // 계정 복호화 오류 발생 시 DB 키/IV 삭제 및 상태 0 초기화
+                    try {
+                        jaDao.update(seq, 0, null, null);
+                        logger.info("Reset encrypt_key/iv and account_status=0 for mall seq={}", seq);
+                    } catch (Exception resetEx) {
+                        logger.warn("Failed to reset DB credentials for mall seq={}: {}", seq, resetEx.getMessage());
+                    }
+                    decryptionFailed.add(seq);
+                } catch (Exception perMallEx) {
+                    logger.warn("Auto-collect selected error for mall seq={}", seq, perMallEx);
+                    skipped.add(seq);
+                    try { jaDao.update(seq, 0, null, null); } catch (Exception ignore) {}
+                }
+            }
+
+            response.put("success", true);
+            response.set("processed", objectMapper.valueToTree(processed));
+            response.set("skipped", objectMapper.valueToTree(skipped));
+            response.set("decryptionFailed", objectMapper.valueToTree(decryptionFailed));
+            if (!decryptionFailed.isEmpty()) {
+                response.put("message", "일부 쇼핑몰 계정 복호화에 실패했습니다. 해당 쇼핑몰에서 '계정연결'을 다시 시도해 주세요.");
+            } else {
+                response.put("message", "자동 수집 요청이 처리되었습니다.");
+            }
+            return response;
+        } catch (Exception e) {
+            logger.error("자동 수집 요청 처리 오류", e);
+            response.put("success", false);
+            response.put("message", "자동 수집 처리 중 오류가 발생했습니다.");
+            return response;
+        }
+    }
+
+    public static class AutoCollectRequest {
+        private java.util.List<String> seqs;
+        public java.util.List<String> getSeqs() { return seqs; }
+        public void setSeqs(java.util.List<String> seqs) { this.seqs = seqs; }
+    }
+
+    /**
+     * 자동수집 체크박스 상태 저장 (전체 저장)
+     * POST /malls/auto-collect/flags
+     * body: { seqs: ["1","2", ...] } // 체크된 seq 전체 목록
+     */
+    @PostMapping("/malls/auto-collect/flags")
+    @ResponseBody
+    public JsonNode saveAutoCollectFlags(@RequestBody AutoCollectRequest req) {
+        ObjectMapper objectMapper = new ObjectMapper();
+        ObjectNode response = objectMapper.createObjectNode();
+        try {
+            JbgMallDataAccessObject jaDao = new JbgMallDataAccessObject();
+            jaDao.saveAutoCollectFlags(req != null ? req.getSeqs() : java.util.Collections.emptyList());
+            response.put("success", true);
+            response.put("message", "자동수집 설정이 저장되었습니다.");
+            return response;
+        } catch (Exception e) {
+            logger.error("자동수집 설정 저장 오류", e);
+            response.put("success", false);
+            response.put("message", "자동수집 설정 저장 중 오류가 발생했습니다.");
+            return response;
+        }
     }
 
 }
