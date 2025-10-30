@@ -1,13 +1,17 @@
 accounts:
-  - site: coupang
+  - seq: 1
+    site: coupang
     id: ENC(MEUCIF2TdsaFQ==)
     pass: ENC(MIGJAoGBAKqPcjsLQ==)
-  - site: gmarket
+  - seq: 2
+    site: gmarket
     id: ENC(MEUCIQDxx92UQ==)
     pass: ENC(MIGJAoGBAN91vshwQ==)
-  - site: ssg
+  - seq: 3
+    site: ssg
     id: ENC(MEUCIQCxx89UQ==)
     pass: ENC(MIGJAoGBAN91tthwQ==)
-  - site: oasis
+  - seq: 4
+    site: oasis
     id: ENC(MEUCIQDxx77UQ==)
     pass: ENC(MIGJAoGBAN91wwlwQ==)

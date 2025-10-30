@@ -153,9 +153,10 @@
                                     var alertMsg = null;
                                     if (resJson.code == 200) {
                                         if (resJson.malls) {
-                                            let malls = _doc.malls = JSON.parse(resJson.malls);
-                                            Object.keys(malls).forEach(key => {
-                                                const mall = malls[key];
+                                            let malls = _doc.malls = resJson.malls;
+                                            //Object.keys(malls).forEach(key => {
+                                                malls.forEach(mall => {
+                                                //const mall = malls[key];
                                                 if (_doc.querySelector("#btn_signin_"+mall.id)) { //사용 가능 쇼핑몰
                                                     if (mall.account_status == 1) {
                                                         if (mall.usrid) {
@@ -166,6 +167,7 @@
                                                         _doc.querySelector("#usrpass_mall").disabled = true;                                        
                                                         _doc.querySelector("#btn_signin_"+mall.id).textContent = '연결해제';
                                                         _doc.querySelector("#btn_signin_"+mall.id).className = 'btn btn-outline-success';
+                                                        _doc.querySelector("#btn_signin_"+mall.id).setAttribute('onclick', 'javascript:connectMall('+ mall.seq +')');
                                                         hideElement(_doc.querySelector("#mall_account_"+mall.id));
                                                         mall.account_status = 1;
                                                     } else {
@@ -173,6 +175,7 @@
                                                         _doc.querySelector("#usrpass_mall").disabled = false;;
                                                         _doc.querySelector("#btn_signin_"+mall.id).textContent = '계정연결';
                                                         _doc.querySelector("#btn_signin_"+mall.id).className = 'btn btn-primary';
+                                                        _doc.querySelector("#btn_signin_"+mall.id).setAttribute('onclick', 'javascript:openSigninMallForm('+ mall.seq +')');
                                                         showElement(_doc.querySelector("#mall_account_"+mall.id));
                                                         mall.account_status = 0;
                                                     }
@@ -199,13 +202,20 @@
                             path);
                     });
 
+                    // 배열에서 seq로 mall 객체 찾기
+                    function findMallBySeq(seqm) {
+                        const malls = (window.document.malls || []);
+                        return malls.find(m => String(m.seq) === String(seqm));
+                    }
+
                     /**
                      * 쇼핑몰 연결 팝업
                      */
                     function openSigninMallForm(seqm) {
                         const _doc = window.document;
+                        const mall = findMallBySeq(seqm);
 
-                        if (_doc.malls[seqm] && _doc.malls[seqm].status == 1) {
+                        if (mall && (mall.account_status === 1 || mall.status === 1)) {
                             connectMall(seqm);
                         } else {
                             let inp_id = _doc.querySelector("#usrid_mall");
@@ -233,9 +243,10 @@
                      */
                     function connectMall(seqm) {
                         const _doc = window.document;
+                        const mall = findMallBySeq(seqm);
 
                         var statusTo = -1;
-                        if (_doc.malls[seqm] && _doc.malls[seqm].status == 1) {
+                        if (mall && (mall.account_status === 1 || mall.status === 1)) {
                             if (!confirm("연결을 해제할까요?")) {
                                 return -1;
                             }
@@ -246,13 +257,11 @@
 
                         let inp_id = _doc.querySelector("#usrid_mall");
                         let inp_pw = _doc.querySelector("#usrpass_mall");
-                        let frm_conn = _doc.querySelector("#mall_account_"+_doc.malls[seqm].id);
+                        let frm_conn = mall ? _doc.querySelector("#mall_account_"+ mall.id) : null;
                         let btn_conn = _doc.querySelector("#btn_connect_mall");
-                        let btn_signin = _doc.querySelector("#btn_signin_"+_doc.malls[seqm].id);
+                        let btn_signin = mall ? _doc.querySelector("#btn_signin_"+ mall.id) : null;
                         
                         attachSpinnerButton(btn_conn);
-
-statusTo = 1;//test                        
 
                         var path = "/mall/connect";
                         var params = "seq="+seqm;
@@ -270,22 +279,21 @@ statusTo = 1;//test
                                     var btn_txt = "계정연결";
                                     var btn_class = "btn btn-primary";
                                     if (resJson.code == "000") {
-                                        var status = _doc.malls[seqm].status = resJson.status;                                                            
+                                        var status = resJson.status;
+                                        if (mall) { mall.account_status = status; mall.status = status; }
                                         if (status == 1) {
-                                            localStorage.setItem(resJson.cip_id_key, resJson.cip_id_val);
-                                            localStorage.setItem(resJson.cip_pw_key, resJson.cip_pw_val);
                                             inp_id.disabled = true;
                                             inp_pw.disabled = true;
                                             btn_txt = '연결해제';
                                             btn_class = 'btn btn-outline-success';
                                             hideElement(frm_conn);
+                                            if (btn_signin) { btn_signin.setAttribute('onclick', 'javascript:connectMall('+ seqm +')'); }
                                         } else {
-                                            localStorage.removeItem(resJson.cip_id_key);
-                                            localStorage.removeItem(resJson.cip_pw_key);
                                             inp_id.disabled = false;
                                             inp_pw.disabled = false;
                                             btn_txt = '계정연결';
                                             showElement(frm_conn);
+                                            if (btn_signin) { btn_signin.setAttribute('onclick', 'javascript:openSigninMallForm('+ seqm +')'); }
                                         }                                                            
                                     }
                                     
@@ -294,8 +302,7 @@ statusTo = 1;//test
                                     }
 
                                     removeSpinnerButton(btn_conn, "계정연결");
-                                    btn_signin.innerText = btn_txt;
-                                    btn_signin.className = btn_class;
+                                    if (btn_signin) { btn_signin.innerText = btn_txt; btn_signin.className = btn_class; }
 
                                     var myModal = bootstrap.Modal.getOrCreateInstance(_doc.querySelector('#ModalSigninMall'));
                                     myModal.hide();

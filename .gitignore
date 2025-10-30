@@ -56,3 +56,4 @@ logs/
 *.log
 *.log.*
 *.gz
+db/jangbogo-dev.db-wal

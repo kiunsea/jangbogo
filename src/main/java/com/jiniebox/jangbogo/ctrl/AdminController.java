@@ -1,5 +1,6 @@
 package com.jiniebox.jangbogo.ctrl;
 
+import java.io.IOException;
 import java.util.List;
 
 import javax.crypto.SecretKey;
@@ -29,7 +30,6 @@ import com.jiniebox.jangbogo.sys.SessionConstants;
 import com.jiniebox.jangbogo.util.StringEncrypter;
 
 import jakarta.servlet.http.HttpSession;
-import java.io.IOException;
 
 /**
  * 관리자 컨트롤러 (개선 버전)
@@ -211,8 +211,57 @@ public class AdminController {
         node.put("currentUser", username);
         
         JbgMallDataAccessObject jaDao = new JbgMallDataAccessObject();
-        List<JSONObject> malls = jaDao.getAllMalls(false);
-        node.put("malls", malls.toString());
+        List<JSONObject> malls = jaDao.getAllMalls(true);
+
+        // malls 후처리: encrypt_key/encrypt_iv로 mall_account.yml의 cipher id 복호화 → mall.usrid 추가, 키 값은 제거
+        try {
+            for (JSONObject mall : malls) {
+                // enc key/iv 추출
+                String encKeyBase64 = mall.get("encrypt_key") != null ? mall.get("encrypt_key").toString() : "";
+                String encIvBase64  = mall.get("encrypt_iv")  != null ? mall.get("encrypt_iv").toString()  : "";
+
+                if (encKeyBase64.isEmpty() || encIvBase64.isEmpty()) {
+                    // 키가 없으면 스킵하고 키 필드는 제거만 수행
+                    mall.remove("encrypt_key");
+                    mall.remove("encrypt_iv");
+                    continue;
+                }
+
+                // seq → 문자열로 변환하여 YAML에서 조회
+                String seqStr = String.valueOf(mall.get("seq"));
+                java.util.Optional<com.jiniebox.jangbogo.dto.MallAccount> accOpt = mallAccountYmlService.getAccountBySeq(seqStr);
+                if (accOpt.isEmpty()) {
+                    // 계정 정보가 없으면 키 필드 제거만 수행
+                    mall.remove("encrypt_key");
+                    mall.remove("encrypt_iv");
+                    continue;
+                }
+
+                String cipherUsrId = accOpt.get().getId();
+                if (cipherUsrId == null || cipherUsrId.isEmpty()) {
+                    mall.remove("encrypt_key");
+                    mall.remove("encrypt_iv");
+                    continue;
+                }
+
+                // base64 → Key/IV 복원 후 복호화
+                javax.crypto.SecretKey secKey = StringEncrypter.decodeBase64ToSecretKey(encKeyBase64);
+                javax.crypto.spec.IvParameterSpec ivSpec = StringEncrypter.decodeBase64ToIv(encIvBase64);
+                String decrypted = StringEncrypter.decrypt(StringEncrypter.ALGORITHM, cipherUsrId, secKey, ivSpec);
+                if (decrypted != null && decrypted.startsWith("%")) {
+                    decrypted = decrypted.substring(1);
+                }
+
+                // mall에 usrid 저장, 키 필드는 제거
+                mall.put("usrid", decrypted);
+                mall.remove("encrypt_key");
+                mall.remove("encrypt_iv");
+            }
+        } catch (Exception e) {
+            logger.warn("malls 복호화 후처리 중 오류: {}", e.getMessage());
+        }
+
+        node.set("malls", objectMapper.valueToTree(malls));
         
 
         
@@ -300,8 +349,8 @@ public class AdminController {
                 jaDao.setAccountStatus(seqMall, 0);
                 
                 response.put("success", true);
-                response.put("code", "000");
-                response.put("message", "연결을 해제하였습니다.");
+                resCode = EnvSYS.RESCODE_SUCC;
+                resMsg = "연결을 해제하였습니다.";
                 response.put("status", 0);
                 
                 logger.info("쇼핑몰 연결 해제 완료 - seq: {}, user: {}", seqMall, username);
@@ -323,10 +372,6 @@ public class AdminController {
                     /**
                      * 연결테스트에 성공한 경우
                      */
-                    // TODO 나머지 처리
-                    // 1. 암호화 키 생성
-                    // 2. ID/Pass 암호화
-                    // 3. File 과 DB 저장
 
                     SecretKey key = StringEncrypter.generateKey(256);
                     IvParameterSpec iv = StringEncrypter.generateIv();
