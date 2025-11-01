@@ -61,6 +61,9 @@ public class AdminController {
     @Autowired
     private MallAccountYmlService mallAccountYmlService;
     
+    @Autowired
+    private com.jiniebox.jangbogo.svc.MallSchedulerService mallSchedulerService;
+    
     /**
      * 로그인 API
      * POST /api/login
@@ -212,6 +215,11 @@ public class AdminController {
         node.put("message", "장보고 프로젝트");
         node.put("code", 200);
         node.put("currentUser", username);
+        
+        // Windows 사용자 내문서 경로 제공
+        String userHome = System.getProperty("user.home");
+        String documentsPath = userHome + "\\Documents\\jangbogo_exports";
+        node.put("defaultExportPath", documentsPath);
         
         JbgMallDataAccessObject jaDao = new JbgMallDataAccessObject();
         List<JSONObject> malls = jaDao.getAllMalls(true);
@@ -471,7 +479,10 @@ public class AdminController {
     }
 
     /**
-     * 선택한 쇼핑몰들에 대한 자동 수집 즉시 실행
+     * 선택한 쇼핑몰들에 대한 자동 수집 실행
+     * - executeNow=true: 즉시 실행 후 주기적 스케줄링 시작
+     * - executeNow=false: 주기적 스케줄링만 시작 (즉시 실행 안 함)
+     * - 이미 수집 작업 실행 중인 쇼핑몰은 스킵
      * POST /malls/auto-collect
      */
     @PostMapping("/malls/auto-collect")
@@ -481,6 +492,7 @@ public class AdminController {
         ObjectNode response = objectMapper.createObjectNode();
 
         List<String> processed = new ArrayList<>();
+        List<String> scheduled = new ArrayList<>();
         List<String> skipped = new ArrayList<>();
         List<String> decryptionFailed = new ArrayList<>();
 
@@ -490,12 +502,29 @@ public class AdminController {
                 response.put("message", "선택된 쇼핑몰이 없습니다.");
                 return response;
             }
+            
+            // 즉시 실행 여부 확인 (기본값: false)
+            boolean executeNow = req.getExecuteNow() != null && req.getExecuteNow();
+            logger.info("자동수집 요청 - 선택된 쇼핑몰: {}, 즉시 실행: {}", req.getSeqs().size(), executeNow);
 
             long sleepMs = 500; // 즉시 실행 간 간격(경미한 완충)
             JbgMallDataAccessObject jaDao = new JbgMallDataAccessObject();
 
             for (String seq : req.getSeqs()) {
                 try {
+                    // 이미 수집 작업이 실행 중이면 스킵 (브라우저 실행 중)
+                    if (jangBoGoManager.isCollecting(seq)) {
+                        skipped.add(seq);
+                        logger.warn("쇼핑몰 seq={} 이미 수집 중, 건너뜀", seq);
+                        continue;
+                    }
+                    
+                    // 스케줄링 중이어도 실행 중이 아니면 사용자 요청 처리 (즉시 실행)
+                    boolean wasScheduled = mallSchedulerService.isScheduled(seq);
+                    if (wasScheduled) {
+                        logger.info("쇼핑몰 seq={} 스케줄링 중이지만 사용자 요청으로 즉시 실행", seq);
+                    }
+                    
                     JSONObject mall = jaDao.getMall(seq);
                     if (mall == null) { 
                         skipped.add(seq);
@@ -539,22 +568,37 @@ public class AdminController {
                         continue; 
                     }
 
-                    jangBoGoManager.updateItems(seq, id, pw);
-                    processed.add(seq);
-
-                    try { Thread.sleep(sleepMs); } catch (InterruptedException ignore) {}
+                    // executeNow 플래그에 따라 즉시 실행 여부 결정
+                    if (executeNow) {
+                        // 즉시 실행 (수동, 1회만)
+                        jangBoGoManager.updateItems(seq, id, pw);
+                        processed.add(seq);
+                        logger.info("쇼핑몰 seq={} 즉시 수집 실행 완료", seq);
+                        try { Thread.sleep(sleepMs); } catch (InterruptedException ignore) {}
+                    } else {
+                        logger.info("쇼핑몰 seq={} 즉시 실행 건너뜀 (executeNow=false)", seq);
+                    }
+                    
+                    // 주기적 스케줄링 시작 (주기 > 0이면, 다음 실행은 주기만큼 대기 후)
+                    Integer intervalMinutes = mall.get("collect_interval_minutes") != null ? 
+                        Integer.parseInt(mall.get("collect_interval_minutes").toString()) : 0;
+                    if (intervalMinutes != null && intervalMinutes > 0) {
+                        mallSchedulerService.scheduleMall(seq, intervalMinutes);
+                        scheduled.add(seq);
+                        logger.info("쇼핑몰 seq={} 주기적 스케줄 등록 (다음 자동수집: {}분 후)", seq, intervalMinutes);
+                    }
                 } catch (BadPaddingException bpe) {
-                    logger.warn("Auto-collect decryption failed for mall seq={} (BadPaddingException)", seq);
+                        logger.warn("쇼핑몰 seq={} 자동수집 복호화 실패 (BadPaddingException)", seq);
                     // 계정 복호화 오류 발생 시 DB 키/IV 삭제 및 상태 0 초기화
                     try {
                         jaDao.update(seq, 0, null, null);
-                        logger.info("Reset encrypt_key/iv and account_status=0 for mall seq={}", seq);
+                        logger.info("쇼핑몰 seq={} 암호화 키/IV 초기화 및 account_status=0 설정 완료", seq);
                     } catch (Exception resetEx) {
-                        logger.warn("Failed to reset DB credentials for mall seq={}: {}", seq, resetEx.getMessage());
+                        logger.warn("쇼핑몰 seq={} DB 인증정보 초기화 실패: {}", seq, resetEx.getMessage());
                     }
                     decryptionFailed.add(seq);
                 } catch (Exception perMallEx) {
-                    logger.warn("Auto-collect selected error for mall seq={}", seq, perMallEx);
+                    logger.warn("쇼핑몰 seq={} 자동수집 오류", seq, perMallEx);
                     skipped.add(seq);
                     try { jaDao.update(seq, 0, null, null); } catch (Exception ignore) {}
                 }
@@ -562,13 +606,31 @@ public class AdminController {
 
             response.put("success", true);
             response.set("processed", objectMapper.valueToTree(processed));
+            response.set("scheduled", objectMapper.valueToTree(scheduled));
             response.set("skipped", objectMapper.valueToTree(skipped));
             response.set("decryptionFailed", objectMapper.valueToTree(decryptionFailed));
-            if (!decryptionFailed.isEmpty()) {
-                response.put("message", "일부 쇼핑몰 계정 복호화에 실패했습니다. 해당 쇼핑몰에서 '계정연결'을 다시 시도해 주세요.");
-            } else {
-                response.put("message", "자동 수집 요청이 처리되었습니다.");
+            
+            // 메시지 구성
+            StringBuilder message = new StringBuilder();
+            if (executeNow && !processed.isEmpty()) {
+                message.append(processed.size()).append("개 쇼핑몰 즉시 수집 시작");
             }
+            if (!scheduled.isEmpty()) {
+                if (message.length() > 0) message.append(", ");
+                message.append(scheduled.size()).append("개 쇼핑몰 주기적 수집 활성화");
+            }
+            if (!executeNow && scheduled.isEmpty() && processed.isEmpty()) {
+                message.append("주기적 수집만 활성화됨 (즉시 실행 안 함)");
+            }
+            if (!decryptionFailed.isEmpty()) {
+                if (message.length() > 0) message.append(". ");
+                message.append("일부 쇼핑몰 계정 복호화 실패. 해당 쇼핑몰에서 '계정연결'을 다시 시도해 주세요.");
+            }
+            if (message.length() == 0) {
+                message.append("처리된 쇼핑몰이 없습니다.");
+            }
+            
+            response.put("message", message.toString());
             return response;
         } catch (Exception e) {
             logger.error("자동 수집 요청 처리 오류", e);
@@ -580,14 +642,26 @@ public class AdminController {
 
     public static class AutoCollectRequest {
         private java.util.List<String> seqs;
+        private java.util.Map<String, Integer> intervals; // seq -> intervalMinutes
+        private Boolean executeNow; // 즉시 실행 여부
+        
         public java.util.List<String> getSeqs() { return seqs; }
         public void setSeqs(java.util.List<String> seqs) { this.seqs = seqs; }
+        
+        public java.util.Map<String, Integer> getIntervals() { return intervals; }
+        public void setIntervals(java.util.Map<String, Integer> intervals) { this.intervals = intervals; }
+        
+        public Boolean getExecuteNow() { return executeNow; }
+        public void setExecuteNow(Boolean executeNow) { this.executeNow = executeNow; }
     }
 
     /**
-     * 자동수집 체크박스 상태 저장 (전체 저장)
+     * 자동수집 체크박스 상태 및 주기 저장 (전체 저장)
      * POST /malls/auto-collect/flags
-     * body: { seqs: ["1","2", ...] } // 체크된 seq 전체 목록
+     * body: { 
+     *   seqs: ["1","2", ...],  // 체크된 seq 전체 목록
+     *   intervals: { "1": 30, "2": 60, ... }  // seq별 주기(분)
+     * }
      */
     @PostMapping("/malls/auto-collect/flags")
     @ResponseBody
@@ -596,7 +670,39 @@ public class AdminController {
         ObjectNode response = objectMapper.createObjectNode();
         try {
             JbgMallDataAccessObject jaDao = new JbgMallDataAccessObject();
-            jaDao.saveAutoCollectFlags(req != null ? req.getSeqs() : java.util.Collections.emptyList());
+            
+            // 체크박스 상태와 주기 시간 DB에 저장
+            java.util.List<String> seqs = req != null ? req.getSeqs() : java.util.Collections.emptyList();
+            java.util.Map<String, Integer> intervals = req != null ? req.getIntervals() : java.util.Collections.emptyMap();
+            
+            jaDao.saveAutoCollectFlags(seqs, intervals);
+            
+            // 스케줄링 상태 동기화
+            // 1. 체크 해제된 쇼핑몰 스케줄 취소
+            java.util.List<JSONObject> allMalls = jaDao.getAllMalls(false);
+            for (JSONObject mall : allMalls) {
+                String seq = String.valueOf(mall.get("seq"));
+                if (!seqs.contains(seq)) {
+                    // 체크 해제된 쇼핑몰은 스케줄 취소
+                    mallSchedulerService.cancelMall(seq);
+                    logger.debug("체크 해제된 쇼핑몰 seq={} 스케줄 취소", seq);
+                }
+            }
+            
+            // 2. 체크된 쇼핑몰 스케줄 업데이트
+            for (String seq : seqs) {
+                Integer intervalMinutes = intervals.getOrDefault(seq, 0);
+                if (intervalMinutes != null && intervalMinutes > 0) {
+                    // 주기가 설정된 쇼핑몰만 스케줄링
+                    mallSchedulerService.scheduleMall(seq, intervalMinutes);
+                    logger.debug("쇼핑몰 seq={} 스케줄 등록 (주기: {}분)", seq, intervalMinutes);
+                } else {
+                    // 주기가 0이면 스케줄 취소
+                    mallSchedulerService.cancelMall(seq);
+                    logger.debug("쇼핑몰 seq={} 스케줄 취소 (주기=0)", seq);
+                }
+            }
+            
             response.put("success", true);
             response.put("message", "자동수집 설정이 저장되었습니다.");
             return response;

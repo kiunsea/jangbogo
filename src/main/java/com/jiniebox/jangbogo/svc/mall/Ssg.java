@@ -98,7 +98,7 @@ public class Ssg extends MallSession implements PurchasedCollector {
         String elemOnclick = elemLogoutButton.getAttribute("onclick");
         
         if (elemLogoutButton != null && elemOnclick.indexOf("logout") > -1) {
-            log.debug("[button element] onclick ->>>>>> " + elemOnclick);
+            log.debug("[버튼 요소] onclick 속성: {}", elemOnclick);
             return true;
         }
         **/
@@ -161,7 +161,7 @@ public class Ssg extends MallSession implements PurchasedCollector {
             , String mainWindowHandle
             , JavascriptExecutor js) throws NoSuchElementException {
     	
-    	log.debug("- SSG onlinePurchaseList -");
+    	log.debug("SSG 온라인 구매내역 조회");
 
         WebElement onlinePurchase_page = driver.findElement(By.xpath("//*[@id='onlinePurchaseList']/div[@class='paginate']/div[@class='paging notranslate']"));
         List<WebElement> onlinePurchase_pages = onlinePurchase_page.findElements(By.xpath(".//*"));
@@ -238,7 +238,7 @@ public class Ssg extends MallSession implements PurchasedCollector {
             , String mainWindowHandle
             , JavascriptExecutor js) {
 
-    	log.debug("- SSG offlinePurchaseList -");
+    	log.debug("SSG 오프라인 구매내역 조회");
     	
         List<WebElement> tmpElems = null;
         WebElement offlinePurchase_page = driver.findElement(By.xpath("//*[@id='offPurchaseList']/div[@class='paginate']/div[@class='paging notranslate']"));

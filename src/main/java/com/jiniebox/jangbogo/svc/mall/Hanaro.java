@@ -78,7 +78,7 @@ public class Hanaro extends MallSession implements PurchasedCollector {
         WebElement btnLogout = driver.findElement(By.id("a_id_logout"));
         
         if ("로그아웃".equals(btnLogout.getText())) {
-            log.debug("[signin success!!] >>>>>> ");
+            log.debug("로그인 성공");
             return true;
         }
         

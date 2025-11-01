@@ -23,6 +23,7 @@ public class MallOrderUpdater {
      * @throws Exception 
      */
     public JSONArray collectItems(String seqMall, String mallId, String mallPw) throws Exception {
+        log.info("구매내역 수집 시작 - seqMall: {}, mallId: {}", seqMall, mallId);
 
         // 수집 시작 전에 로그인 시간 갱신
         JbgMallDataAccessObject jaDao = new JbgMallDataAccessObject();
@@ -36,12 +37,23 @@ public class MallOrderUpdater {
         JSONArray itemArr = new JSONArray();
         int seqMallInt = Integer.parseInt(seqMall);
         if (seqMallInt == 1) {
-            itemArr.addAll(new Ssg(mallId, mallPw).getItems()); // SSG 구매 내역 수집
-            itemArr.addAll(new Emart(mallId, mallPw).getItems()); // NO BRAND 구매 내역 수집
+            log.info("SSG 구매 내역 수집 시작");
+            JSONArray ssgItems = new Ssg(mallId, mallPw).getItems();
+            log.info("SSG 수집 완료 - {} 건", ssgItems != null ? ssgItems.size() : 0);
+            if (ssgItems != null) itemArr.addAll(ssgItems);
+            
+            log.info("Emart 구매 내역 수집 시작");
+            JSONArray emartItems = new Emart(mallId, mallPw).getItems();
+            log.info("Emart 수집 완료 - {} 건", emartItems != null ? emartItems.size() : 0);
+            if (emartItems != null) itemArr.addAll(emartItems);
         } else if (seqMallInt == 2) {
-            itemArr.addAll(new Oasis(mallId, mallPw).getItems()); // OASIS 구매 내역 수집
+            log.info("Oasis 구매 내역 수집 시작");
+            JSONArray oasisItems = new Oasis(mallId, mallPw).getItems();
+            log.info("Oasis 수집 완료 - {} 건", oasisItems != null ? oasisItems.size() : 0);
+            if (oasisItems != null) itemArr.addAll(oasisItems);
         }
 
+        log.info("전체 수집 완료 - 총 {} 건", itemArr.size());
         return itemArr;
     }
     

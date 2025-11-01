@@ -22,7 +22,8 @@ CREATE TABLE IF NOT EXISTS jbg_mall (
   encrypt_key TEXT, -- Encrypt SecretKey
   encrypt_iv TEXT, -- Encrypt IvParameterSpec
   account_status INTEGER NOT NULL DEFAULT 0, -- 서비스 이용 가능 여부(0:이용 불가, 1:이용 가능)
-  last_signin_time INTEGER -- 마지막 접속 시간 (millisecond)
+  last_signin_time INTEGER, -- 마지막 접속 시간 (millisecond)
+  collect_interval_minutes INTEGER DEFAULT 0 -- 자동수집 주기 (분 단위, 0이면 주기적 실행 안 함)
 );
 
 --------------------------------------------------------

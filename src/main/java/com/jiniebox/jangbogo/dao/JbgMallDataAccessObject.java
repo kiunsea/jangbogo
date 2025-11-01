@@ -13,10 +13,7 @@ import com.jiniebox.jangbogo.util.ExceptionUtil;
 import com.jiniebox.jangbogo.util.JinieboxUtil;
 
 /**
- * 쇼핑몰 정보 DAO (통합)
- * 
- * jbg_mall 테이블에 접근하는 모든 기능을 통합
- * - 기존 JbgAccessDataAccessObject와 JbgMallDataAccessObject를 통합
+ * 쇼핑몰 정보 DAO
  * 
  * @author KIUNSEA
  */
@@ -30,49 +27,6 @@ public class JbgMallDataAccessObject extends CommonDataAccessObject {
     
     // ========== 쇼핑몰 조회 메서드 ==========
     
-//    /**
-//     * 쇼핑몰 전체 목록 조회 (기본 정보만)
-//     * 
-//     * @return 쇼핑몰 목록 (seq, id, name, details)
-//     * @throws Exception
-//     */
-//    public List<JSONObject> getMalls() throws Exception {
-//        LocalDBConnection conn = null;
-//        try {
-//            conn = new LocalDBConnection();
-//            StringBuffer querySb = new StringBuffer("SELECT seq, id, name, details");
-//            querySb.append(" FROM jbg_mall");
-//            log.debug("LOCALDB-QUERY------------------------------------------------------------------------------");
-//            log.debug(querySb);
-//            ResultSet rset = conn.executeQuery(querySb.toString());
-//
-//            List<JSONObject> malls = null;
-//            if (rset != null) {
-//                malls = new ArrayList<JSONObject>();
-//                JSONObject mJson = null;
-//                while (rset.next()) {
-//                    mJson = new JSONObject();
-//                    mJson.put("seq", rset.getInt("seq"));
-//                    mJson.put("id", rset.getString("id"));
-//                    mJson.put("name", rset.getString("name"));
-//                    mJson.put("details", rset.getString("details"));
-//                    malls.add(mJson);
-//                }
-//                return malls;
-//            } else {
-//                return null;
-//            }
-//        } catch (Exception e) {
-//            log.error("* 프로그램 수행중 에러 발생");
-//            log.error(ExceptionUtil.getExceptionInfo(e));
-//            throw e;
-//        } finally {
-//            if (conn != null) {
-//                conn.close();
-//            }
-//        }
-//    }
-    
     /**
      * 쇼핑몰 전체 목록 조회 (모든 필드 포함)
      * 
@@ -84,12 +38,12 @@ public class JbgMallDataAccessObject extends CommonDataAccessObject {
         LocalDBConnection conn = null;
         try {
             conn = new LocalDBConnection();
-            ensureAutoCollectColumn(conn);
+            ensureAutoCollectColumns(conn);
             StringBuffer querySb = new StringBuffer("SELECT seq, id, name, details");
             if (addEncField) {
                 querySb.append(", encrypt_key, encrypt_iv");
             }
-            querySb.append(", account_status, last_signin_time, auto_collect");
+            querySb.append(", account_status, last_signin_time, auto_collect, collect_interval_minutes");
             querySb.append(" FROM jbg_mall");
             log.debug("LOCALDB-QUERY------------------------------------------------------------------------------");
             log.debug(querySb);
@@ -112,6 +66,7 @@ public class JbgMallDataAccessObject extends CommonDataAccessObject {
                     mJson.put("account_status", rset.getInt("account_status"));
                     mJson.put("last_signin_time", rset.getLong("last_signin_time"));
                     mJson.put("auto_collect", safeGetInt(rset, "auto_collect", 0));
+                    mJson.put("collect_interval_minutes", safeGetInt(rset, "collect_interval_minutes", 0));
                     malls.add(mJson);
                 }
                 return malls;
@@ -140,9 +95,9 @@ public class JbgMallDataAccessObject extends CommonDataAccessObject {
         LocalDBConnection conn = null;
         try {
             conn = new LocalDBConnection();
-            ensureAutoCollectColumn(conn);
+            ensureAutoCollectColumns(conn);
             StringBuffer querySb = new StringBuffer("SELECT seq, id, name, details, ");
-            querySb.append("encrypt_key, encrypt_iv, account_status, last_signin_time, auto_collect");
+            querySb.append("encrypt_key, encrypt_iv, account_status, last_signin_time, auto_collect, collect_interval_minutes");
             querySb.append(" FROM jbg_mall");
             querySb.append(" WHERE seq=" + seq);
             log.debug("LOCALDB-QUERY------------------------------------------------------------------------------");
@@ -162,6 +117,7 @@ public class JbgMallDataAccessObject extends CommonDataAccessObject {
                     mJson.put("account_status", rset.getInt("account_status"));
                     mJson.put("last_signin_time", rset.getLong("last_signin_time"));
                     mJson.put("auto_collect", safeGetInt(rset, "auto_collect", 0));
+                    mJson.put("collect_interval_minutes", safeGetInt(rset, "collect_interval_minutes", 0));
                 }
                 return mJson;
             } else {
@@ -180,20 +136,34 @@ public class JbgMallDataAccessObject extends CommonDataAccessObject {
 
     // ========== Auto-collect flag helpers ==========
 
-    private void ensureAutoCollectColumn(LocalDBConnection conn) {
+    private void ensureAutoCollectColumns(LocalDBConnection conn) {
+        // auto_collect 컬럼 확인 및 추가
         try {
-            // Try simple select; if column missing, SQLite will throw an exception
             conn.executeQuery("SELECT auto_collect FROM jbg_mall LIMIT 1");
         } catch (Exception e) {
             try {
                 conn.txOpen();
                 conn.txExecuteUpdate("ALTER TABLE jbg_mall ADD COLUMN auto_collect INTEGER DEFAULT 0");
                 conn.txCommit();
-                log.info("Added missing column: jbg_mall.auto_collect");
+                log.info("jbg_mall 테이블에 auto_collect 컬럼 추가 완료");
             } catch (Exception ex) {
                 try { conn.txRollBack(); } catch (Exception ignore) {}
-                // Ignore if already exists from race, otherwise rethrow
-                log.debug("ensureAutoCollectColumn: {}", ex.getMessage());
+                log.debug("auto_collect 컬럼 확인: {}", ex.getMessage());
+            }
+        }
+        
+        // collect_interval_minutes 컬럼 확인 및 추가
+        try {
+            conn.executeQuery("SELECT collect_interval_minutes FROM jbg_mall LIMIT 1");
+        } catch (Exception e) {
+            try {
+                conn.txOpen();
+                conn.txExecuteUpdate("ALTER TABLE jbg_mall ADD COLUMN collect_interval_minutes INTEGER DEFAULT 0");
+                conn.txCommit();
+                log.info("jbg_mall 테이블에 collect_interval_minutes 컬럼 추가 완료");
+            } catch (Exception ex) {
+                try { conn.txRollBack(); } catch (Exception ignore) {}
+                log.debug("collect_interval_minutes 컬럼 확인: {}", ex.getMessage());
             }
         }
     }
@@ -204,23 +174,83 @@ public class JbgMallDataAccessObject extends CommonDataAccessObject {
 
     /**
      * 선택된 seq들만 auto_collect=1로 저장하고 나머지는 0으로 초기화
+     * 주기 시간도 함께 저장
+     * 
+     * @param selectedSeqs 체크된 쇼핑몰 seq 목록
+     * @param intervals seq를 키로 하고 주기(분)를 값으로 하는 맵 (null 가능)
      */
-    public void saveAutoCollectFlags(List<String> selectedSeqs) throws Exception {
+    public void saveAutoCollectFlags(List<String> selectedSeqs, java.util.Map<String, Integer> intervals) throws Exception {
         LocalDBConnection conn = null;
         try {
             conn = new LocalDBConnection();
-            ensureAutoCollectColumn(conn);
+            ensureAutoCollectColumns(conn);
             conn.txOpen();
+            
+            // 모든 쇼핑몰의 auto_collect를 0으로 초기화
             conn.txExecuteUpdate("UPDATE jbg_mall SET auto_collect=0");
+            
+            // 선택된 쇼핑몰은 auto_collect=1로 설정
             if (selectedSeqs != null && !selectedSeqs.isEmpty()) {
                 String inClause = String.join(",", selectedSeqs.stream().map(s -> s.replaceAll("[^0-9]", "")).toList());
                 if (!inClause.isEmpty()) {
                     conn.txExecuteUpdate("UPDATE jbg_mall SET auto_collect=1 WHERE seq IN (" + inClause + ")");
                 }
             }
+            
+            // 주기 시간 업데이트 (intervals 맵이 있으면)
+            if (intervals != null && !intervals.isEmpty()) {
+                for (java.util.Map.Entry<String, Integer> entry : intervals.entrySet()) {
+                    String seq = entry.getKey().replaceAll("[^0-9]", "");
+                    Integer minutes = entry.getValue();
+                    if (!seq.isEmpty() && minutes != null) {
+                        String updateQuery = "UPDATE jbg_mall SET collect_interval_minutes=" + minutes + " WHERE seq=" + seq;
+                        conn.txExecuteUpdate(updateQuery);
+                        log.debug("쇼핑몰 seq={} 수집주기 업데이트 완료: {}분", seq, minutes);
+                    }
+                }
+            }
+            
             conn.txCommit();
         } catch (SQLException e) {
             log.error("* 아이고!! ㅜ.ㅜ 데이터베이스 업데이트 에러 발생");
+            log.error(ExceptionUtil.getExceptionInfo(e));
+            if (conn != null) conn.txRollBack();
+            throw e;
+        } catch (Exception e) {
+            log.error("* 데이터베이스 업데이트 에러 발생");
+            log.error(ExceptionUtil.getExceptionInfo(e));
+            if (conn != null) conn.txRollBack();
+            throw e;
+        } finally {
+            if (conn != null) conn.close();
+        }
+    }
+    
+    /**
+     * 특정 쇼핑몰의 수집 주기 업데이트
+     * 
+     * @param seq 쇼핑몰 시퀀스
+     * @param intervalMinutes 주기 (분 단위)
+     */
+    public void updateCollectInterval(String seq, int intervalMinutes) throws Exception {
+        LocalDBConnection conn = null;
+        try {
+            conn = new LocalDBConnection();
+            ensureAutoCollectColumns(conn);
+            conn.txOpen();
+            
+            String cleanSeq = seq.replaceAll("[^0-9]", "");
+            if (cleanSeq.isEmpty()) {
+                throw new IllegalArgumentException("Invalid seq: " + seq);
+            }
+            
+            String query = "UPDATE jbg_mall SET collect_interval_minutes=" + intervalMinutes + " WHERE seq=" + cleanSeq;
+            log.debug("LOCALDB-QUERY------------------------------------------------------------------------------");
+            log.debug(query);
+            conn.txExecuteUpdate(query);
+            conn.txCommit();
+        } catch (SQLException e) {
+            log.error("* 데이터베이스 업데이트 에러 발생");
             log.error(ExceptionUtil.getExceptionInfo(e));
             if (conn != null) conn.txRollBack();
             throw e;

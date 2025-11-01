@@ -95,5 +95,20 @@ public class DevTestController {
             return "✗ 실패: " + e.getMessage();
         }
     }
+    
+    /**
+     * 데이터베이스 초기화 (jbg_order, jbg_item 테이블 및 시퀀스)
+     * GET /dev/reset-database
+     * 주의: 모든 주문 및 아이템 데이터가 삭제됩니다!
+     */
+    @GetMapping("/reset-database")
+    public String resetDatabase() {
+        try {
+            DatabaseResetUtil.resetOrderAndItemTables();
+            return "✓ 데이터베이스 초기화 완료! jbg_order와 jbg_item 테이블이 초기화되었습니다.";
+        } catch (Exception e) {
+            return "✗ 초기화 실패: " + e.getMessage();
+        }
+    }
 }
 

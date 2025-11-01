@@ -61,22 +61,71 @@
 			<div class="card-body">
 				<h5 id="card-title" class="card-title">쇼핑 데이터 수집(자동화)</h5>
 				<p class="card-text">온라인/오프라인 쇼핑몰에서 구매한 상품들을 자동으로 수집하여 저장합니다.<br/>
-				쇼핑몰 계정 정보는 개인 브라우저에 암호화되어 저장됩니다.</p>
+				쇼핑몰 계정 정보는 암호화되어 현재 시스템에 저장됩니다.</p>
 			</div>
-			<hr class="mb-3" style="border-top: 1px dotted gray;">
+		<hr class="mb-3" style="border-top: 1px dotted gray;">
 
-			<div id="automall_div" class="card-body">
-				<div class="d-flex align-items-center justify-content-between">
-					<h5 class="card-title mb-0">쇼핑몰 목록</h5>
-					<button type="button" class="btn btn-secondary btn-sm" onclick="autoCollectSelected()">자동수집</button>
+	<div id="autosave_options_div" class="card-body">
+		<h5 class="card-title mb-3">구매정보 저장 옵션</h5>
+		<div class="mb-3">
+			<div class="d-flex align-items-center justify-content-between">
+				<div>
+					<i class="bi bi-file-earmark-text"></i>&nbsp; <span>수집 결과 파일 저장</span>
 				</div>
+				<button type="button" class="btn btn-secondary btn-sm" onclick="saveCollectionResultsNow()">지금저장</button>
+			</div>
+			<div class="ps-3 mb-2">
+				<ul class="list-group">
+				<li class="list-group-item">
+					<div class="d-flex align-items-center gap-2">
+						<div style="white-space: nowrap;">저장 위치</div>
+						<div class="d-flex align-items-center gap-2 flex-grow-1">
+							<input type="text" class="form-control form-control-sm flex-grow-1" 
+								   id="file_save_path" value="./exports" 
+								   placeholder="저장 경로를 입력하세요">
+							<button type="button" class="btn btn-outline-secondary btn-sm" 
+									onclick="setDefaultDocumentsPath()" title="기본 경로로 설정">
+								<i class="bi bi-house-door"></i>
+							</button>
+						</div>
+					</div>
+				</li>
+					<li class="list-group-item">
+						<div class="d-flex align-items-center justify-content-between">
+							<div>저장 포맷</div>
+							<div>
+								<select class="form-select form-select-sm" id="file_save_format" style="width: 150px;">
+									<option value="json">JSON</option>
+									<option value="csv">CSV</option>
+									<option value="excel">Excel</option>
+								</select>
+							</div>
+						</div>
+					</li>
+					<li class="list-group-item">
+						<div class="d-flex align-items-center justify-content-between">
+							<div>자동수집시 함께 저장</div>
+							<div>
+								<input type="checkbox" class="form-check-input" id="auto_save_on_collect" value="1">
+							</div>
+						</div>
+					</li>
+				</ul>
+			</div>
+		</div>
+	</div>
+	
+	<hr class="mb-3" style="border-top: 1px dotted gray;">
+
+		<div id="automall_div" class="card-body">
+			<div class="d-flex align-items-center justify-content-between">
+				<h5 class="card-title mb-0">쇼핑몰 목록</h5>
+				<button type="button" class="btn btn-secondary btn-sm" onclick="autoCollectSelected()">자동수집</button>
+			</div>
 				<div id="mall_list">
 					<div class="mb-3">
 						<div class="d-flex align-items-center">
 							<i class="bi bi-shop"></i>&nbsp; <span>SSG(신세계)</span>
-							<div class="ms-auto">
-								<input type="checkbox" class="form-check-input mall-check" value="1">
-							</div>
 						</div>
 						<div class="ps-3 mb-2">
 							<ul class="list-group">
@@ -85,6 +134,17 @@
 									target="_blank"> https://www.ssg.com </a>
 								</li>
 								<li class="list-group-item">신세계, 이마트, 트레이더스, 노브랜드</li>
+								<li class="list-group-item">
+									<div class="d-flex align-items-center justify-content-between">
+										<div>자동 수집 주기(분)</div>
+										<div class="d-flex align-items-center gap-2">
+											<input type="number" class="form-control form-control-sm mall-interval" 
+												   data-seq="1" value="0" min="0" placeholder="주기(분)" 
+												   style="width: 100px;" title="자동수집 주기(분)">
+											<input type="checkbox" class="form-check-input mall-check" value="1">
+										</div>
+									</div>
+								</li>
 								<li class="list-group-item">
 									<button id="btn_signin_ssg" type="button"
 										class="btn btn-primary btn-sm btn-block"
@@ -96,9 +156,6 @@
 					<div class="mb-3">
 						<div class="d-flex align-items-center">
 							<i class="bi bi-shop"></i>&nbsp; <span>OASIS(오아시스)</span>
-							<div class="ms-auto">
-								<input type="checkbox" class="form-check-input mall-check" value="2">
-							</div>
 						</div>
 						<div class="ps-3 mb-2">
 							<ul class="list-group">
@@ -106,6 +163,17 @@
 									class="icon-link icon-link-hover"
 									href="https://www.oasis.co.kr" target="_blank">
 										https://www.oasis.co.kr </a>
+								</li>
+								<li class="list-group-item">
+									<div class="d-flex align-items-center justify-content-between">
+										<div>자동 수집 주기(분)</div>
+										<div class="d-flex align-items-center gap-2">
+											<input type="number" class="form-control form-control-sm mall-interval" 
+												   data-seq="2" value="0" min="0" placeholder="주기(분)" 
+												   style="width: 100px;" title="자동수집 주기(분)">
+											<input type="checkbox" class="form-check-input mall-check" value="2">
+										</div>
+									</div>
 								</li>
 								<li class="list-group-item">
 									<button id="btn_signin_oasis" type="button"
@@ -147,20 +215,26 @@
 				<!-- 쇼핑몰 로그인 팝업 끝 -->
                 <script type="text/javascript">
                 
-                    /**
-                     * 쇼핑몰 정보 초기화
-                     */
-                    document.addEventListener('DOMContentLoaded', function() {//dom 이 준비되면 실행
-                        const _doc = window.document;
-                        var path = "/malls/getinfo";
-                        var _ajax = new XMLHttpRequest();
-                        _ajax.onreadystatechange = function () {
-                            if (checkAjaxSuc(_ajax)) {
-                                var resMsg = _ajax.responseText;
-                                if (resMsg.length > 0) {
-                                    let resJson = JSON.parse(resMsg);
-                                    var alertMsg = null;
-                                    if (resJson.code == 200) {
+                /**
+                 * 쇼핑몰 정보 초기화
+                 */
+                document.addEventListener('DOMContentLoaded', function() {//dom 이 준비되면 실행
+                    const _doc = window.document;
+                    var path = "/malls/getinfo";
+                    var _ajax = new XMLHttpRequest();
+                    _ajax.onreadystatechange = function () {
+                        if (checkAjaxSuc(_ajax)) {
+                            var resMsg = _ajax.responseText;
+                            if (resMsg.length > 0) {
+                                let resJson = JSON.parse(resMsg);
+                                var alertMsg = null;
+                                if (resJson.code == 200) {
+                                    // 기본 저장 경로 설정 (Windows 내문서)
+                                    if (resJson.defaultExportPath) {
+                                        _doc.defaultExportPath = resJson.defaultExportPath; // 전역 변수에 저장
+                                        _doc.querySelector('#file_save_path').value = resJson.defaultExportPath;
+                                    }
+                                        
                                         if (resJson.malls) {
                                             let malls = _doc.malls = resJson.malls;
                                             //Object.keys(malls).forEach(key => {
@@ -191,6 +265,12 @@
                                                     // 체크박스 상태 반영 (auto_collect)
                                                     const cb = _doc.querySelector('input.mall-check[value="'+ mall.seq +'"]');
                                                     if (cb) { cb.checked = (mall.auto_collect == 1); }
+                                                    
+                                                    // 주기 설정 값 반영 (collect_interval_minutes)
+                                                    const intervalInput = _doc.querySelector('input.mall-interval[data-seq="'+ mall.seq +'"]');
+                                                    if (intervalInput && mall.collect_interval_minutes != null) {
+                                                        intervalInput.value = mall.collect_interval_minutes;
+                                                    }
                                                 }
                                             });
                                         }
@@ -326,7 +406,7 @@
                             params);
                     }
 
-                    // 선택된 쇼핑몰 자동수집 즉시 실행
+                    // 선택된 쇼핑몰 자동수집 즉시 실행 또는 취소
                     function autoCollectSelected() {
                         const _doc = window.document;
                         const checked = Array.from(_doc.querySelectorAll('input.mall-check:checked'))
@@ -335,6 +415,9 @@
                             alert('선택된 쇼핑몰이 없습니다.');
                             return;
                         }
+                        
+                        // 즉시 실행 여부 확인
+                        const executeNow = confirm('지금 즉시 최근 구매목록을 수집할까요?\n\n확인: 즉시 수집 시작\n취소: 주기적 수집만 활성화');
 
                         var _ajax = new XMLHttpRequest();
                         _ajax.onreadystatechange = function () {
@@ -343,6 +426,7 @@
                                 try {
                                     var resJson = JSON.parse(resMsg);
                                     if (resJson) {
+                                        // 오류 처리
                                         var errs = [];
                                         if (Array.isArray(resJson.decryptionFailed) && resJson.decryptionFailed.length) {
                                             errs = errs.concat(resJson.decryptionFailed.map(String));
@@ -352,7 +436,6 @@
                                         }
 
                                         if (errs.length) {
-                                            alert('계정 정보 처리 오류로 자동수집을 진행할 수 없습니다.\n문제 발생 mall seq: ' + errs.join(', ') + '\n각 쇼핑몰에서 "계정연결"을 다시 시도해 주세요.');
                                             // 오류난 쇼핑몰들을 UI에서 해제 상태로 전환
                                             errs.forEach(function(seq){
                                                 try {
@@ -367,7 +450,10 @@
                                                     }
                                                 } catch(e) { /* ignore per item */ }
                                             });
-                                        } else if (resJson.message) {
+                                        }
+                                        
+                                        // 메시지 표시
+                                        if (resJson.message) {
                                             alert(resJson.message);
                                         }
                                     }
@@ -380,15 +466,26 @@
                         _ajax.setRequestHeader('Content-Type', 'application/json;charset=UTF-8');
                         // 실행 전에 체크박스 상태 저장
                         saveAutoCollectFlagsFromUI(function() {
-                            _ajax.send(JSON.stringify({ seqs: checked }));
+                            _ajax.send(JSON.stringify({ seqs: checked, executeNow: executeNow }));
                         });
                     }
 
-                    // 체크박스 전체 상태 저장 (체크된 seq만 전달, 나머지는 0 처리)
+                    // 체크박스 전체 상태 및 주기 저장 (체크된 seq만 전달, 나머지는 0 처리)
                     function saveAutoCollectFlagsFromUI(done) {
                         const _doc = window.document;
                         const checked = Array.from(_doc.querySelectorAll('input.mall-check:checked'))
                             .map(el => String(el.value));
+                        
+                        // 모든 쇼핑몰의 주기 값 수집
+                        const intervals = {};
+                        _doc.querySelectorAll('input.mall-interval').forEach(input => {
+                            const seq = input.getAttribute('data-seq');
+                            const value = parseInt(input.value) || 0;
+                            if (seq) {
+                                intervals[seq] = value;
+                            }
+                        });
+                        
                         var xhr = new XMLHttpRequest();
                         xhr.onreadystatechange = function() {
                             if (checkAjaxSuc(xhr)) {
@@ -397,15 +494,47 @@
                         };
                         xhr.open('POST', '/malls/auto-collect/flags', true);
                         xhr.setRequestHeader('Content-Type', 'application/json;charset=UTF-8');
-                        xhr.send(JSON.stringify({ seqs: checked }));
+                        xhr.send(JSON.stringify({ seqs: checked, intervals: intervals }));
                     }
 
-                    // 체크박스 변경 시 즉시 저장
+                    // 체크박스 또는 주기 입력 필드 변경 시 즉시 저장
                     document.addEventListener('change', function(e) {
-                        if (e.target && e.target.matches('input.mall-check')) {
+                        if (e.target && (e.target.matches('input.mall-check') || e.target.matches('input.mall-interval'))) {
                             saveAutoCollectFlagsFromUI();
                         }
                     });
+                    
+                    /**
+                     * 기본 경로(내문서)로 설정
+                     */
+                    function setDefaultDocumentsPath() {
+                        const pathInput = document.querySelector('#file_save_path');
+                        const defaultPath = window.document.defaultExportPath;
+                        
+                        if (defaultPath) {
+                            pathInput.value = defaultPath;
+                            console.log('기본 경로로 설정됨:', defaultPath);
+                        } else {
+                            alert('기본 경로를 불러올 수 없습니다.\n경로를 직접 입력해주세요.\n\n예시: C:\\Users\\사용자명\\Documents\\jangbogo_exports');
+                        }
+                    }
+                    
+                    /**
+                     * 수집 결과를 파일로 지금 저장
+                     */
+                    function saveCollectionResultsNow() {
+                        const _doc = window.document;
+                        const savePath = _doc.querySelector('#file_save_path').value;
+                        const saveFormat = _doc.querySelector('#file_save_format').value;
+                        
+                        if (!savePath || savePath.trim() === '') {
+                            alert('저장 위치를 입력해주세요.');
+                            return;
+                        }
+                        
+                        // TODO: 서버에 파일 저장 요청
+                        alert('파일 저장 기능은 개발 중입니다.\n\n저장 위치: ' + savePath + '\n저장 포맷: ' + saveFormat);
+                    }
                 </script>
 			</div>
 		</div>

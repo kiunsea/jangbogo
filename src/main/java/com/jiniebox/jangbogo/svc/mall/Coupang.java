@@ -71,7 +71,7 @@ public class Coupang extends MallSession implements PurchasedCollector {
 
     @Override
     public void signout(WebDriver driver) {
-        log.debug("signout from mall~");
+        log.debug("쇼핑몰에서 로그아웃");
     }
 
 }

@@ -90,7 +90,7 @@ public class Oasis extends MallSession implements PurchasedCollector {
                 By.cssSelector("#header > div.header_area > div > div.tMenu > ul.tMenu_unb > li:nth-child(1) > a"));
 
         if ("로그아웃".equals(btnLogout.getText())) {
-            log.debug("[signin success!!] >>>>>> ");
+            log.debug("로그인 성공");
             return true;
         }
 
@@ -131,7 +131,7 @@ public class Oasis extends MallSession implements PurchasedCollector {
 				serial = serial.substring(1, serial.length() - 1);
 			}
             orderJson.put("serial", serial);
-            log.debug("Order Serial:" + serial);
+            log.debug("주문 시리얼: {}", serial);
             
             WebElement detailA = (WebElement) orderDiv.findElement(By.cssSelector("div.productArea > div > div.orderProduct > a"));
             String link = detailA.getAttribute("href");
@@ -177,7 +177,7 @@ public class Oasis extends MallSession implements PurchasedCollector {
                     itemJson.put("price", elemPriceSpan.getText());
                 } catch (NoSuchElementException e) {
                     // 자식 요소가 없는 경우 예외 처리
-                    log.debug("Child element not found within the parent element.");
+                    log.debug("부모 요소 내에서 자식 요소를 찾을 수 없습니다.");
                 }
 
                 itemJsonArr.add(itemJson);

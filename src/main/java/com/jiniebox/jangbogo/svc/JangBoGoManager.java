@@ -2,10 +2,11 @@ package com.jiniebox.jangbogo.svc;
 
 import java.util.Iterator;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.apache.logging.log4j.util.PropertiesUtil;
 import org.json.simple.JSONObject;
 import org.openqa.selenium.WebDriver;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -32,6 +33,9 @@ public class JangBoGoManager {
     
     @Autowired
     private JangbogoConfig jangbogoConfig;
+    
+    // 현재 실행 중인 쇼핑몰 seq 추적
+    private final Set<String> runningCollections = ConcurrentHashMap.newKeySet();
 
     /**
      * 쇼핑몰 목록에 사용자 아이디 원본값을 저장하여 반환한다.
@@ -114,30 +118,41 @@ public class JangBoGoManager {
     /**
      * 온라인/오프라인 쇼핑몰에서 구매한 아이템 내역들을 수집하고 지니박스 데이터베이스에 반영한다.
      *
-     * @param seqPendBox 등록대기 박스
      * @param seqMall 수집할 쇼핑몰
      * @param mallId {seqMall:{usrid:OOO,usrpw:OOO}}
      * @param mallPw
      * @throws Exception
      */
     public void updateItems(String seqMall, String mallId, String mallPw) throws Exception {
+        // 이미 실행 중이면 무시
+        if (runningCollections.contains(seqMall)) {
+            logger.warn("쇼핑몰 seq={} 이미 수집 작업 실행 중, 건너뜀", seqMall);
+            return;
+        }
         
-        new Thread(new MallOrderUpdaterRunner(seqMall, mallId, mallPw)).start();
+        // 실행 중으로 표시
+        runningCollections.add(seqMall);
+        logger.info("쇼핑몰 seq={} 수집 작업 시작", seqMall);
         
-        
-//        if (this.elapsedSigninTime(seqMall)) {
-//            new Thread(new MallOrderUpdaterRunner(seqMall, mallId, mallPw)).start();
-//            try {
-//                // 스레드들이 동시 실행되지 않도록 2초 동안 대기
-//                Thread.sleep(2000); // 2000 밀리초 = 2초
-//            } catch (InterruptedException e) {
-//                e.printStackTrace();
-//                log.error(ExceptionUtil.getExceptionInfo(e));
-//            }
-//        } else {
-//            logger.debug("사용자의 [" + seqMall + "] 사이트 접속 가능 시간이 아니기 때문에 작업이 취소되었습니다.");
-//        }
-        
+        // Thread로 실행하되 종료 시 Set에서 제거
+        new Thread(() -> {
+            try {
+                new MallOrderUpdaterRunner(seqMall, mallId, mallPw).run();
+            } finally {
+                runningCollections.remove(seqMall);
+                logger.info("쇼핑몰 seq={} 수집 작업 완료", seqMall);
+            }
+        }).start();
+    }
+    
+    /**
+     * 특정 쇼핑몰의 수집 작업이 현재 실행 중인지 확인
+     * 
+     * @param seqMall 쇼핑몰 시퀀스
+     * @return 실행 중이면 true
+     */
+    public boolean isCollecting(String seqMall) {
+        return runningCollections.contains(seqMall);
     }
     
     /**
@@ -179,10 +194,10 @@ public class JangBoGoManager {
             long lastSignin = Long.parseLong(lastSigninTime.toString());
             long delay = Long.parseLong(jangbogoConfig.get("MALL_SIGNIN_DELAY"));
             if ((curr - lastSignin) > delay) {
-                logger.debug("["+seqMall+"]Mall 의 사용자 구매내역을 조회 시작~");
+                logger.debug("쇼핑몰 seq={} 사용자 구매내역 조회 시작", seqMall);
                 return true;
             } else {
-                logger.debug("settingtime-" + delay + ", elapsetime-" + (curr - lastSignin));
+                logger.debug("설정된 대기시간={}ms, 경과시간={}ms", delay, (curr - lastSignin));
             }
         }
 

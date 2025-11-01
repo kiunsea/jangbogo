@@ -2,12 +2,12 @@
 -- SQLite 환경에 맞게 데이터 삽입
 
 
--- jbg_mall 데이터 삭제 및 삽입
-DELETE FROM jbg_mall;
-INSERT INTO jbg_mall (seq, id, name, details, encrypt_key, encrypt_iv, account_status, last_signin_time) VALUES
-	(1, 'ssg', 'SSG(신세계,이마트,트레이더스)', '이마트,트레이더스,노브랜드,자주,신세계몰,신세계백화점', 'ot6fmqSfpJEJWKEcjen2hBrL+lN1xQOaDozvEgln1x0=', 'Uw/YkdBNjeOVb3EOYd1+UQ==', 1, 1760748896236),
-	(2, 'oasis', '오아시스', NULL, 'uV9e0VQ2NaM5pZjq5Kb18a34doDAj2O40R/LUoQ6CSY=', 'lrXR+Q8bAwYW1HIwab1vQA==', 1, 1760748896236),
-	(3, 'hanaro', '하나로마트', NULL, '', '', 0, 0);
+-- jbg_mall 초기 데이터 삽입 (테이블이 비어있을 때만)
+-- 주의: DELETE 문을 제거하여 사용자 계정 정보(encrypt_key, encrypt_iv)가 보존되도록 함
+INSERT OR IGNORE INTO jbg_mall (seq, id, name, details, encrypt_key, encrypt_iv, account_status, last_signin_time) VALUES
+	(1, 'ssg', 'SSG(신세계,이마트,트레이더스)', '이마트,트레이더스,노브랜드,자주,신세계몰,신세계백화점', NULL, NULL, 0, 0),
+	(2, 'oasis', '오아시스', NULL, NULL, NULL, 0, 0),
+	(3, 'hanaro', '하나로마트', NULL, NULL, NULL, 0, 0);
 
 -- jbg_order 데이터 삭제 및 삽입
 DELETE FROM jbg_order;

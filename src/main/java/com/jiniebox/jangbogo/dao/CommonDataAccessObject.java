@@ -47,22 +47,23 @@ public class CommonDataAccessObject {
             logger.error(ExceptionUtil.getExceptionInfo(e));
             throw e;
         } finally {
-            conn.close();
+            if (conn != null) {
+                conn.close();
+            }
         }
     }
     
     /**
      * 가장 최근에 성공적으로 수행된 INSERT 구문의 첫번째 AUTO_INCREMENT column의 값을 반환받는 쿼리
+     * SQLite에서는 last_insert_rowid() 사용
      * 
-     * @return
+     * @param conn 데이터베이스 연결 객체
+     * @return 마지막 INSERT로 생성된 시퀀스 값
      * @throws SQLException 
-     * @throws InstantiationException 
-     * @throws IllegalAccessException 
-     * @throws ClassNotFoundException 
      */
     protected int getLastInsertSeq(LocalDBConnection conn) throws SQLException {
         int seq = -1;
-        String getLastIdQuery = "SELECT LAST_INSERT_ID() id";
+        String getLastIdQuery = "SELECT last_insert_rowid() id";
         ResultSet rset = conn.executeQuery(getLastIdQuery);
         if (rset != null) {
             if (rset.next()) {
