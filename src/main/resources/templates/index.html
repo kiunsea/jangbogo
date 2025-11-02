@@ -104,7 +104,7 @@
 					</li>
 					<li class="list-group-item">
 						<div class="d-flex align-items-center justify-content-between">
-							<div>자동수집시 함께 저장</div>
+							<div>구매내역 수집시 함께 저장</div>
 							<div>
 								<input type="checkbox" class="form-check-input" id="auto_save_on_collect" value="1">
 							</div>
@@ -232,6 +232,29 @@
                                     // 기본 저장 경로 설정 (Windows 내문서)
                                     if (resJson.defaultExportPath) {
                                         _doc.defaultExportPath = resJson.defaultExportPath; // 전역 변수에 저장
+                                    }
+                                    
+                                    // 파일 저장 설정 적용
+                                    if (resJson.exportConfig) {
+                                        const exportConfig = resJson.exportConfig;
+                                        const pathInput = _doc.querySelector('#file_save_path');
+                                        const formatSelect = _doc.querySelector('#file_save_format');
+                                        const autoSaveCheck = _doc.querySelector('#auto_save_on_collect');
+                                        
+                                        if (exportConfig.save_path && exportConfig.save_path !== '') {
+                                            pathInput.value = exportConfig.save_path;
+                                        } else if (resJson.defaultExportPath) {
+                                            pathInput.value = resJson.defaultExportPath;
+                                        }
+                                        
+                                        if (exportConfig.save_format) {
+                                            formatSelect.value = exportConfig.save_format;
+                                        }
+                                        
+                                        if (exportConfig.auto_save_enabled != null) {
+                                            autoSaveCheck.checked = (exportConfig.auto_save_enabled == 1);
+                                        }
+                                    } else if (resJson.defaultExportPath) {
                                         _doc.querySelector('#file_save_path').value = resJson.defaultExportPath;
                                     }
                                         
@@ -452,9 +475,19 @@
                                             });
                                         }
                                         
-                                        // 메시지 표시
-                                        if (resJson.message) {
-                                            alert(resJson.message);
+                                        // 메시지 표시 (자동수집 완료 메시지만)
+                                        let msg = resJson.message || '';
+                                        if (msg) {
+                                            alert(msg);
+                                        }
+                                        
+                                        // 파일 자동저장 결과는 서버 로그로만 기록 (alert 안 함)
+                                        if (resJson.autoSaved && resJson.exportedFile) {
+                                            console.log('파일 자동저장 완료:', resJson.exportedFile);
+                                        } else if (resJson.autoSaveSkipped) {
+                                            console.log('파일 저장 건너뜀:', resJson.autoSaveReason);
+                                        } else if (resJson.autoSaveError) {
+                                            console.warn('파일 자동저장 실패:', resJson.autoSaveError);
                                         }
                                     }
                                 } catch (e) {
@@ -502,7 +535,50 @@
                         if (e.target && (e.target.matches('input.mall-check') || e.target.matches('input.mall-interval'))) {
                             saveAutoCollectFlagsFromUI();
                         }
+                        
+                        // 파일 저장 설정 변경 시 저장
+                        if (e.target && (e.target.id === 'auto_save_on_collect' || 
+                                         e.target.id === 'file_save_format')) {
+                            saveExportConfigToServer();
+                        }
                     });
+                    
+                    // 저장 경로 입력 필드는 blur 시 저장
+                    document.querySelector('#file_save_path').addEventListener('blur', function() {
+                        saveExportConfigToServer();
+                    });
+                    
+                    /**
+                     * 파일 저장 설정을 서버에 저장
+                     */
+                    function saveExportConfigToServer() {
+                        const _doc = window.document;
+                        const savePath = _doc.querySelector('#file_save_path').value;
+                        const saveFormat = _doc.querySelector('#file_save_format').value;
+                        const autoSaveEnabled = _doc.querySelector('#auto_save_on_collect').checked;
+                        
+                        var xhr = new XMLHttpRequest();
+                        xhr.onreadystatechange = function() {
+                            if (checkAjaxSuc(xhr)) {
+                                try {
+                                    var resJson = JSON.parse(xhr.responseText);
+                                    if (resJson.success) {
+                                        console.log('파일 저장 설정 저장 완료');
+                                    }
+                                } catch (e) {
+                                    console.error('설정 저장 응답 파싱 오류:', e);
+                                }
+                            }
+                        };
+                        
+                        xhr.open('POST', '/export/config', true);
+                        xhr.setRequestHeader('Content-Type', 'application/json;charset=UTF-8');
+                        xhr.send(JSON.stringify({ 
+                            savePath: savePath, 
+                            format: saveFormat,
+                            autoSaveEnabled: autoSaveEnabled
+                        }));
+                    }
                     
                     /**
                      * 기본 경로(내문서)로 설정
@@ -513,6 +589,7 @@
                         
                         if (defaultPath) {
                             pathInput.value = defaultPath;
+                            saveExportConfigToServer(); // 변경 시 저장
                             console.log('기본 경로로 설정됨:', defaultPath);
                         } else {
                             alert('기본 경로를 불러올 수 없습니다.\n경로를 직접 입력해주세요.\n\n예시: C:\\Users\\사용자명\\Documents\\jangbogo_exports');
@@ -532,8 +609,34 @@
                             return;
                         }
                         
-                        // TODO: 서버에 파일 저장 요청
-                        alert('파일 저장 기능은 개발 중입니다.\n\n저장 위치: ' + savePath + '\n저장 포맷: ' + saveFormat);
+                        if (!confirm('구매정보를 파일로 저장하시겠습니까?\n\n저장 위치: ' + savePath + '\n저장 포맷: ' + saveFormat.toUpperCase())) {
+                            return;
+                        }
+                        
+                        // 서버에 파일 저장 요청
+                        var xhr = new XMLHttpRequest();
+                        xhr.onreadystatechange = function() {
+                            if (checkAjaxSuc(xhr)) {
+                                try {
+                                    var resJson = JSON.parse(xhr.responseText);
+                                    if (resJson.success) {
+                                        alert('파일 저장이 완료되었습니다.\n\n저장 위치: ' + (resJson.filePath || savePath));
+                                    } else {
+                                        alert('파일 저장 실패: ' + (resJson.message || '알 수 없는 오류'));
+                                    }
+                                } catch (e) {
+                                    alert('파일 저장 응답 처리 중 오류가 발생했습니다.');
+                                    console.error('응답 파싱 오류:', e);
+                                }
+                            }
+                        };
+                        
+                        xhr.open('POST', '/export/orders', true);
+                        xhr.setRequestHeader('Content-Type', 'application/json;charset=UTF-8');
+                        xhr.send(JSON.stringify({ 
+                            savePath: savePath, 
+                            format: saveFormat 
+                        }));
                     }
                 </script>
 			</div>
@@ -542,3 +645,4 @@
 	</div>
 </body>
 </html>
+`1

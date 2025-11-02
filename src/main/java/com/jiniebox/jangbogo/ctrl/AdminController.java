@@ -64,6 +64,9 @@ public class AdminController {
     @Autowired
     private com.jiniebox.jangbogo.svc.MallSchedulerService mallSchedulerService;
     
+    @Autowired
+    private com.jiniebox.jangbogo.svc.ExportService exportService;
+    
     /**
      * 로그인 API
      * POST /api/login
@@ -221,6 +224,16 @@ public class AdminController {
         String documentsPath = userHome + "\\Documents\\jangbogo_exports";
         node.put("defaultExportPath", documentsPath);
         
+        // 파일 저장 설정 조회
+        try {
+            com.jiniebox.jangbogo.dao.JbgExportConfigDataAccessObject exportConfigDao = 
+                new com.jiniebox.jangbogo.dao.JbgExportConfigDataAccessObject();
+            JSONObject exportConfig = exportConfigDao.getConfig();
+            node.set("exportConfig", objectMapper.valueToTree(exportConfig));
+        } catch (Exception e) {
+            logger.warn("파일 저장 설정 조회 실패: {}", e.getMessage());
+        }
+        
         JbgMallDataAccessObject jaDao = new JbgMallDataAccessObject();
         List<JSONObject> malls = jaDao.getAllMalls(true);
 
@@ -273,39 +286,6 @@ public class AdminController {
         }
 
         node.set("malls", objectMapper.valueToTree(malls));
-        
-
-        
-        //TODO 이후는 테스트 코드로 삭제 예정
-        
-        // 사용자 정의 설정 값 가져오기 예제
-        // 방법 1: 직접 접근
-        node.put("localdbName", jangbogoConfig.getLocaldbName());
-        node.put("localdbPath", jangbogoConfig.getLocaldbPath());
-        
-        // 방법 2: get() 메서드 사용 (PropertiesUtil.get("LOCALDB_NAME") 스타일)
-        String dbName = jangbogoConfig.get("LOCALDB_NAME");
-        String dbPath = jangbogoConfig.get("LOCALDB_PATH");
-        String appVersion = jangbogoConfig.get("APP_VERSION");
-        
-        logger.info("설정 값 조회 - LOCALDB_NAME: {}, LOCALDB_PATH: {}, APP_VERSION: {}", 
-                    dbName, dbPath, appVersion);
-        
-        // 설정 정보를 JSON에 추가
-        ObjectNode configNode = objectMapper.createObjectNode();
-        configNode.put("localdbName", dbName);
-        configNode.put("localdbPath", dbPath);
-        configNode.put("maxRetryCount", jangbogoConfig.getMaxRetryCount());
-        configNode.put("timeoutSeconds", jangbogoConfig.getTimeoutSeconds());
-        configNode.put("debugMode", jangbogoConfig.isDebugMode());
-        configNode.put("appVersion", appVersion);
-        node.set("config", configNode);
-        
-        // 중첩 객체 추가
-        ObjectNode userData = objectMapper.createObjectNode();
-        userData.put("name", "홍길동");
-        userData.put("level", 5);
-        node.set("user", userData);
         
         return node;
     }
@@ -495,6 +475,9 @@ public class AdminController {
         List<String> scheduled = new ArrayList<>();
         List<String> skipped = new ArrayList<>();
         List<String> decryptionFailed = new ArrayList<>();
+        
+        // 모든 쇼핑몰에서 신규 추가된 주문 seq 수집
+        List<Integer> allNewOrderSeqs = new ArrayList<>();
 
         try {
             if (req == null || req.getSeqs() == null || req.getSeqs().isEmpty()) {
@@ -570,10 +553,12 @@ public class AdminController {
 
                     // executeNow 플래그에 따라 즉시 실행 여부 결정
                     if (executeNow) {
-                        // 즉시 실행 (수동, 1회만)
-                        jangBoGoManager.updateItems(seq, id, pw);
+                        // 즉시 실행 (동기 실행 + 신규 주문 seq 수집)
+                        List<Integer> newSeqs = jangBoGoManager.updateItemsAndGetNewSeqs(seq, id, pw);
+                        allNewOrderSeqs.addAll(newSeqs);
+                        
                         processed.add(seq);
-                        logger.info("쇼핑몰 seq={} 즉시 수집 실행 완료", seq);
+                        logger.info("쇼핑몰 seq={} 즉시 수집 실행 완료, 신규 주문: {}개", seq, newSeqs.size());
                         try { Thread.sleep(sleepMs); } catch (InterruptedException ignore) {}
                     } else {
                         logger.info("쇼핑몰 seq={} 즉시 실행 건너뜀 (executeNow=false)", seq);
@@ -631,6 +616,53 @@ public class AdminController {
             }
             
             response.put("message", message.toString());
+            
+            // 구매내역 수집 시 파일 저장 옵션 확인 및 실행 (수집 및 DB 저장 완료 후)
+            if (executeNow && !allNewOrderSeqs.isEmpty()) {
+                logger.info("신규 추가된 주문 총 {}개 - seq: {}", allNewOrderSeqs.size(), allNewOrderSeqs);
+                
+                try {
+                    com.jiniebox.jangbogo.dao.JbgExportConfigDataAccessObject exportConfigDao = 
+                        new com.jiniebox.jangbogo.dao.JbgExportConfigDataAccessObject();
+                    JSONObject exportConfig = exportConfigDao.getConfig();
+                    
+                    Integer autoSaveEnabled = exportConfig.get("auto_save_enabled") != null ? 
+                        Integer.parseInt(exportConfig.get("auto_save_enabled").toString()) : 0;
+                    
+                    if (autoSaveEnabled == 1) {
+                        // 구매내역 수집시 함께 저장이 활성화되어 있으면 파일 저장
+                        String savePath = exportConfig.get("save_path") != null ? 
+                            exportConfig.get("save_path").toString() : "";
+                        String format = exportConfig.get("save_format") != null ? 
+                            exportConfig.get("save_format").toString() : "json";
+                        
+                        if (!savePath.isEmpty()) {
+                            try {
+                                // 신규 추가된 주문 seq 목록으로 파일 저장
+                                String exportedFile = exportService.exportOrdersBySeqList(savePath, format, allNewOrderSeqs);
+                                
+                                response.put("autoSaved", true);
+                                response.put("exportedFile", exportedFile);
+                                response.put("newOrderCount", allNewOrderSeqs.size());
+                                logger.info("구매내역 수집 후 신규 데이터 파일 자동저장 완료: {}, 주문: {}개", 
+                                           exportedFile, allNewOrderSeqs.size());
+                            } catch (Exception exportEx) {
+                                logger.error("구매내역 수집 후 파일 자동저장 실패: {}", exportEx.getMessage(), exportEx);
+                                response.put("autoSaveError", exportEx.getMessage());
+                            }
+                        } else {
+                            logger.debug("파일 저장 경로가 설정되지 않아 파일 저장을 건너뜁니다.");
+                        }
+                    } else {
+                        logger.debug("구매내역 수집시 함께 저장 옵션이 비활성화되어 있습니다.");
+                    }
+                } catch (Exception configEx) {
+                    logger.warn("파일 저장 설정 확인 중 오류: {}", configEx.getMessage());
+                }
+            } else if (executeNow && allNewOrderSeqs.isEmpty()) {
+                logger.info("신규 추가된 주문이 없어 파일 저장을 건너뜁니다.");
+            }
+            
             return response;
         } catch (Exception e) {
             logger.error("자동 수집 요청 처리 오류", e);
@@ -712,6 +744,120 @@ public class AdminController {
             response.put("message", "자동수집 설정 저장 중 오류가 발생했습니다.");
             return response;
         }
+    }
+    
+    /**
+     * 구매정보 파일 저장
+     * POST /export/orders
+     * body: { savePath: "경로", format: "json|yaml|csv" }
+     */
+    @PostMapping("/export/orders")
+    @ResponseBody
+    public JsonNode exportOrders(@RequestBody ExportRequest req) {
+        ObjectMapper objectMapper = new ObjectMapper();
+        ObjectNode response = objectMapper.createObjectNode();
+        
+        try {
+            // 입력값 검증
+            if (req == null || req.getSavePath() == null || req.getSavePath().trim().isEmpty()) {
+                response.put("success", false);
+                response.put("message", "저장 경로를 입력해주세요.");
+                return response;
+            }
+            
+            String format = req.getFormat();
+            if (format == null || format.trim().isEmpty()) {
+                format = "json"; // 기본값
+            }
+            
+            // 파일 저장 실행
+            String filePath = exportService.exportAllOrders(req.getSavePath(), format);
+            
+            response.put("success", true);
+            response.put("message", "파일 저장이 완료되었습니다.");
+            response.put("filePath", filePath);
+            
+            logger.info("구매정보 파일 저장 완료 - 파일: {}", filePath);
+            
+        } catch (UnsupportedOperationException e) {
+            response.put("success", false);
+            response.put("message", e.getMessage());
+            logger.warn("지원하지 않는 포맷: {}", e.getMessage());
+        } catch (Exception e) {
+            response.put("success", false);
+            response.put("message", "파일 저장 중 오류가 발생했습니다: " + e.getMessage());
+            logger.error("파일 저장 오류", e);
+        }
+        
+        return response;
+    }
+    
+    /**
+     * 파일 저장 설정 업데이트
+     * POST /export/config
+     * body: { savePath: "경로", format: "json|yaml|csv", autoSaveEnabled: true|false }
+     * autoSaveEnabled: 구매내역 수집시 함께 저장 여부
+     */
+    @PostMapping("/export/config")
+    @ResponseBody
+    public JsonNode updateExportConfig(@RequestBody ExportConfigRequest req) {
+        ObjectMapper objectMapper = new ObjectMapper();
+        ObjectNode response = objectMapper.createObjectNode();
+        
+        try {
+            String savePath = req.getSavePath() != null ? req.getSavePath().trim() : "";
+            String format = req.getFormat() != null ? req.getFormat().trim() : "json";
+            int autoSaveEnabled = (req.getAutoSaveEnabled() != null && req.getAutoSaveEnabled()) ? 1 : 0;
+            
+            com.jiniebox.jangbogo.dao.JbgExportConfigDataAccessObject exportConfigDao = 
+                new com.jiniebox.jangbogo.dao.JbgExportConfigDataAccessObject();
+            exportConfigDao.updateConfig(savePath, format, autoSaveEnabled);
+            
+            response.put("success", true);
+            response.put("message", "파일 저장 설정이 저장되었습니다.");
+            
+            logger.info("파일 저장 설정 업데이트 - path: {}, format: {}, autoSave: {}", 
+                       savePath, format, autoSaveEnabled);
+            
+        } catch (Exception e) {
+            response.put("success", false);
+            response.put("message", "설정 저장 중 오류가 발생했습니다: " + e.getMessage());
+            logger.error("파일 저장 설정 업데이트 오류", e);
+        }
+        
+        return response;
+    }
+    
+    /**
+     * 파일 저장 요청 DTO
+     */
+    public static class ExportRequest {
+        private String savePath;
+        private String format;
+        
+        public String getSavePath() { return savePath; }
+        public void setSavePath(String savePath) { this.savePath = savePath; }
+        
+        public String getFormat() { return format; }
+        public void setFormat(String format) { this.format = format; }
+    }
+    
+    /**
+     * 파일 저장 설정 요청 DTO
+     */
+    public static class ExportConfigRequest {
+        private String savePath;
+        private String format;
+        private Boolean autoSaveEnabled;
+        
+        public String getSavePath() { return savePath; }
+        public void setSavePath(String savePath) { this.savePath = savePath; }
+        
+        public String getFormat() { return format; }
+        public void setFormat(String format) { this.format = format; }
+        
+        public Boolean getAutoSaveEnabled() { return autoSaveEnabled; }
+        public void setAutoSaveEnabled(Boolean autoSaveEnabled) { this.autoSaveEnabled = autoSaveEnabled; }
     }
 
 }

@@ -1,5 +1,8 @@
 package com.jiniebox.jangbogo.svc;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.simple.JSONArray;
@@ -20,6 +23,9 @@ public class MallOrderUpdaterRunner  implements Runnable {
      */
     private Logger log = LogManager.getLogger(MallOrderUpdaterRunner.class);
     private String seqMall, mallId, mallPw;
+    
+    // 신규 추가된 주문 seq 목록
+    private List<Integer> newOrderSeqs = new ArrayList<>();
     
     /**
      * @param seqMall 수집할 쇼핑몰
@@ -115,6 +121,10 @@ public class MallOrderUpdaterRunner  implements Runnable {
                             
                             seqOrder = joDao.add(serial, String.valueOf(dateTimeInt), orderMallName, this.seqMall);
                             orderCount++;
+                            
+                            // 신규 추가된 주문 seq 저장
+                            newOrderSeqs.add(seqOrder);
+                            
                             log.info("새 주문 등록 완료, seq_order: {}, serial: {}, datetime: {}, mallname: {}", 
                                      seqOrder, serial, datetime, orderMallName);
                             
@@ -149,6 +159,7 @@ public class MallOrderUpdaterRunner  implements Runnable {
                 log.info("쇼핑몰 수집 완료 - mall: {} (seq={})", mallName, this.seqMall);
                 log.info("신규 주문: {}개, 신규 아이템: {}개", orderCount, itemCount);
                 log.info("기존 주문(중복): {}개, 스킵된 주문: {}개", existingOrderCount, skippedOrders);
+                log.info("신규 주문 seq 목록: {}", newOrderSeqs);
                 log.info("===========================================================================");
             } catch (Exception e) {
                 log.error("아이템 저장 처리 중 오류 발생: {}", ExceptionUtil.getExceptionInfo(e));
@@ -158,5 +169,14 @@ public class MallOrderUpdaterRunner  implements Runnable {
             log.error("쇼핑몰 수집 실행 중 오류 발생: {}", ExceptionUtil.getExceptionInfo(e));
         }
         
+    }
+    
+    /**
+     * 신규 추가된 주문 seq 목록 조회
+     * 
+     * @return 신규 주문 seq 리스트
+     */
+    public List<Integer> getNewOrderSeqs() {
+        return new ArrayList<>(newOrderSeqs);
     }
 }

@@ -34,5 +34,18 @@ CREATE TABLE IF NOT EXISTS jbg_order (
   serial_num TEXT NOT NULL DEFAULT '0', -- 시리얼 번호 (영수증 바코드 또는 주문번호)
   date_time INTEGER NOT NULL DEFAULT 0, -- 구매일자(YYYYMMDD)
   mall_name TEXT, -- 매장명
-  seq_mall INTEGER NOT NULL
+  seq_mall INTEGER NOT NULL,
+  insert_time INTEGER -- 등록시간(millisecond)
+);
+
+--------------------------------------------------------
+-- 테이블 jbg_export_config 구조
+--------------------------------------------------------
+CREATE TABLE IF NOT EXISTS jbg_export_config (
+  id INTEGER PRIMARY KEY DEFAULT 1, -- 단일 설정 레코드 (항상 1)
+  save_path TEXT NOT NULL DEFAULT '', -- 저장 경로
+  save_format TEXT NOT NULL DEFAULT 'json', -- 저장 포맷 (json, yaml, csv)
+  auto_save_enabled INTEGER NOT NULL DEFAULT 0, -- 자동수집시 함께 저장 (0:비활성, 1:활성)
+  updated_time INTEGER, -- 마지막 업데이트 시간 (millisecond)
+  last_export_time INTEGER -- 마지막 파일 저장 시간 (millisecond)
 );

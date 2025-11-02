@@ -146,6 +146,41 @@ public class JangBoGoManager {
     }
     
     /**
+     * 구매 아이템 목록 수집 (동기 실행 + 신규 주문 seq 반환)
+     * 
+     * @param seqMall 수집할 쇼핑몰
+     * @param mallId 쇼핑몰 사용자 아이디
+     * @param mallPw 쇼핑몰 사용자 비밀번호
+     * @return 신규 추가된 주문 seq 목록
+     * @throws Exception
+     */
+    public List<Integer> updateItemsAndGetNewSeqs(String seqMall, String mallId, String mallPw) throws Exception {
+        // 이미 실행 중이면 빈 리스트 반환
+        if (runningCollections.contains(seqMall)) {
+            logger.warn("쇼핑몰 seq={} 이미 수집 작업 실행 중, 건너뜀", seqMall);
+            return new java.util.ArrayList<>();
+        }
+        
+        // 실행 중으로 표시
+        runningCollections.add(seqMall);
+        logger.info("쇼핑몰 seq={} 수집 작업 시작 (동기 실행)", seqMall);
+        
+        try {
+            // 동기 실행하여 결과 받기
+            MallOrderUpdaterRunner runner = new MallOrderUpdaterRunner(seqMall, mallId, mallPw);
+            runner.run();
+            
+            // 신규 추가된 주문 seq 목록 반환
+            List<Integer> newOrderSeqs = runner.getNewOrderSeqs();
+            logger.info("쇼핑몰 seq={} 수집 작업 완료, 신규 주문: {}개", seqMall, newOrderSeqs.size());
+            
+            return newOrderSeqs;
+        } finally {
+            runningCollections.remove(seqMall);
+        }
+    }
+    
+    /**
      * 특정 쇼핑몰의 수집 작업이 현재 실행 중인지 확인
      * 
      * @param seqMall 쇼핑몰 시퀀스

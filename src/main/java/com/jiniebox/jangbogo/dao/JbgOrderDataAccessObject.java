@@ -2,6 +2,7 @@ package com.jiniebox.jangbogo.dao;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.List;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -102,6 +103,179 @@ public class JbgOrderDataAccessObject extends CommonDataAccessObject {
         }
 
         return seqOrder;
+    }
+    
+    /**
+     * 모든 주문 조회
+     * 
+     * @return 주문 목록 (seq, serial_num, date_time, mall_name, seq_mall 포함)
+     * @throws Exception
+     */
+    public List<JSONObject> getAllOrders() throws Exception {
+        LocalDBConnection conn = null;
+        try {
+            conn = new LocalDBConnection();
+            StringBuffer querySb = new StringBuffer("SELECT seq, serial_num, date_time, mall_name, seq_mall FROM jbg_order");
+            querySb.append(" ORDER BY date_time DESC, seq DESC");
+            log.debug("LOCALDB-QUERY------------------------------------------------------------------------------");
+            log.debug(querySb);
+            ResultSet rset = conn.executeQuery(querySb.toString());
+
+            List<JSONObject> orders = null;
+            if (rset != null) {
+                orders = new java.util.ArrayList<>();
+                while (rset.next()) {
+                    JSONObject orderJson = new JSONObject();
+                    orderJson.put("seq", rset.getInt("seq"));
+                    orderJson.put("serial_num", rset.getString("serial_num"));
+                    orderJson.put("date_time", rset.getInt("date_time"));
+                    orderJson.put("mall_name", rset.getString("mall_name"));
+                    orderJson.put("seq_mall", rset.getInt("seq_mall"));
+                    orders.add(orderJson);
+                }
+            }
+            return orders;
+        } catch (Exception e) {
+            log.error("* 프로그램 수행중 에러 발생");
+            log.error(ExceptionUtil.getExceptionInfo(e));
+            throw e;
+        } finally {
+            if (conn != null) {
+                conn.close();
+            }
+        }
+    }
+    
+    /**
+     * 현재 저장된 주문의 최대 seq 값 조회
+     * 
+     * @return 최대 seq 값, 데이터가 없으면 0
+     * @throws Exception
+     */
+    public int getMaxSeq() throws Exception {
+        LocalDBConnection conn = null;
+        try {
+            conn = new LocalDBConnection();
+            StringBuffer querySb = new StringBuffer("SELECT MAX(seq) as max_seq FROM jbg_order");
+            log.debug("LOCALDB-QUERY------------------------------------------------------------------------------");
+            log.debug(querySb);
+            ResultSet rset = conn.executeQuery(querySb.toString());
+            
+            int maxSeq = 0;
+            if (rset != null && rset.next()) {
+                maxSeq = rset.getInt("max_seq");
+            }
+            log.debug("현재 최대 주문 seq: {}", maxSeq);
+            return maxSeq;
+        } catch (Exception e) {
+            log.error("* 최대 seq 조회 중 에러 발생");
+            log.error(ExceptionUtil.getExceptionInfo(e));
+            throw e;
+        } finally {
+            if (conn != null) {
+                conn.close();
+            }
+        }
+    }
+    
+    /**
+     * 특정 seq 이후의 주문 조회 (새로 추가된 주문만)
+     * 
+     * @param afterSeq 이 seq 이후의 주문만 조회
+     * @return 주문 목록
+     * @throws Exception
+     */
+    public List<JSONObject> getOrdersAfterSeq(int afterSeq) throws Exception {
+        LocalDBConnection conn = null;
+        try {
+            conn = new LocalDBConnection();
+            StringBuffer querySb = new StringBuffer("SELECT seq, serial_num, date_time, mall_name, seq_mall FROM jbg_order");
+            querySb.append(" WHERE seq > " + afterSeq);
+            querySb.append(" ORDER BY date_time DESC, seq DESC");
+            log.debug("LOCALDB-QUERY------------------------------------------------------------------------------");
+            log.debug(querySb);
+            ResultSet rset = conn.executeQuery(querySb.toString());
+
+            List<JSONObject> orders = null;
+            if (rset != null) {
+                orders = new java.util.ArrayList<>();
+                while (rset.next()) {
+                    JSONObject orderJson = new JSONObject();
+                    orderJson.put("seq", rset.getInt("seq"));
+                    orderJson.put("serial_num", rset.getString("serial_num"));
+                    orderJson.put("date_time", rset.getInt("date_time"));
+                    orderJson.put("mall_name", rset.getString("mall_name"));
+                    orderJson.put("seq_mall", rset.getInt("seq_mall"));
+                    orders.add(orderJson);
+                }
+            }
+            log.info("신규 주문 조회 완료 - afterSeq: {}, count: {}", afterSeq, orders != null ? orders.size() : 0);
+            return orders;
+        } catch (Exception e) {
+            log.error("* 프로그램 수행중 에러 발생");
+            log.error(ExceptionUtil.getExceptionInfo(e));
+            throw e;
+        } finally {
+            if (conn != null) {
+                conn.close();
+            }
+        }
+    }
+    
+    /**
+     * 특정 seq 목록의 주문 조회
+     * 
+     * @param seqList 조회할 주문 seq 목록
+     * @return 주문 목록
+     * @throws Exception
+     */
+    public List<JSONObject> getOrdersBySeqList(List<Integer> seqList) throws Exception {
+        if (seqList == null || seqList.isEmpty()) {
+            return new java.util.ArrayList<>();
+        }
+        
+        LocalDBConnection conn = null;
+        try {
+            conn = new LocalDBConnection();
+            
+            // IN 절 생성
+            StringBuilder seqsIn = new StringBuilder();
+            for (int i = 0; i < seqList.size(); i++) {
+                if (i > 0) seqsIn.append(",");
+                seqsIn.append(seqList.get(i));
+            }
+            
+            StringBuffer querySb = new StringBuffer("SELECT seq, serial_num, date_time, mall_name, seq_mall FROM jbg_order");
+            querySb.append(" WHERE seq IN (" + seqsIn.toString() + ")");
+            querySb.append(" ORDER BY date_time DESC, seq DESC");
+            log.debug("LOCALDB-QUERY------------------------------------------------------------------------------");
+            log.debug(querySb);
+            ResultSet rset = conn.executeQuery(querySb.toString());
+
+            List<JSONObject> orders = null;
+            if (rset != null) {
+                orders = new java.util.ArrayList<>();
+                while (rset.next()) {
+                    JSONObject orderJson = new JSONObject();
+                    orderJson.put("seq", rset.getInt("seq"));
+                    orderJson.put("serial_num", rset.getString("serial_num"));
+                    orderJson.put("date_time", rset.getInt("date_time"));
+                    orderJson.put("mall_name", rset.getString("mall_name"));
+                    orderJson.put("seq_mall", rset.getInt("seq_mall"));
+                    orders.add(orderJson);
+                }
+            }
+            log.info("seq 목록으로 주문 조회 완료 - seqs: {}, count: {}", seqList, orders != null ? orders.size() : 0);
+            return orders;
+        } catch (Exception e) {
+            log.error("* 프로그램 수행중 에러 발생");
+            log.error(ExceptionUtil.getExceptionInfo(e));
+            throw e;
+        } finally {
+            if (conn != null) {
+                conn.close();
+            }
+        }
     }
     
     /**
