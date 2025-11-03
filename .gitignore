@@ -57,3 +57,5 @@ logs/
 *.log.*
 *.gz
 db/jangbogo-dev.db-wal
+release/
+packaging/

@@ -1,15 +1,28 @@
 # JANGBOGO (장보고) 🧾🛍️
-**온라인/오프라인 쇼핑몰 구매내역 수집·관리 – Spring Boot 서버 + 설정용 최소 UI(Bootstrap 5)**
+**온라인 쇼핑몰 구매내역 자동 수집·관리 프로그램**
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
-![Java](https://img.shields.io/badge/backend-Spring%20Boot%20(Java)-orange)
+![Java](https://img.shields.io/badge/backend-Spring%20Boot%20(Java%2021)-orange)
 ![UI](https://img.shields.io/badge/client-Bootstrap%205-7952B3)
-![Platform](https://img.shields.io/badge/platform-Server%20(Java)-blue)
-![Status](https://img.shields.io/badge/status-Alpha-lightgrey)
+![Platform](https://img.shields.io/badge/platform-Windows-blue)
+![Status](https://img.shields.io/badge/status-v0.5.0-orange)
 
-**JANGBOGO**는 여러 온라인 쇼핑몰의 **구매내역을 수집**하여 **로컬 파일(NDJSON/JSON)** 에 저장하는 프로젝트입니다.  
-본 저장소의 **UI는 “설정 관리 전용”**으로, 수집 파이프라인 실행/스케줄·사이트별 활성화·크롤러 옵션 등을 간단한 Bootstrap 5 페이지에서 제어합니다.  
-(즉, **거래 내역을 보여주는 대시보드가 아닌** _관리자 설정 화면_ 입니다.)
+**JANGBOGO**는 여러 온라인 쇼핑몰의 **구매내역을 자동으로 수집**하여 **로컬 DB 및 파일(JSON/YAML/CSV)**로 저장하는 프로그램입니다.  
+웹 기반 관리자 화면에서 쇼핑몰 계정 연결, 자동 수집 스케줄 설정, 파일 내보내기 등을 간편하게 관리할 수 있습니다.
+
+## 📚 문서
+
+### 사용자 문서
+- **[배포 가이드](doc/DEPLOYMENT_GUIDE.md)** - 빌드, 설치, 실행, Windows 서비스 등록
+- **[사용자 매뉴얼](doc/USER_GUIDE.md)** - 쇼핑몰 연결, 구매내역 수집, 파일 내보내기
+- **[빌드 가이드](doc/BUILD_GUIDE.md)** - 배포 패키지 빌드 방법
+
+### 개발자 문서
+- **[배포 구현 요약](doc/DISTRIBUTION_IMPLEMENTATION_SUMMARY.md)** - Custom JRE 번들링 구현 내역
+- **[DAO 통합 가이드](doc/DAO_INTEGRATION_GUIDE.md)** - 데이터베이스 접근 계층
+- **[설정 가이드](doc/JBG_CONFIG_GUIDE.md)** - 설정 파일 관리
+- **[로그인 시스템](doc/LOGIN_GUIDE.md)** - 인증 및 세션 관리
+- **[세션 개선](doc/SESSION_IMPROVEMENT_GUIDE.md)** - 세션 처리 개선 내역
 
 ---
 
@@ -163,21 +176,37 @@ JANGBOGO/
 ## 🚀 빠른 시작
 
 ### 1) 요구사항
-- **JDK 21+**
+- **JDK 21+** (개발/빌드 시)
 - **Edge 또는 Chrome** (Selenium 크롤링용)
 - (선택) Windows에서 자격 증명 관리자 사용 시 Powershell/권한
 
-### 2) 실행
+### 2) 개발 환경 실행
 ```bash
-cd server
 ./gradlew clean bootRun
-# 또는
-./gradlew clean build
-java -jar build/libs/jangbogo-server-1.0.0.jar
 ```
 
-브라우저에서: <http://localhost:8080/admin>  
+브라우저에서: <http://localhost:8282>  
 기본 REST API 베이스: `/api`
+
+### 3) 배포 패키지 빌드
+
+Java 설치 없이 실행 가능한 배포 패키지 빌드:
+
+```bash
+./gradlew clean bootJar createJre packageDist
+```
+
+빌드 결과물: `build/distributions/Jangbogo-distribution.zip`
+
+**ZIP 파일 내용:**
+- `Jangbogo.bat` - 실행 스크립트
+- `jangbogo-0.0.1-SNAPSHOT.jar` - 애플리케이션
+- `jre/` - Java 21 런타임 번들 (JRE 설치 불필요)
+- `service/` - Windows 서비스 설정 파일
+- `사용설명서.txt` - 설치 및 설정 가이드
+- `사용자_매뉴얼.txt` - 기능 사용 가이드
+
+**자세한 내용**: [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md), [USER_GUIDE.md](USER_GUIDE.md)
 
 ---
 

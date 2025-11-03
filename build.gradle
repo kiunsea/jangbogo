@@ -1,11 +1,12 @@
 plugins {
 	id 'java'
+	id 'application'
 	id 'org.springframework.boot' version '3.5.6'
 	id 'io.spring.dependency-management' version '1.1.7'
 }
 
 group = 'com.jiniebox'
-version = '0.0.1-SNAPSHOT'
+version = '0.5.0'
 description = '사용자 온라인/오프라인 구매 내역 수집기'
 
 java {
@@ -72,4 +73,86 @@ dependencies {
 
 tasks.named('test') {
 	useJUnitPlatform()
+}
+
+// Spring Boot JAR 설정: plain JAR 생성 안 함
+jar {
+	enabled = false
+}
+
+bootJar {
+	enabled = true
+}
+
+application {
+	mainClass = 'com.jiniebox.jangbogo.JangbogoLauncher'
+	applicationName = 'jangbogo'
+}
+
+// Custom JRE 생성 태스크 (jlink 사용)
+tasks.register('createJre') {
+	def jreDir = file("${buildDir}/jre")
+	
+	outputs.dir(jreDir)
+	
+	doFirst {
+		// 기존 JRE 강제 삭제
+		if (jreDir.exists()) {
+			println "기존 JRE 디렉토리 삭제 중..."
+			jreDir.deleteDir()
+		}
+	}
+	
+	doLast {
+		// jlink로 custom JRE 생성
+		exec {
+			commandLine 'jlink',
+				'--add-modules', 'java.base,java.compiler,java.desktop,java.instrument,java.logging,java.management,java.management.rmi,java.naming,java.net.http,java.prefs,java.rmi,java.scripting,java.security.jgss,java.security.sasl,java.sql,java.transaction.xa,java.xml,java.xml.crypto,jdk.crypto.ec,jdk.httpserver,jdk.jdwp.agent,jdk.jfr,jdk.management,jdk.management.agent,jdk.naming.dns,jdk.net,jdk.security.auth,jdk.unsupported,jdk.zipfs',
+				'--strip-debug',
+				'--no-man-pages',
+				'--no-header-files',
+				'--compress=2',
+				'--output', jreDir.absolutePath
+		}
+		println "✓ Custom JRE 생성 완료: ${jreDir.absolutePath}"
+		println "  포함된 모듈: Spring Boot 및 Tomcat 구동에 필요한 모든 모듈"
+	}
+}
+
+// 배포 패키지 생성 태스크: JAR + 배치 스크립트 + Custom JRE + WinSW
+tasks.register('packageDist', Zip) {
+	dependsOn bootJar, createJre
+	
+	archiveFileName = 'Jangbogo-distribution.zip'
+	destinationDirectory = file("${buildDir}/distributions")
+	
+	from(bootJar) {
+		into('/')
+	}
+	
+	from('packaging/distribution') {
+		include 'Jangbogo.bat', '사용설명서.txt', '사용자_매뉴얼.txt', 'README.md'
+		into('/')
+	}
+	
+	from("${buildDir}/jre") {
+		into('jre')
+	}
+	
+	from('packaging/winsw') {
+		include '*.exe', '*.xml', '*.md'
+		into('service')
+	}
+	
+	doLast {
+		println "✅ 배포 패키지 생성 완료!"
+		println "📦 파일 위치: ${archiveFile.get().asFile}"
+		println ""
+		println "📌 이 패키지는 Java 설치 없이 실행 가능합니다."
+		println ""
+		println "배포 방법:"
+		println "1. ZIP 파일을 원하는 위치에 압축 해제"
+		println "2. Jangbogo.bat 실행 (일반 실행)"
+		println "3. service 폴더의 README.md 참조 (Windows 서비스 등록)"
+	}
 }

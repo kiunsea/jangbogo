@@ -36,6 +36,7 @@ spring:
 
 server:
   port: 8282
+  address: 127.0.0.1  # localhost에서만 접근 가능
 
 # Admin 설정 (Option 1: 환경변수 사용)
 # 환경변수가 없으면 기본값 사용
