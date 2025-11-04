@@ -1,4 +1,3 @@
-HELP.md
 .gradle
 build/
 !gradle/wrapper/gradle-wrapper.jar
@@ -56,6 +55,24 @@ logs/
 *.log
 *.log.*
 *.gz
+
+### Database Files ###
+db/*.db
+db/*.db-*
 db/jangbogo-dev.db-wal
+
+### Build Artifacts ###
 release/
-packaging/
+
+### Packaging - Exclude downloaded binaries only ###
+packaging/winsw/jangbogo-service.exe
+packaging/windows/jangbogo.ico
+!packaging/winsw/*.xml
+!packaging/winsw/README.md
+!packaging/distribution/*
+!packaging/scripts/*
+!packaging/windows/ICON_README.md
+
+### Temporary Files ###
+build_*.txt
+jpackage_*.log

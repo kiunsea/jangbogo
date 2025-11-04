@@ -1,6 +1,6 @@
 # Jangbogo 프로젝트 문서
 
-Jangbogo v1.0.0 프로젝트의 모든 문서가 이 폴더에 정리되어 있습니다.
+Jangbogo v0.5.0 프로젝트의 모든 문서가 이 폴더에 정리되어 있습니다.
 
 ## 📚 사용자 문서
 
@@ -70,13 +70,6 @@ Custom JRE 번들링 구현 내역
 - 전역 세션 검사
 - 코드 개선 사항
 
-### 6. [Spring Boot 참고](HELP.md)
-Spring Boot 기본 참고 문서
-- Gradle 빌드
-- Spring Web
-- Thymeleaf
-- 추가 리소스
-
 ---
 
 ## 📁 문서 구조
@@ -95,8 +88,7 @@ doc/
    ├─ DAO_INTEGRATION_GUIDE.md            DAO 가이드
    ├─ JBG_CONFIG_GUIDE.md                 설정 가이드
    ├─ LOGIN_GUIDE.md                      로그인 가이드
-   ├─ SESSION_IMPROVEMENT_GUIDE.md        세션 가이드
-   └─ HELP.md                             Spring Boot 참고
+   └─ SESSION_IMPROVEMENT_GUIDE.md        세션 가이드
 ```
 
 ---

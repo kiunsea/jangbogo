@@ -1,0 +1,12 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 📚 Documentation
+    url: https://github.com/jiniebox/jangbogo/tree/main/doc
+    about: 프로젝트 문서를 확인하세요
+  - name: 💬 Discussions
+    url: https://github.com/jiniebox/jangbogo/discussions
+    about: 일반적인 질문이나 아이디어 공유
+  - name: 🔐 Security Issue
+    url: https://github.com/jiniebox/jangbogo/security/advisories/new
+    about: 보안 취약점은 비공개로 보고해주세요
+

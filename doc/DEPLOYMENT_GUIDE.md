@@ -45,7 +45,7 @@ build\distributions\Jangbogo-distribution.zip
 ```
 Jangbogo/
 ├─ Jangbogo.bat                      # 실행 스크립트
-├─ jangbogo-0.0.1-SNAPSHOT.jar       # Spring Boot 애플리케이션
+├─ jangbogo-0.5.0.jar                # Spring Boot 애플리케이션
 ├─ jre/                              # Custom Java 21 런타임 (번들)
 │  ├─ bin/
 │  │  ├─ java.exe
@@ -91,7 +91,7 @@ cd C:\Jangbogo
 
 압축 해제 후 다음 파일들이 있는지 확인:
 - ✅ `Jangbogo.bat`
-- ✅ `jangbogo-0.0.1-SNAPSHOT.jar`
+- ✅ `jangbogo-0.5.0.jar`
 - ✅ `jre\bin\java.exe`
 
 ### 3. 데이터베이스 자동 생성

@@ -94,7 +94,7 @@ ZIP 파일 내부 구조:
 ```
 Jangbogo-distribution.zip
 ├─ Jangbogo.bat                      # 실행 스크립트
-├─ jangbogo-0.0.1-SNAPSHOT.jar       # Spring Boot 애플리케이션
+├─ jangbogo-0.5.0.jar                # Spring Boot 애플리케이션
 ├─ jre/                              # Custom Java 21 런타임 (약 50-70MB)
 │  ├─ bin/
 │  │  ├─ java.exe                    # Java 실행 파일
