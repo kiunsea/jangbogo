@@ -22,12 +22,12 @@ Jangbogo 프로젝트의 보안 정책 및 취약점 보고 절차입니다.
 ### 보고 방법
 
 **GitHub Security Advisory** (권장): 
-https://github.com/jiniebox/jangbogo/security/advisories/new
+https://github.com/kiunsea/jangbogo/security/advisories/new
 
 또는
 
 **GitHub Issues** (민감하지 않은 경우):
-https://github.com/jiniebox/jangbogo/issues
+https://github.com/kiunsea/jangbogo/issues
 
 ### 보고 시 포함할 정보
 
@@ -230,6 +230,18 @@ GitHub Dependabot을 활성화하여 의존성 취약점을 자동으로 검사�
 
 ---
 
+## 연락처
+
+보안 관련 문의:
+
+- **Email**: kiunsea@gmail.com
+- **Website**: https://jiniebox.com
+- **GitHub Issues**: https://github.com/kiunsea/jangbogo/issues (비보안 이슈만)
+
+---
+
 **마지막 업데이트**: 2025-11-04  
 **버전**: 0.5.0
+
+**Copyright © 2025 [jiniebox.com](https://jiniebox.com)**
 

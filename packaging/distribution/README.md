@@ -170,11 +170,12 @@ taskkill /F /PID [PID번호]
 1. 로그 파일 확인 (`logs\jangbogo.log`)
 2. 오류 메시지 스크린샷
 3. Windows 버전 및 시스템 사양 확인
-4. GitHub Issues에 문의
+4. GitHub Issues에 문의: https://github.com/kiunsea/jangbogo/issues
+5. Email: kiunsea@gmail.com
 
 ---
 
 **즐거운 쇼핑 관리 되세요!** 🛍️
 
-**Copyright © 2025 jiniebox**
+**Copyright © 2025 [jiniebox.com](https://jiniebox.com)**
 

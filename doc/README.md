@@ -120,11 +120,12 @@ doc/
 
 ## 📮 문의 및 기여
 
-- GitHub Issues를 통해 버그 리포트 및 기능 제안
+- **GitHub Issues**: https://github.com/kiunsea/jangbogo/issues
+- **Email**: kiunsea@gmail.com
+- **Website**: https://jiniebox.com
 - Pull Request 환영
-- 라이선스 및 법적 문의
 
 ---
 
-**Copyright © 2025 jiniebox**
+**Copyright © 2025 [jiniebox.com](https://jiniebox.com)**
 

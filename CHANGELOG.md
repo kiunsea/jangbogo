@@ -134,6 +134,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-[0.5.0]: https://github.com/jiniebox/jangbogo/releases/tag/v0.5.0
-[Unreleased]: https://github.com/jiniebox/jangbogo/compare/v0.5.0...HEAD
+## 연락처
+
+- **Email**: kiunsea@gmail.com
+- **Website**: https://jiniebox.com
+- **GitHub**: https://github.com/kiunsea/jangbogo
+
+---
+
+**Copyright © 2025 [jiniebox.com](https://jiniebox.com)**
+
+---
+
+[0.5.0]: https://github.com/kiunsea/jangbogo/releases/tag/v0.5.0
+[Unreleased]: https://github.com/kiunsea/jangbogo/compare/v0.5.0...HEAD
 

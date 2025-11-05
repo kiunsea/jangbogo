@@ -131,7 +131,7 @@ tasks.register('packageDist', Zip) {
 	}
 	
 	from('packaging/distribution') {
-		include 'Jangbogo.bat', '사용설명서.txt', '사용자_매뉴얼.txt', 'README.md'
+		include 'Jangbogo.bat', '설치가이드.txt', '사용설명서.txt', 'README.md'
 		into('/')
 	}
 	

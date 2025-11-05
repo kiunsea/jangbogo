@@ -52,7 +52,7 @@ Jangbogo 프로젝트는 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)를 준수합�
 ### 2. 프로젝트 클론
 
 ```bash
-git clone https://github.com/jiniebox/jangbogo.git
+git clone https://github.com/kiunsea/jangbogo.git
 cd jangbogo
 ```
 
@@ -184,7 +184,7 @@ git clone https://github.com/YOUR_USERNAME/jangbogo.git
 cd jangbogo
 
 # upstream 설정
-git remote add upstream https://github.com/jiniebox/jangbogo.git
+git remote add upstream https://github.com/kiunsea/jangbogo.git
 
 # 기능 브랜치 생성
 git checkout -b feat/your-feature-name
@@ -330,7 +330,9 @@ Pull Request를 제출함으로써 다음에 동의하는 것으로 간주됩니
 
 ## 질문이 있으신가요?
 
-- **GitHub Issues**에 질문 등록
+- **GitHub Issues**에 질문 등록: https://github.com/kiunsea/jangbogo/issues
+- **Email**: kiunsea@gmail.com
+- **Website**: https://jiniebox.com
 - **Discussions** 활용 (활성화된 경우)
 - 관련 문서 참조:
   - [개발자 문서](doc/README.md)
@@ -343,4 +345,8 @@ Pull Request를 제출함으로써 다음에 동의하는 것으로 간주됩니
 여러분의 기여가 Jangbogo를 더 나은 프로젝트로 만듭니다. 🙏
 
 **Happy Coding!** 💻
+
+---
+
+**Copyright © 2025 [jiniebox.com](https://jiniebox.com)**
 

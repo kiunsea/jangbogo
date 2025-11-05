@@ -60,7 +60,7 @@ representative at an online or offline event.
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
 reported to the community leaders responsible for enforcement via
-GitHub Issues at https://github.com/jiniebox/jangbogo/issues.
+GitHub Issues at https://github.com/kiunsea/jangbogo/issues.
 
 All complaints will be reviewed and investigated promptly and fairly.
 
@@ -127,4 +127,18 @@ enforcement ladder](https://github.com/mozilla/diversity).
 For answers to common questions about this code of conduct, see the FAQ at
 https://www.contributor-covenant.org/faq. Translations are available at
 https://www.contributor-covenant.org/translations.
+
+---
+
+## Contact
+
+For any concerns or questions about this Code of Conduct:
+
+- **Email**: kiunsea@gmail.com
+- **GitHub Issues**: https://github.com/kiunsea/jangbogo/issues
+- **Website**: https://jiniebox.com
+
+---
+
+**Copyright © 2025 [jiniebox.com](https://jiniebox.com)**
 

@@ -159,11 +159,13 @@ Java 설치 없이 실행 가능한 배포 패키지 빌드:
 
 ## 📮 문의
 
-- **GitHub Issues**: https://github.com/jiniebox/jangbogo/issues
+- **GitHub Issues**: https://github.com/kiunsea/jangbogo/issues
+- **Email**: kiunsea@gmail.com
+- **Website**: https://jiniebox.com
 - **Security**: [SECURITY.md](SECURITY.md) 참조
 - **License**: [LICENSE](LICENSE) 참조
 
 ---
 
-**Copyright © 2025 jiniebox**
+**Copyright © 2025 [jiniebox.com](https://jiniebox.com)**
 
