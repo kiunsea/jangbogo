@@ -58,6 +58,9 @@ dependencies {
 	// Jackson YAML (YAML 파일 읽기/쓰기)
 	implementation 'com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.15.3'
 	
+	// Apache Commons Net (FTP/FTPS 클라이언트)
+	implementation 'commons-net:commons-net:3.11.1'
+	
 	compileOnly 'org.projectlombok:lombok'
 	annotationProcessor 'org.projectlombok:lombok'
 	

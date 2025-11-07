@@ -2,110 +2,47 @@
 
 Jangbogo v0.5.0 프로젝트의 모든 문서가 이 폴더에 정리되어 있습니다.
 
-## 📚 사용자 문서
-
-사용자 및 배포 담당자를 위한 문서:
-
-### 1. [빌드 가이드](BUILD_GUIDE.md)
-배포 패키지 빌드 방법
-- Custom JRE 생성 (jlink)
-- packageDist 태스크
-- 빌드 옵션 커스터마이징
-- 트러블슈팅
-
-### 2. [배포 가이드](DEPLOYMENT_GUIDE.md)
-설치 및 배포 방법
-- ZIP 파일 설치
-- Jangbogo.bat 실행
-- Windows 서비스 등록
-- 관리자 계정 설정
-- 문제 해결
-
-### 3. [사용자 매뉴얼](USER_GUIDE.md)
-기능 사용법
-- 서비스 접속 및 로그인
-- 쇼핑몰 계정 연결
-- 구매내역 수집 (수동/자동)
-- 구매정보 저장
-- FAQ
-
 ---
 
-## 🔧 개발자 문서
-
-개발자 및 유지보수 담당자를 위한 문서:
-
-### 1. [배포 구현 요약](DISTRIBUTION_IMPLEMENTATION_SUMMARY.md)
-Custom JRE 번들링 구현 내역
-- 구현 방식 및 선택 이유
-- jlink + ZIP 배포 전략
-- 기술적 결정 사항
-- 구현 타임라인
-
-### 2. [DAO 통합 가이드](DAO_INTEGRATION_GUIDE.md)
-데이터베이스 접근 계층
-- jbg_mall 테이블 통합
-- DAO 클래스 구조
-- 암호화 처리
-- 쿼리 예제
-
-### 3. [설정 가이드](JBG_CONFIG_GUIDE.md)
-설정 파일 관리
-- jbg_config.yml 구조
-- JangbogoConfig 클래스
-- 설정 우선순위
-- 환경별 설정
-
-### 4. [로그인 시스템 가이드](LOGIN_GUIDE.md)
-인증 및 세션 관리
-- 로그인 화면 구현
-- 세션 기반 인증
-- API 엔드포인트
-- Admin 계정 관리
-
-### 5. [세션 개선 가이드](SESSION_IMPROVEMENT_GUIDE.md)
-세션 처리 개선 내역
-- AuthInterceptor 구현
-- SessionConstants 중앙 관리
-- 전역 세션 검사
-- 코드 개선 사항
-
----
-
-## 📁 문서 구조
+## 📁 폴더 구조
 
 ```
 doc/
-├─ README.md                              [이 파일] 문서 인덱스
+├─ README.md                              [이 파일] 메인 인덱스
 │
-├─ 사용자 문서/
-│  ├─ BUILD_GUIDE.md                      빌드 가이드
-│  ├─ DEPLOYMENT_GUIDE.md                 배포 가이드
-│  └─ USER_GUIDE.md                       사용자 매뉴얼
+├─ user/                                  📘 사용자 문서 (4개 + README)
+│  ├─ README.md                           사용자 문서 안내 (읽기 순서, 빠른 시작)
+│  ├─ BUILD_GUIDE.md                      배포 패키지 빌드 방법
+│  ├─ DEPLOYMENT_GUIDE.md                 설치 및 배포 가이드
+│  ├─ USER_GUIDE.md                       기능 사용법 매뉴얼
+│  └─ RELEASE_NOTES_v0.5.0.md             v0.5.0 릴리스 노트
 │
-└─ 개발자 문서/
-   ├─ DISTRIBUTION_IMPLEMENTATION_SUMMARY.md  배포 구현 요약
-   ├─ DAO_INTEGRATION_GUIDE.md            DAO 가이드
-   ├─ JBG_CONFIG_GUIDE.md                 설정 가이드
-   ├─ LOGIN_GUIDE.md                      로그인 가이드
-   └─ SESSION_IMPROVEMENT_GUIDE.md        세션 가이드
+└─ developer/                             💻 개발자 문서 (5개 + README)
+   ├─ README.md                           개발자 문서 안내 (학습 경로, 주제별 가이드)
+   ├─ DISTRIBUTION_IMPLEMENTATION_SUMMARY.md  Custom JRE 번들링 구현
+   ├─ DAO_INTEGRATION_GUIDE.md            데이터베이스 접근 계층
+   ├─ JBG_CONFIG_GUIDE.md                 설정 파일 관리
+   ├─ LOGIN_GUIDE.md                      인증 및 세션 관리
+   └─ SESSION_IMPROVEMENT_GUIDE.md        세션 처리 개선 내역
 ```
+
+**총 문서 수:** 12개 (메인 README 1개 + 사용자 5개 + 개발자 6개)
 
 ---
 
-## 🚀 빠른 시작
+## 🚀 어디서 시작할까요?
 
-### 사용자
+### 👤 사용자 또는 배포 담당자라면
+→ **[user/README.md](user/README.md)** 문서로 이동하세요
 
-1. [배포 가이드](DEPLOYMENT_GUIDE.md) 읽기
-2. ZIP 파일 압축 해제
-3. [사용자 매뉴얼](USER_GUIDE.md)에 따라 사용
+(빌드, 설치, 사용법 안내)
 
-### 개발자
+---
 
-1. [빌드 가이드](BUILD_GUIDE.md) 읽기
-2. 개발 환경 설정
-3. 코드 수정 및 빌드
+### 👨‍💻 개발자 또는 유지보수 담당자라면
+→ **[developer/README.md](developer/README.md)** 문서로 이동하세요
+
+(기술 문서, 학습 경로, 주제별 가이드)
 
 ---
 
@@ -114,7 +51,7 @@ doc/
 - **프로젝트**: Jangbogo (장보고)
 - **버전**: 0.5.0
 - **라이선스**: AGPL-3.0-or-later
-- **최종 업데이트**: 2025-11-04
+- **최종 업데이트**: 2025-11-07
 
 ---
 

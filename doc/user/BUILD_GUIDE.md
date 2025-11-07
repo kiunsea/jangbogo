@@ -92,23 +92,24 @@ build/distributions/Jangbogo-distribution.zip
 ZIP 파일 내부 구조:
 
 ```
-Jangbogo-distribution.zip
+Jangbogo-distribution/
 ├─ Jangbogo.bat                      # 실행 스크립트
 ├─ jangbogo-0.5.0.jar                # Spring Boot 애플리케이션
 ├─ jre/                              # Custom Java 21 런타임 (약 50-70MB)
 │  ├─ bin/
 │  │  ├─ java.exe                    # Java 실행 파일
+│  │  ├─ javaw.exe
 │  │  └─ ...
-│  ├─ conf/
-│  ├─ legal/
-│  └─ lib/
+│  ├─ conf/                          # Java 설정 파일
+│  ├─ legal/                         # 라이선스 정보
+│  └─ lib/                           # Java 라이브러리
 ├─ service/                          # Windows 서비스 파일
 │  ├─ jangbogo-service.exe           # WinSW 실행 파일
 │  ├─ jangbogo-service.xml           # 서비스 설정
 │  └─ README.md                      # 서비스 등록 가이드
+├─ README.md                         # 프로젝트 소개
 ├─ 사용설명서.txt                    # 설치 및 설정 가이드
-├─ 사용자_매뉴얼.txt                 # 기능 사용 가이드
-└─ README.md                         # 프로젝트 소개
+└─ 설치가이드.txt                    # 상세 설치 방법
 ```
 
 ---
@@ -357,7 +358,7 @@ java-options=-Xmx1024m
 
 - **[배포 가이드](DEPLOYMENT_GUIDE.md)** - 설치, 실행, 서비스 등록
 - **[사용자 매뉴얼](USER_GUIDE.md)** - 기능 사용법
-- **[README](README.md)** - 프로젝트 개요
+- **[문서 인덱스](../README.md)** - 전체 문서 목록
 
 ---
 
@@ -401,9 +402,8 @@ jobs:
 
 - **이슈 리포트**: [GitHub Issues]
 - **라이선스**: AGPL-3.0-or-later
-- **버전**: 1.0.0
 
 ---
 
 **버전**: 0.5.0  
-**최종 업데이트**: 2025-11-04
+**최종 업데이트**: 2025-11-07

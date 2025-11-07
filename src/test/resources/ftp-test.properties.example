@@ -1,0 +1,83 @@
+# FTP over TLS (FTPS) 테스트 설정 파일
+# 
+# ═══════════════════════════════════════════════════════════
+#  사용 방법
+# ═══════════════════════════════════════════════════════════
+# 
+# 1. 이 파일을 ftp-test.properties로 복사
+#    cp ftp-test.properties.example ftp-test.properties
+# 
+# 2. 실제 FTP 서버 정보로 값 변경 (아래 설정 수정)
+# 
+# 3. SimpleFtpTlsUploadTest.java의 main() 메서드 실행
+# 
+# ⚠️ 보안: ftp-test.properties는 .gitignore에 이미 추가됨
+# 
+# ═══════════════════════════════════════════════════════════
+#  우선순위: 환경변수 > 프로퍼티 파일 > 기본값
+# ═══════════════════════════════════════════════════════════
+# 
+# 환경 변수 설정 (선택사항):
+# set FTP_HOST=ftp.example.com
+# set FTP_PORT=21
+# set FTP_USER=username
+# set FTP_PASS=password
+#
+# ═══════════════════════════════════════════════════════════
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# FTP 서버 정보
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# FTP 서버 호스트
+ftp.host=ftp.dlptest.com
+
+# FTP 서버 포트 (일반적으로 21 또는 990)
+ftp.port=21
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# FTP 인증 정보
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# FTP 사용자명
+ftp.user=dlpuser
+
+# FTP 비밀번호
+ftp.password=rNrKYTX9g7z3RgJRmxWuGHbeu
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# FTP 전송 모드
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# 전송 모드: PASSIVE (수동형) 또는 ACTIVE (능동형)
+# PASSIVE - 클라이언트가 방화벽 뒤에 있을 때 권장 (기본값)
+# ACTIVE - 클라이언트가 데이터 포트를 열 수 있을 때
+ftp.mode=PASSIVE
+
+# TLS 보호 수준 (Protection Level)
+# P - 제어/데이터 채널 모두 암호화 (권장)
+# C - 제어 채널만 암호화 (TLS 세션 재개 문제 해결용)
+ftp.prot=P
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# TLS 설정
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# TLS 프로토콜
+ftp.protocol=TLS
+
+# Implicit TLS (false: Explicit TLS, true: Implicit TLS)
+ftp.implicit=false
+
+# 연결 설정
+ftp.connect.timeout=10000
+ftp.data.timeout=30000
+ftp.control.encoding=UTF-8
+
+# 전송 모드
+ftp.passive.mode=true
+ftp.file.type=BINARY
+
+# 디버그 모드
+ftp.debug=false
+

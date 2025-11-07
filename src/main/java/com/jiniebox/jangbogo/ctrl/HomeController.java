@@ -1,8 +1,15 @@
 package com.jiniebox.jangbogo.ctrl;
 
+import java.io.File;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.json.simple.JSONObject;
 import org.springframework.stereotype.Controller;
+import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 
+import com.jiniebox.jangbogo.dao.JbgExportConfigDataAccessObject;
 import com.jiniebox.jangbogo.sys.SessionConstants;
 
 import jakarta.servlet.http.HttpSession;
@@ -16,15 +23,46 @@ import jakarta.servlet.http.HttpSession;
  */
 @Controller
 public class HomeController {
+    
+    private static final Logger logger = LogManager.getLogger(HomeController.class);
 
     /**
      * 메인 페이지
      * Interceptor에서 이미 세션 체크를 수행하므로 여기까지 도달했다면 인증된 상태
      */
     @GetMapping("/")
-    public String index(HttpSession session) {
+    public String index(HttpSession session, Model model) {
         // ✅ 개선: Interceptor가 세션 체크를 수행하므로 중복 제거
         // 여기까지 도달했다면 이미 로그인된 상태
+        
+        try {
+            // DB에서 저장 경로 설정 가져오기
+            JbgExportConfigDataAccessObject exportConfigDao = new JbgExportConfigDataAccessObject();
+            JSONObject exportConfig = exportConfigDao.getConfig();
+            
+            String savedPath = exportConfig != null && exportConfig.get("save_path") != null 
+                ? exportConfig.get("save_path").toString() 
+                : "";
+            
+            // DB에 저장된 경로가 없거나 비어있으면 기본 경로 사용
+            String defaultSavePath;
+            if (savedPath == null || savedPath.trim().isEmpty()) {
+                // 설치 경로의 exports 폴더 절대 경로
+                defaultSavePath = new File("exports").getAbsolutePath();
+                logger.info("DB에 저장 경로가 없어 기본 경로 사용: {}", defaultSavePath);
+            } else {
+                defaultSavePath = savedPath;
+                logger.debug("DB에서 저장 경로 로드: {}", defaultSavePath);
+            }
+            
+            model.addAttribute("defaultSavePath", defaultSavePath);
+            
+        } catch (Exception e) {
+            // 오류 발생 시 기본 경로 사용
+            String fallbackPath = new File("exports").getAbsolutePath();
+            model.addAttribute("defaultSavePath", fallbackPath);
+            logger.error("저장 경로 설정 조회 중 오류 발생, 기본 경로 사용: {}", fallbackPath, e);
+        }
         
         return "index";
     }

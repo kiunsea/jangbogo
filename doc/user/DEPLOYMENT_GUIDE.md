@@ -43,23 +43,24 @@ build\distributions\Jangbogo-distribution.zip
 `Jangbogo-distribution.zip` 파일의 구조:
 
 ```
-Jangbogo/
+Jangbogo-distribution/
 ├─ Jangbogo.bat                      # 실행 스크립트
 ├─ jangbogo-0.5.0.jar                # Spring Boot 애플리케이션
 ├─ jre/                              # Custom Java 21 런타임 (번들)
 │  ├─ bin/
 │  │  ├─ java.exe
+│  │  ├─ javaw.exe
 │  │  └─ ...
-│  ├─ conf/
-│  ├─ legal/
-│  └─ lib/
+│  ├─ conf/                          # Java 설정 파일
+│  ├─ legal/                         # 라이선스 정보
+│  └─ lib/                           # Java 라이브러리
 ├─ service/                          # Windows 서비스 관련 파일
 │  ├─ jangbogo-service.exe           # WinSW 실행 파일
 │  ├─ jangbogo-service.xml           # 서비스 설정
 │  └─ README.md
+├─ README.md                         # 프로젝트 소개
 ├─ 사용설명서.txt                    # 설치 및 설정 가이드
-├─ 사용자_매뉴얼.txt                 # 기능 사용 가이드
-└─ README.md                         # 프로젝트 소개
+└─ 설치가이드.txt                    # 상세 설치 방법
 ```
 
 **총 용량 (압축 해제 후)**: 약 150-200MB
@@ -94,12 +95,17 @@ cd C:\Jangbogo
 - ✅ `jangbogo-0.5.0.jar`
 - ✅ `jre\bin\java.exe`
 
-### 3. 데이터베이스 자동 생성
+### 3. 자동 생성 폴더
 
 첫 실행 시 다음 폴더가 자동으로 생성됩니다:
-- `db/` - SQLite 데이터베이스 (`jangbogo-dev.db`)
-- `logs/` - 로그 파일
-- `exports/` - 내보낸 파일
+
+| 폴더 | 용도 | 파일 형식 |
+|------|------|-----------|
+| `db/` | 데이터베이스 저장 | `jangbogo-dev.db` (SQLite) |
+| `logs/` | 로그 파일 저장 | `jangbogo.log`, `jangbogo-error.log` |
+| `exports/` | 구매내역 파일 저장 | JSON, CSV, Excel (.xlsx) |
+
+**참고:** 이 폴더들은 배포 패키지에 포함되지 않으며, 프로그램 실행 시 자동으로 생성됩니다.
 
 ---
 
@@ -116,7 +122,10 @@ Jangbogo.bat
 
 **동작:**
 1. 번들된 Java 런타임 확인
-2. 필요한 디렉토리 생성 (`db`, `logs`, `exports`)
+2. 필요한 디렉토리 자동 생성:
+   - `db/` - 데이터베이스 저장소
+   - `logs/` - 로그 파일 저장소
+   - `exports/` - 구매내역 파일 저장소
 3. Spring Boot WAS 시작 (포트 8282)
 4. 웹 브라우저 자동 실행
 5. 로그인 화면 표시
@@ -141,10 +150,11 @@ start /B Jangbogo.bat
 ### 실행 확인
 
 **브라우저 자동 실행:**
-- 자동으로 `http://127.0.0.1:8282` 열림
+- 자동으로 `http://localhost:8282` 열림
 
 **수동 접속:**
-- 브라우저에서 직접 `http://127.0.0.1:8282` 입력
+- 브라우저에서 직접 `http://localhost:8282` 입력
+- 또는 `http://127.0.0.1:8282`
 
 **프로세스 확인:**
 ```cmd
@@ -264,7 +274,7 @@ jangbogo-service.exe uninstall
   <name>Jangbogo Service</name>
   <description>장보고 구매내역 수집 서비스</description>
   <executable>%BASE%\..\jre\bin\java.exe</executable>
-  <arguments>-Xms256m -Xmx1024m -jar "%BASE%\..\jangbogo-0.0.1-SNAPSHOT.jar"</arguments>
+  <arguments>-Xms256m -Xmx1024m -jar "%BASE%\..\jangbogo-0.5.0.jar"</arguments>
   ...
 </service>
 ```
@@ -286,12 +296,12 @@ jangbogo-service.exe uninstall
 - 실행 중인 프로세스 종료
 - 또는 `Ctrl + C`
 
-### 3. 데이터 백업 (선택)
+### 3. 데이터 백업 (선택사항)
 
-필요 시 다음 폴더를 백업:
-- `db/jangbogo-dev.db` - 데이터베이스
-- `logs/` - 로그 파일
-- `exports/` - 내보낸 파일
+필요 시 다음 파일/폴더를 백업:
+- `db/jangbogo-dev.db` - 데이터베이스 (모든 구매내역 데이터)
+- `logs/` - 로그 파일 (문제 해결용)
+- `exports/` - 내보낸 구매내역 파일 (JSON, CSV, Excel)
 
 ### 4. 폴더 삭제
 
@@ -399,14 +409,14 @@ jangbogo-service.exe uninstall
 
 `Jangbogo.bat` 파일에서 메모리 설정 변경:
 ```cmd
-"%JAVA_CMD%" -Xms512m -Xmx2048m -jar jangbogo-0.0.1-SNAPSHOT.jar
+"%JAVA_CMD%" -Xms512m -Xmx2048m -jar jangbogo-0.5.0.jar
 ```
 
 **방법 2: 서비스 설정 파일 수정**
 
 `service\jangbogo-service.xml`:
 ```xml
-<arguments>-Xms512m -Xmx2048m -jar ...</arguments>
+<arguments>-Xms512m -Xmx2048m -jar "%BASE%\..\jangbogo-0.5.0.jar"</arguments>
 ```
 
 ### 8. 웹 드라이버 오류
@@ -433,6 +443,13 @@ jangbogo-service.exe uninstall
 - **Spring Boot 설정**: JAR 내장 (`application.yml`)
 - **서비스 설정**: `service/jangbogo-service.xml`
 
+### 저장 위치
+
+프로그램 실행 시 **저장 위치**가 자동으로 설정됩니다:
+- 기본값: `[설치 폴더 절대 경로]\exports`
+- 예시: `C:\Jangbogo\exports`
+- 사용자가 UI에서 다른 경로로 변경 가능
+
 ### 포트 변경
 
 기본 포트 8282를 변경하려면:
@@ -441,7 +458,7 @@ jangbogo-service.exe uninstall
 
 `Jangbogo.bat` 수정:
 ```cmd
-"%JAVA_CMD%" -Dserver.port=9999 -Xms256m -Xmx1024m -jar jangbogo-0.0.1-SNAPSHOT.jar
+"%JAVA_CMD%" -Dserver.port=9999 -Xms256m -Xmx1024m -jar jangbogo-0.5.0.jar
 ```
 
 **방법 2: application.yml 사용**
@@ -525,5 +542,5 @@ Jangbogo.bat
 ---
 
 **버전**: 0.5.0  
-**최종 수정일**: 2025-11-04  
+**최종 수정일**: 2025-11-07  
 **라이선스**: AGPL-3.0-or-later

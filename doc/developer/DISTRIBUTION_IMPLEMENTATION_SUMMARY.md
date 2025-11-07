@@ -223,10 +223,10 @@ jdk.net, jdk.security.auth, jdk.unsupported, jdk.zipfs
           └─ No → 오류 메시지 표시
 
 2. 디렉토리 생성
-   └─ db/, logs/, exports/ 폴더 생성
+   └─ db/, logs/, exports/ 폴더 자동 생성 (실행 시)
 
 3. Spring Boot 실행
-   └─ java -Xms256m -Xmx1024m -jar jangbogo-0.0.1-SNAPSHOT.jar
+   └─ java -Xms256m -Xmx1024m -jar jangbogo-0.5.0.jar
 
 4. JangbogoLauncher.main()
    ├─ 디렉토리 생성 (createRequiredDirectories)
