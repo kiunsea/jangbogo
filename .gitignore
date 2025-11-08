@@ -78,3 +78,8 @@ packaging/windows/jangbogo.ico
 ### Temporary Files ###
 build_*.txt
 jpackage_*.log
+
+### Development Scripts ###
+# bat 폴더의 개발 스크립트는 Git에 추적
+!bat/
+!bat/*.bat

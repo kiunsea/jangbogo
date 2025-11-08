@@ -311,7 +311,18 @@ jangbogo-service.exe uninstall
 
 ## 문제 해결
 
-### 1. "Java를 찾을 수 없습니다" 오류
+### 1. 한글이 깨져서 보입니다
+
+**증상**: 콘솔 창에서 한글이 ??? 또는 깨진 문자로 표시
+
+**원인**: DOS 콘솔의 코드페이지 문제
+
+**해결 방법**:
+- Jangbogo.bat 파일에 이미 UTF-8 설정이 포함되어 있습니다 (`chcp 65001`)
+- 최신 버전을 사용 중인지 확인하세요
+- 또는 수동으로 콘솔 창에서 `chcp 65001` 실행 후 다시 시작
+
+### 2. "Java를 찾을 수 없습니다" 오류
 
 **증상**: `jre\bin\java.exe`를 찾을 수 없다는 메시지
 
@@ -324,7 +335,7 @@ jangbogo-service.exe uninstall
 2. `jre\bin\java.exe` 파일이 있는지 확인
 3. 없다면 빌드를 다시 수행
 
-### 2. 애플리케이션이 시작되지 않음
+### 3. 애플리케이션이 시작되지 않음
 
 **증상**: `Jangbogo.bat` 실행 시 창이 열렸다 닫힘
 
@@ -350,14 +361,14 @@ jangbogo-service.exe uninstall
    taskkill /F /PID [PID번호]
    ```
 
-### 3. 브라우저가 열리지 않음
+### 4. 브라우저가 열리지 않음
 
 **증상**: 서버는 시작되지만 브라우저가 자동으로 열리지 않음
 
 **해결 방법**:
-- 수동으로 브라우저에서 접속: `http://127.0.0.1:8282`
+- 수동으로 브라우저에서 접속: `http://localhost:8282` 또는 `http://127.0.0.1:8282`
 
-### 4. 로그인이 안 됨
+### 5. 로그인이 안 됨
 
 **증상**: 아이디/비밀번호 오류
 
@@ -371,7 +382,7 @@ jangbogo-service.exe uninstall
 2. 대소문자 정확히 입력
 3. 계정 변경했다면 변경한 계정 사용
 
-### 5. 데이터베이스 오류
+### 6. 데이터베이스 오류
 
 **증상**: `SQLiteException` 발생
 
@@ -387,7 +398,7 @@ jangbogo-service.exe uninstall
    del db\jangbogo-dev.db
    ```
 
-### 6. 서비스 등록 실패
+### 7. 서비스 등록 실패
 
 **증상**: `jangbogo-service.exe install` 실패
 
@@ -399,7 +410,7 @@ jangbogo-service.exe uninstall
    sc delete JangbogoService
    ```
 
-### 7. 메모리 부족
+### 8. 메모리 부족
 
 **증상**: `OutOfMemoryError` 발생
 
@@ -419,7 +430,7 @@ jangbogo-service.exe uninstall
 <arguments>-Xms512m -Xmx2048m -jar "%BASE%\..\jangbogo-0.5.0.jar"</arguments>
 ```
 
-### 8. 웹 드라이버 오류
+### 9. 웹 드라이버 오류
 
 **증상**: 쇼핑몰 수집 시 `WebDriverException` 발생
 
@@ -442,6 +453,7 @@ jangbogo-service.exe uninstall
 - **관리자 계정**: `config/admin.properties` (생성 시)
 - **Spring Boot 설정**: JAR 내장 (`application.yml`)
 - **서비스 설정**: `service/jangbogo-service.xml`
+- **커스텀 배너**: JAR 내장 (`banner.txt`) - JangBoGo ASCII 아트
 
 ### 저장 위치
 
@@ -449,6 +461,24 @@ jangbogo-service.exe uninstall
 - 기본값: `[설치 폴더 절대 경로]\exports`
 - 예시: `C:\Jangbogo\exports`
 - 사용자가 UI에서 다른 경로로 변경 가능
+
+### 배너 커스터마이징
+
+실행 시 표시되는 JangBoGo 배너를 변경하려면:
+
+**방법 1: 배너 비활성화**
+```cmd
+"%JAVA_CMD%" -Dspring.main.banner-mode=off -jar jangbogo-0.5.0.jar
+```
+
+**방법 2: 커스텀 배너 파일 사용**
+```cmd
+"%JAVA_CMD%" -Dspring.banner.location=classpath:custom-banner.txt -jar jangbogo-0.5.0.jar
+```
+
+**방법 3: 배너 내용 확인**
+- JAR 파일 내부의 `banner.txt` 파일에 ASCII 아트 저장
+- 버전 정보 자동 표시: `${application.version}`, `${spring-boot.version}`
 
 ### 포트 변경
 

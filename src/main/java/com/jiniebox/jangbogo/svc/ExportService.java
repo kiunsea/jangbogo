@@ -185,6 +185,13 @@ public class ExportService {
                 if (items != null && !items.isEmpty()) {
                     for (JSONObject itemJson : items) {
                         String itemName = String.valueOf(itemJson.get("name"));
+                        String qty = itemJson.get("qty") != null ? String.valueOf(itemJson.get("qty")) : "";
+                        
+                        // qty가 있으면 "상품명 (수량: N)" 형태로 저장
+                        if (qty != null && !qty.trim().isEmpty()) {
+                            itemName = itemName + " (수량: " + qty + ")";
+                        }
+                        
                         exportOrder.addItem(itemName);
                         itemCount++;
                     }
@@ -273,6 +280,13 @@ public class ExportService {
                 if (items != null && !items.isEmpty()) {
                     for (JSONObject itemJson : items) {
                         String itemName = String.valueOf(itemJson.get("name"));
+                        String qty = itemJson.get("qty") != null ? String.valueOf(itemJson.get("qty")) : "";
+                        
+                        // qty가 있으면 "상품명 (수량: N)" 형태로 저장
+                        if (qty != null && !qty.trim().isEmpty()) {
+                            itemName = itemName + " (수량: " + qty + ")";
+                        }
+                        
                         exportOrder.addItem(itemName);
                         itemCount++;
                     }

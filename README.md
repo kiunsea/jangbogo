@@ -12,17 +12,20 @@
 
 ## 📚 문서
 
+**→ [전체 문서 인덱스](doc/README.md)**
+
 ### 사용자 문서
-- **[배포 가이드](doc/DEPLOYMENT_GUIDE.md)** - 빌드, 설치, 실행, Windows 서비스 등록
-- **[사용자 매뉴얼](doc/USER_GUIDE.md)** - 쇼핑몰 연결, 구매내역 수집, 파일 내보내기
-- **[빌드 가이드](doc/BUILD_GUIDE.md)** - 배포 패키지 빌드 방법
+- **[빌드 가이드](doc/user/BUILD_GUIDE.md)** - 배포 패키지 빌드 방법
+- **[배포 가이드](doc/user/DEPLOYMENT_GUIDE.md)** - 설치, 실행, Windows 서비스 등록
+- **[사용자 매뉴얼](doc/user/USER_GUIDE.md)** - 쇼핑몰 연결, 구매내역 수집, 파일 내보내기
+- **[릴리스 노트](doc/user/RELEASE_NOTES_v0.5.0.md)** - v0.5.0 변경사항
 
 ### 개발자 문서
-- **[배포 구현 요약](doc/DISTRIBUTION_IMPLEMENTATION_SUMMARY.md)** - Custom JRE 번들링 구현 내역
-- **[DAO 통합 가이드](doc/DAO_INTEGRATION_GUIDE.md)** - 데이터베이스 접근 계층
-- **[설정 가이드](doc/JBG_CONFIG_GUIDE.md)** - 설정 파일 관리
-- **[로그인 시스템](doc/LOGIN_GUIDE.md)** - 인증 및 세션 관리
-- **[세션 개선](doc/SESSION_IMPROVEMENT_GUIDE.md)** - 세션 처리 개선 내역
+- **[배포 구현 요약](doc/developer/DISTRIBUTION_IMPLEMENTATION_SUMMARY.md)** - Custom JRE 번들링
+- **[DAO 통합 가이드](doc/developer/DAO_INTEGRATION_GUIDE.md)** - 데이터베이스 접근 계층
+- **[설정 가이드](doc/developer/JBG_CONFIG_GUIDE.md)** - 설정 파일 관리
+- **[로그인 시스템](doc/developer/LOGIN_GUIDE.md)** - 인증 및 세션 관리
+- **[세션 개선](doc/developer/SESSION_IMPROVEMENT_GUIDE.md)** - 세션 처리 개선
 
 ---
 
@@ -75,6 +78,13 @@ src/main/java/com/jiniebox/jangbogo/
 - **Edge 또는 Chrome** (Selenium 크롤링용)
 
 ### 2) 개발 환경 실행
+
+**방법 1: 배치 파일 사용 (Windows, 추천)**
+```cmd
+bat\test_run.bat
+```
+
+**방법 2: Gradle 직접 실행**
 ```bash
 ./gradlew clean bootRun
 ```
@@ -82,6 +92,13 @@ src/main/java/com/jiniebox/jangbogo/
 브라우저에서: <http://localhost:8282>
 
 ### 3) 배포 패키지 빌드
+
+**방법 1: 배치 파일 사용 (Windows, 추천)**
+```cmd
+bat\build_package.bat
+```
+
+**방법 2: Gradle 직접 실행**
 
 Java 설치 없이 실행 가능한 배포 패키지 빌드:
 
@@ -97,9 +114,42 @@ Java 설치 없이 실행 가능한 배포 패키지 빌드:
 - `jre/` - Java 21 런타임 번들 (JRE 설치 불필요)
 - `service/` - Windows 서비스 설정 파일
 - `사용설명서.txt` - 설치 및 설정 가이드
-- `사용자_매뉴얼.txt` - 기능 사용 가이드
+- `설치가이드.txt` - 상세 설치 방법
 
-**자세한 내용**: [배포 가이드](doc/DEPLOYMENT_GUIDE.md), [사용자 매뉴얼](doc/USER_GUIDE.md)
+> 상세한 내용: [배포 가이드](doc/user/DEPLOYMENT_GUIDE.md), [사용자 매뉴얼](doc/user/USER_GUIDE.md)
+
+---
+
+## 🛠️ 개발 편의 스크립트 (Windows)
+
+프로젝트 루트에 개발용 배치 스크립트가 제공됩니다:
+
+> **→ 상세 가이드: [DEVELOPMENT_SCRIPTS.md](DEVELOPMENT_SCRIPTS.md)**
+
+| 스크립트 | 명령어 | 설명 |
+|---------|--------|------|
+| **bat/test_run.bat** | `gradlew bootRun` | 개발 모드로 애플리케이션 실행 |
+| **bat/build_package.bat** | `gradlew clean bootJar createJre packageDist` | 배포 패키지 빌드 (ZIP 자동 열기) |
+| **bat/clean_build.bat** | `gradlew clean build` | 클린 빌드 (테스트 포함) |
+
+**사용법:**
+```cmd
+# 개발 테스트
+bat\test_run.bat
+
+# 배포 패키지 빌드
+bat\build_package.bat
+
+# 클린 빌드
+bat\clean_build.bat
+```
+
+**특징:**
+- ✅ UTF-8 한글 출력 지원
+- ✅ 진행 상황 메시지 표시
+- ✅ 오류 처리 및 안내
+- ✅ 빌드 결과 파일 크기 표시
+- ✅ ZIP 파일 자동 탐색기 열기 (build_package.bat)
 
 ---
 

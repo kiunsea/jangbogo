@@ -779,6 +779,113 @@ public class AdminController {
             
             logger.info("구매정보 파일 저장 완료 - 파일: {}", filePath);
             
+            // FTP 설정 확인 및 업로드
+            try {
+                com.jiniebox.jangbogo.dao.JbgExportConfigDataAccessObject exportConfigDao = 
+                    new com.jiniebox.jangbogo.dao.JbgExportConfigDataAccessObject();
+                org.json.simple.JSONObject exportConfig = exportConfigDao.getConfig();
+                
+                if (exportConfig != null) {
+                    Object saveToJinieboxObj = exportConfig.get("save_to_jiniebox");
+                    int saveToJiniebox = 0;
+                    
+                    if (saveToJinieboxObj instanceof Number) {
+                        saveToJiniebox = ((Number) saveToJinieboxObj).intValue();
+                    } else if (saveToJinieboxObj instanceof String) {
+                        try {
+                            saveToJiniebox = Integer.parseInt((String) saveToJinieboxObj);
+                        } catch (NumberFormatException e) {
+                            logger.warn("save_to_jiniebox 값 변환 실패: {}", saveToJinieboxObj);
+                        }
+                    }
+                    
+                    // FTP 업로드가 활성화되어 있는 경우
+                    if (saveToJiniebox == 1) {
+                        String ftpAddress = exportConfig.get("ftp_address") != null ? 
+                            exportConfig.get("ftp_address").toString() : "";
+                        String ftpId = exportConfig.get("ftp_id") != null ? 
+                            exportConfig.get("ftp_id").toString() : "";
+                        String ftpPass = exportConfig.get("ftp_pass") != null ? 
+                            exportConfig.get("ftp_pass").toString() : "";
+                        String publicKey = exportConfig.get("public_key") != null ? 
+                            exportConfig.get("public_key").toString() : "";
+                        
+                        // FTP 정보 검증
+                        if (!ftpAddress.isEmpty() && !ftpId.isEmpty() && !ftpPass.isEmpty()) {
+                            
+                            String fileToUpload = filePath;
+                            boolean fileEncrypted = false;
+                            
+                            // Public Key가 있으면 파일 암호화
+                            if (!publicKey.isEmpty()) {
+                                try {
+                                    String encryptedFilePath = filePath + ".encrypted";
+                                    logger.info("파일 암호화 시작 - Public Key 사용");
+                                    
+                                    boolean encryptSuccess = com.jiniebox.jangbogo.util.security.RsaFileEncryption.encryptFile(
+                                        filePath, encryptedFilePath, publicKey
+                                    );
+                                    
+                                    if (encryptSuccess) {
+                                        fileToUpload = encryptedFilePath;
+                                        fileEncrypted = true;
+                                        logger.info("파일 암호화 완료: {}", encryptedFilePath);
+                                    } else {
+                                        logger.warn("파일 암호화 실패 - 원본 파일 업로드");
+                                    }
+                                } catch (Exception encEx) {
+                                    logger.warn("파일 암호화 중 오류 - 원본 파일 업로드: {}", encEx.getMessage());
+                                }
+                            } else {
+                                logger.info("Public Key가 없어 파일을 암호화하지 않고 업로드합니다.");
+                            }
+                            
+                            logger.info("FTP 업로드 시작 - 서버: {}, 파일: {}", ftpAddress, fileToUpload);
+                            
+                            boolean uploadSuccess = com.jiniebox.jangbogo.util.FtpUploadUtil.uploadFile(
+                                ftpAddress, ftpId, ftpPass, fileToUpload
+                            );
+                            
+                            if (uploadSuccess) {
+                                String ftpMessage = "파일 저장 및 FTP 업로드가 완료되었습니다.";
+                                if (fileEncrypted) {
+                                    ftpMessage += " (암호화됨)";
+                                }
+                                response.put("message", ftpMessage);
+                                response.put("ftpUploaded", true);
+                                response.put("encrypted", fileEncrypted);
+                                logger.info("FTP 업로드 완료 - 서버: {}, 암호화: {}", ftpAddress, fileEncrypted);
+                            } else {
+                                String ftpWarning = "파일은 저장되었으나 FTP 업로드에 실패했습니다.";
+                                response.put("message", ftpWarning);
+                                response.put("ftpUploaded", false);
+                                logger.warn("FTP 업로드 실패 - 서버: {}", ftpAddress);
+                            }
+                            
+                            // 암호화된 임시 파일 삭제
+                            if (fileEncrypted) {
+                                try {
+                                    java.io.File encFile = new java.io.File(fileToUpload);
+                                    if (encFile.exists()) {
+                                        encFile.delete();
+                                        logger.debug("암호화된 임시 파일 삭제: {}", fileToUpload);
+                                    }
+                                } catch (Exception delEx) {
+                                    logger.warn("암호화된 임시 파일 삭제 실패: {}", delEx.getMessage());
+                                }
+                            }
+                        } else {
+                            logger.warn("FTP 정보가 불완전합니다. 업로드를 건너뜁니다.");
+                        }
+                    }
+                }
+            } catch (Exception ftpEx) {
+                // FTP 업로드 실패해도 파일 저장은 성공했으므로 경고만 표시
+                logger.warn("FTP 업로드 중 오류 발생: {}", ftpEx.getMessage(), ftpEx);
+                response.put("message", "파일은 저장되었으나 FTP 업로드 중 오류가 발생했습니다.");
+                response.put("ftpUploaded", false);
+            }
+            
         } catch (UnsupportedOperationException e) {
             response.put("success", false);
             response.put("message", e.getMessage());
@@ -808,16 +915,43 @@ public class AdminController {
             String savePath = req.getSavePath() != null ? req.getSavePath().trim() : "";
             String format = req.getFormat() != null ? req.getFormat().trim() : "json";
             int autoSaveEnabled = (req.getAutoSaveEnabled() != null && req.getAutoSaveEnabled()) ? 1 : 0;
+            int saveToJiniebox = (req.getSaveToJiniebox() != null && req.getSaveToJiniebox()) ? 1 : 0;
+            String ftpAddress = req.getFtpAddress() != null ? req.getFtpAddress().trim() : "";
+            String ftpId = req.getFtpId() != null ? req.getFtpId().trim() : "";
+            String ftpPass = req.getFtpPass() != null ? req.getFtpPass().trim() : "";
+            
+            // 지니박스 저장이 활성화된 경우 FTP 정보 필수 입력 검증
+            if (saveToJiniebox == 1) {
+                java.util.List<String> missingFields = new java.util.ArrayList<>();
+                if (ftpAddress.isEmpty()) missingFields.add("FTP 주소");
+                if (ftpId.isEmpty()) missingFields.add("FTP 아이디");
+                if (ftpPass.isEmpty()) missingFields.add("FTP 비밀번호");
+                
+                if (!missingFields.isEmpty()) {
+                    response.put("success", false);
+                    response.put("message", "지니박스 저장을 사용하려면 다음 정보를 모두 입력해야 합니다: " 
+                        + String.join(", ", missingFields));
+                    logger.warn("FTP 정보 검증 실패 - 누락된 필드: {}", missingFields);
+                    return response;
+                }
+                
+                logger.info("FTP 정보 검증 성공 - 주소: {}, 아이디: {}", ftpAddress, ftpId);
+            }
+            
+            // Public Key 추출 (요청에서 전달된 경우만 저장)
+            String publicKey = req.getPublicKey() != null ? req.getPublicKey().trim() : "";
             
             com.jiniebox.jangbogo.dao.JbgExportConfigDataAccessObject exportConfigDao = 
                 new com.jiniebox.jangbogo.dao.JbgExportConfigDataAccessObject();
-            exportConfigDao.updateConfig(savePath, format, autoSaveEnabled);
+            exportConfigDao.updateConfig(savePath, format, autoSaveEnabled, 
+                                        saveToJiniebox, ftpAddress, ftpId, ftpPass,
+                                        publicKey);
             
             response.put("success", true);
             response.put("message", "파일 저장 설정이 저장되었습니다.");
             
-            logger.info("파일 저장 설정 업데이트 - path: {}, format: {}, autoSave: {}", 
-                       savePath, format, autoSaveEnabled);
+            logger.info("파일 저장 설정 업데이트 - path: {}, format: {}, autoSave: {}, jiniebox: {}", 
+                       savePath, format, autoSaveEnabled, saveToJiniebox);
             
         } catch (Exception e) {
             response.put("success", false);
@@ -849,6 +983,11 @@ public class AdminController {
         private String savePath;
         private String format;
         private Boolean autoSaveEnabled;
+        private Boolean saveToJiniebox;
+        private String ftpAddress;
+        private String ftpId;
+        private String ftpPass;
+        private String publicKey;
         
         public String getSavePath() { return savePath; }
         public void setSavePath(String savePath) { this.savePath = savePath; }
@@ -858,6 +997,21 @@ public class AdminController {
         
         public Boolean getAutoSaveEnabled() { return autoSaveEnabled; }
         public void setAutoSaveEnabled(Boolean autoSaveEnabled) { this.autoSaveEnabled = autoSaveEnabled; }
+        
+        public Boolean getSaveToJiniebox() { return saveToJiniebox; }
+        public void setSaveToJiniebox(Boolean saveToJiniebox) { this.saveToJiniebox = saveToJiniebox; }
+        
+        public String getFtpAddress() { return ftpAddress; }
+        public void setFtpAddress(String ftpAddress) { this.ftpAddress = ftpAddress; }
+        
+        public String getFtpId() { return ftpId; }
+        public void setFtpId(String ftpId) { this.ftpId = ftpId; }
+        
+        public String getFtpPass() { return ftpPass; }
+        public void setFtpPass(String ftpPass) { this.ftpPass = ftpPass; }
+        
+        public String getPublicKey() { return publicKey; }
+        public void setPublicKey(String publicKey) { this.publicKey = publicKey; }
     }
 
 }

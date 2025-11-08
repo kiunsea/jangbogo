@@ -229,6 +229,7 @@ jdk.net, jdk.security.auth, jdk.unsupported, jdk.zipfs
    └─ java -Xms256m -Xmx1024m -jar jangbogo-0.5.0.jar
 
 4. JangbogoLauncher.main()
+   ├─ 커스텀 배너 표시 (banner.txt)
    ├─ 디렉토리 생성 (createRequiredDirectories)
    ├─ Spring Boot 시작
    ├─ BrowserLauncher 실행

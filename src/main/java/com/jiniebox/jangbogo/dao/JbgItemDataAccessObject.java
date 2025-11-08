@@ -38,7 +38,11 @@ public class JbgItemDataAccessObject extends CommonDataAccessObject {
         LocalDBConnection conn = null;
         try {
             conn = new LocalDBConnection();
-            StringBuffer querySb = new StringBuffer("SELECT seq, name, seq_order, insert_time");
+            
+            // qty 컬럼 존재 여부 확인 및 자동 생성
+            ensureQtyColumn(conn);
+            
+            StringBuffer querySb = new StringBuffer("SELECT seq, name, seq_order, qty, insert_time");
             querySb.append(" FROM jbg_item");
             querySb.append(" ORDER BY seq DESC");
             log.debug("LOCALDB-QUERY------------------------------------------------------------------------------");
@@ -54,6 +58,7 @@ public class JbgItemDataAccessObject extends CommonDataAccessObject {
                     itemJson.put("seq", rset.getInt("seq"));
                     itemJson.put("name", rset.getString("name"));
                     itemJson.put("seq_order", safeGetInt(rset, "seq_order", 0));
+                    itemJson.put("qty", safeGetString(rset, "qty", ""));
                     itemJson.put("insert_time", safeGetLong(rset, "insert_time", 0));
                     items.add(itemJson);
                 }
@@ -83,7 +88,11 @@ public class JbgItemDataAccessObject extends CommonDataAccessObject {
         LocalDBConnection conn = null;
         try {
             conn = new LocalDBConnection();
-            StringBuffer querySb = new StringBuffer("SELECT seq, name, seq_order, insert_time");
+            
+            // qty 컬럼 존재 여부 확인 및 자동 생성
+            ensureQtyColumn(conn);
+            
+            StringBuffer querySb = new StringBuffer("SELECT seq, name, seq_order, qty, insert_time");
             querySb.append(" FROM jbg_item");
             querySb.append(" WHERE seq=" + seq);
             log.debug("LOCALDB-QUERY------------------------------------------------------------------------------");
@@ -97,6 +106,7 @@ public class JbgItemDataAccessObject extends CommonDataAccessObject {
                     itemJson.put("seq", rset.getInt("seq"));
                     itemJson.put("name", rset.getString("name"));
                     itemJson.put("seq_order", safeGetInt(rset, "seq_order", 0));
+                    itemJson.put("qty", safeGetString(rset, "qty", ""));
                     itemJson.put("insert_time", safeGetLong(rset, "insert_time", 0));
                 }
                 return itemJson;
@@ -125,7 +135,11 @@ public class JbgItemDataAccessObject extends CommonDataAccessObject {
         LocalDBConnection conn = null;
         try {
             conn = new LocalDBConnection();
-            StringBuffer querySb = new StringBuffer("SELECT seq, name, seq_order, insert_time");
+            
+            // qty 컬럼 존재 여부 확인 및 자동 생성
+            ensureQtyColumn(conn);
+            
+            StringBuffer querySb = new StringBuffer("SELECT seq, name, seq_order, qty, insert_time");
             querySb.append(" FROM jbg_item");
             querySb.append(" WHERE seq_order=" + seqOrder);
             querySb.append(" ORDER BY seq DESC");
@@ -142,6 +156,7 @@ public class JbgItemDataAccessObject extends CommonDataAccessObject {
                     itemJson.put("seq", rset.getInt("seq"));
                     itemJson.put("name", rset.getString("name"));
                     itemJson.put("seq_order", safeGetInt(rset, "seq_order", 0));
+                    itemJson.put("qty", safeGetString(rset, "qty", ""));
                     itemJson.put("insert_time", safeGetLong(rset, "insert_time", 0));
                     items.add(itemJson);
                 }
@@ -171,9 +186,26 @@ public class JbgItemDataAccessObject extends CommonDataAccessObject {
      * @throws Exception
      */
     public int add(String name, String seqOrder) throws Exception {
+        return add(name, seqOrder, null);
+    }
+    
+    /**
+     * 아이템 등록 (수량 포함)
+     * 
+     * @param name 아이템명 (필수)
+     * @param seqOrder 주문 시퀀스 (옵션, null 가능)
+     * @param qty 수량 (옵션, null 가능)
+     * @return 생성된 아이템 시퀀스
+     * @throws Exception
+     */
+    public int add(String name, String seqOrder, String qty) throws Exception {
         LocalDBConnection conn = null;
         try {
             conn = new LocalDBConnection();
+            
+            // qty 컬럼이 있는지 확인하고 없으면 추가
+            ensureQtyColumn(conn);
+            
             conn.txOpen();
             
             StringBuffer querySb = new StringBuffer();
@@ -182,11 +214,17 @@ public class JbgItemDataAccessObject extends CommonDataAccessObject {
             if (seqOrder != null && !seqOrder.isEmpty()) {
                 querySb.append(", seq_order");
             }
+            if (qty != null && !qty.isEmpty()) {
+                querySb.append(", qty");
+            }
             querySb.append(", insert_time");
             querySb.append(") values (");
             querySb.append("'" + name + "'");
             if (seqOrder != null && !seqOrder.isEmpty()) {
                 querySb.append(", " + seqOrder);
+            }
+            if (qty != null && !qty.isEmpty()) {
+                querySb.append(", '" + qty + "'");
             }
             querySb.append(", " + System.currentTimeMillis());
             querySb.append(")");
@@ -217,6 +255,27 @@ public class JbgItemDataAccessObject extends CommonDataAccessObject {
         } finally {
             if (conn != null) {
                 conn.close();
+            }
+        }
+    }
+    
+    /**
+     * jbg_item 테이블에 qty 컬럼이 있는지 확인하고 없으면 추가
+     */
+    private void ensureQtyColumn(LocalDBConnection conn) {
+        try {
+            // qty 컬럼 존재 여부 확인
+            conn.executeQuery("SELECT qty FROM jbg_item LIMIT 1");
+        } catch (Exception e) {
+            // qty 컬럼이 없으면 추가
+            try {
+                conn.txOpen();
+                conn.txExecuteUpdate("ALTER TABLE jbg_item ADD COLUMN qty TEXT DEFAULT ''");
+                conn.txCommit();
+                log.info("jbg_item 테이블에 qty 컬럼 추가 완료");
+            } catch (Exception ex) {
+                try { conn.txRollBack(); } catch (Exception ignore) {}
+                log.debug("qty 컬럼 추가 체크: {}", ex.getMessage());
             }
         }
     }
@@ -403,6 +462,26 @@ public class JbgItemDataAccessObject extends CommonDataAccessObject {
         try {
             long value = rset.getLong(columnName);
             if (rset.wasNull()) {
+                return defaultValue;
+            }
+            return value;
+        } catch (Exception e) {
+            return defaultValue;
+        }
+    }
+    
+    /**
+     * ResultSet에서 안전하게 String 값 가져오기
+     * 
+     * @param rset ResultSet
+     * @param columnName 컬럼명
+     * @param defaultValue 기본값
+     * @return String 값
+     */
+    private String safeGetString(ResultSet rset, String columnName, String defaultValue) {
+        try {
+            String value = rset.getString(columnName);
+            if (value == null) {
                 return defaultValue;
             }
             return value;

@@ -139,10 +139,21 @@ public class MallOrderUpdaterRunner  implements Runnable {
                                                 continue;
                                             }
                                             
-                                            // 아이템 등록 (seq_order 연결)
-                                            jiDao.add(itemName, String.valueOf(seqOrder));
+                                            // qty 필드 추출 (있는 경우)
+                                            String qty = null;
+                                            if (item.has("qty") && item.get("qty") != null) {
+                                                qty = item.get("qty").asText().trim();
+                                            }
+                                            
+                                            // 아이템 등록 (seq_order, qty 연결)
+                                            jiDao.add(itemName, String.valueOf(seqOrder), qty);
                                             itemCount++;
-                                            log.debug("아이템 저장 완료: {}, seq_order: {}", itemName, seqOrder);
+                                            
+                                            if (qty != null && !qty.isEmpty()) {
+                                                log.debug("아이템 저장 완료: {}, qty: {}, seq_order: {}", itemName, qty, seqOrder);
+                                            } else {
+                                                log.debug("아이템 저장 완료: {}, seq_order: {}", itemName, seqOrder);
+                                            }
                                         }
                                     } catch (Exception itemEx) {
                                         log.warn("아이템 저장 중 오류 발생: {}", ExceptionUtil.getExceptionInfo(itemEx));

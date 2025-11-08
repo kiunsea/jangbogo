@@ -2,6 +2,9 @@
 REM Jangbogo 애플리케이션 실행 스크립트
 setlocal enabledelayedexpansion
 
+REM 한글 출력을 위한 코드페이지 설정 (UTF-8)
+chcp 65001 >nul 2>&1
+
 REM 현재 디렉토리를 스크립트 위치로 설정
 cd /d "%~dp0"
 
@@ -36,7 +39,7 @@ echo   Jangbogo 구매내역 수집 서비스 시작
 echo ========================================
 echo.
 echo 브라우저가 자동으로 열립니다...
-echo 접속 주소: http://127.0.0.1:8282
+echo 접속 주소: http://localhost:8282
 echo.
 echo 종료하려면 Ctrl+C를 누르세요.
 echo ========================================
@@ -51,4 +54,3 @@ if %ERRORLEVEL% NEQ 0 (
     echo ========================================
     pause
 )
-
