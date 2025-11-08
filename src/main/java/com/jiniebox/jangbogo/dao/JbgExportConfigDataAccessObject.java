@@ -8,6 +8,7 @@ import org.apache.logging.log4j.Logger;
 import org.json.simple.JSONObject;
 
 import com.jiniebox.jangbogo.util.ExceptionUtil;
+import com.jiniebox.jangbogo.util.PasswordEncryptor;
 
 /**
  * 파일 저장 설정 DAO
@@ -53,7 +54,12 @@ public class JbgExportConfigDataAccessObject extends CommonDataAccessObject {
                 config.put("save_to_jiniebox", rset.getInt("save_to_jiniebox"));
                 config.put("ftp_address", rset.getString("ftp_address"));
                 config.put("ftp_id", rset.getString("ftp_id"));
-                config.put("ftp_pass", rset.getString("ftp_pass"));
+                
+                // ftp_pass는 보안을 위해 평문을 전송하지 않고, 존재 여부만 전달
+                String encryptedPass = rset.getString("ftp_pass");
+                boolean hasPassword = (encryptedPass != null && !encryptedPass.isEmpty());
+                config.put("has_ftp_password", hasPassword);
+                
                 config.put("public_key", rset.getString("public_key"));
             } else {
                 // 설정이 없으면 기본값 생성
@@ -94,8 +100,26 @@ public class JbgExportConfigDataAccessObject extends CommonDataAccessObject {
             conn.txOpen();
             
             // 기존 설정 확인
-            ResultSet checkRset = conn.executeQuery("SELECT id FROM jbg_export_config WHERE id=1");
-            boolean exists = checkRset != null && checkRset.next();
+            ResultSet checkRset = conn.executeQuery("SELECT id, ftp_pass FROM jbg_export_config WHERE id=1");
+            boolean exists = false;
+            String existingEncryptedPass = "";
+            if (checkRset != null && checkRset.next()) {
+                exists = true;
+                existingEncryptedPass = checkRset.getString("ftp_pass");
+            }
+            
+            // ftp_pass 암호화 (null이면 기존 값 유지)
+            String encryptedPass = "";
+            if (ftpPass != null && !ftpPass.isEmpty()) {
+                // 새로운 비밀번호가 입력되었으면 암호화
+                encryptedPass = PasswordEncryptor.encrypt(ftpPass);
+                log.debug("FTP 비밀번호 암호화 완료 (원본 길이: {}, 암호화 길이: {})", 
+                         ftpPass.length(), encryptedPass.length());
+            } else if (exists) {
+                // null이거나 빈 문자열이면 기존 암호화된 값 유지
+                encryptedPass = existingEncryptedPass;
+                log.debug("FTP 비밀번호 변경 없음 - 기존 암호화된 값 유지");
+            }
             
             if (exists) {
                 // 업데이트
@@ -107,14 +131,14 @@ public class JbgExportConfigDataAccessObject extends CommonDataAccessObject {
                 querySb.append(", save_to_jiniebox=" + saveToJiniebox);
                 querySb.append(", ftp_address='" + (ftpAddress != null ? ftpAddress : "") + "'");
                 querySb.append(", ftp_id='" + (ftpId != null ? ftpId : "") + "'");
-                querySb.append(", ftp_pass='" + (ftpPass != null ? ftpPass : "") + "'");
+                querySb.append(", ftp_pass='" + encryptedPass + "'");  // 암호화된 비밀번호 저장
                 querySb.append(", public_key='" + (publicKey != null ? publicKey : "") + "'");
                 querySb.append(" WHERE id=1");
                 
                 log.debug("LOCALDB-QUERY------------------------------------------------------------------------------");
                 log.debug(querySb);
                 conn.txExecuteUpdate(querySb.toString());
-                log.info("파일 저장 설정 업데이트 완료");
+                log.info("파일 저장 설정 업데이트 완료 (FTP 비밀번호 암호화됨)");
             } else {
                 // 삽입
                 StringBuffer querySb = new StringBuffer();
@@ -122,13 +146,13 @@ public class JbgExportConfigDataAccessObject extends CommonDataAccessObject {
                 querySb.append("save_to_jiniebox, ftp_address, ftp_id, ftp_pass, public_key)");
                 querySb.append(" VALUES (1, '" + savePath + "', '" + saveFormat + "', " + autoSaveEnabled + ", ");
                 querySb.append(saveToJiniebox + ", '" + (ftpAddress != null ? ftpAddress : "") + "', ");
-                querySb.append("'" + (ftpId != null ? ftpId : "") + "', '" + (ftpPass != null ? ftpPass : "") + "', ");
+                querySb.append("'" + (ftpId != null ? ftpId : "") + "', '" + encryptedPass + "', ");  // 암호화된 비밀번호 저장
                 querySb.append("'" + (publicKey != null ? publicKey : "") + "')");
                 
                 log.debug("LOCALDB-QUERY------------------------------------------------------------------------------");
                 log.debug(querySb);
                 conn.txExecuteUpdate(querySb.toString());
-                log.info("파일 저장 설정 생성 완료");
+                log.info("파일 저장 설정 생성 완료 (FTP 비밀번호 암호화됨)");
             }
             
             conn.txCommit();
@@ -246,13 +270,51 @@ public class JbgExportConfigDataAccessObject extends CommonDataAccessObject {
         config.put("save_to_jiniebox", 0);
         config.put("ftp_address", "");
         config.put("ftp_id", "");
-        config.put("ftp_pass", "");
+        config.put("has_ftp_password", false);  // 비밀번호 없음
         config.put("public_key", "");
         
         // DB에 기본값 삽입
         updateConfig("", "json", 0, 0, "", "", "", "");
         
         return config;
+    }
+    
+    /**
+     * FTP 접속용 복호화된 비밀번호 조회
+     * (내부 사용 전용 - 브라우저로 전송하지 않음)
+     * 
+     * @return 복호화된 FTP 비밀번호 (없으면 빈 문자열)
+     * @throws Exception
+     */
+    public String getDecryptedFtpPassword() throws Exception {
+        LocalDBConnection conn = null;
+        try {
+            conn = new LocalDBConnection();
+            ensureExportConfigTable(conn);
+            
+            StringBuffer querySb = new StringBuffer("SELECT ftp_pass FROM jbg_export_config WHERE id=1");
+            log.debug("LOCALDB-QUERY------------------------------------------------------------------------------");
+            log.debug(querySb);
+            ResultSet rset = conn.executeQuery(querySb.toString());
+            
+            if (rset != null && rset.next()) {
+                String encryptedPass = rset.getString("ftp_pass");
+                if (encryptedPass != null && !encryptedPass.isEmpty()) {
+                    String decryptedPass = PasswordEncryptor.decrypt(encryptedPass);
+                    log.debug("FTP 비밀번호 복호화 완료 (내부 사용)");
+                    return decryptedPass;
+                }
+            }
+            return "";
+        } catch (Exception e) {
+            log.error("FTP 비밀번호 복호화 중 에러 발생");
+            log.error(ExceptionUtil.getExceptionInfo(e));
+            throw e;
+        } finally {
+            if (conn != null) {
+                conn.close();
+            }
+        }
     }
 }
 

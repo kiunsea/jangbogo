@@ -805,8 +805,15 @@ public class AdminController {
                             exportConfig.get("ftp_address").toString() : "";
                         String ftpId = exportConfig.get("ftp_id") != null ? 
                             exportConfig.get("ftp_id").toString() : "";
-                        String ftpPass = exportConfig.get("ftp_pass") != null ? 
-                            exportConfig.get("ftp_pass").toString() : "";
+                        
+                        // FTP 비밀번호는 보안을 위해 별도 메서드로 복호화
+                        String ftpPass = "";
+                        try {
+                            ftpPass = exportConfigDao.getDecryptedFtpPassword();
+                        } catch (Exception e) {
+                            logger.error("FTP 비밀번호 복호화 실패", e);
+                        }
+                        
                         String publicKey = exportConfig.get("public_key") != null ? 
                             exportConfig.get("public_key").toString() : "";
                         
