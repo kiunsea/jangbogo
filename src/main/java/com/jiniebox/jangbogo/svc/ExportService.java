@@ -419,5 +419,135 @@ public class ExportService {
         }
         return value;
     }
+    
+    /**
+     * jiniebox 형식의 JSON 파일로 저장 (단순 배열 형식)
+     * 
+     * @param outputPath 출력 파일 경로
+     * @param limit 조회할 주문 개수 (0이면 전체, 양수면 최근 N개)
+     * @return 저장된 파일 경로
+     * @throws Exception
+     */
+    public String exportToJiniebox(String outputPath, int limit) throws Exception {
+        
+        logger.info("jiniebox 형식 JSON export 시작: {}, limit: {}", outputPath, limit > 0 ? limit : "전체");
+        
+        // 1. JSON 생성
+        String jsonContent = exportToJinieboxJson(limit);
+        
+        // 2. 파일로 저장
+        try (FileWriter fileWriter = new FileWriter(outputPath, java.nio.charset.StandardCharsets.UTF_8)) {
+            fileWriter.write(jsonContent);
+            fileWriter.flush();
+        } catch (IOException e) {
+            logger.error("파일 저장 실패: {}", outputPath, e);
+            throw e;
+        }
+        
+        logger.info("jiniebox 형식 JSON export 완료: {} (크기: {} bytes)", outputPath, jsonContent.length());
+        
+        return outputPath;
+    }
+    
+    /**
+     * DB의 구매 정보를 jiniebox 형식 JSON 문자열로 변환
+     * 
+     * @param limit 조회할 주문 개수 (0이면 전체)
+     * @return JSON 문자열 (배열 형식)
+     * @throws Exception
+     */
+    public String exportToJinieboxJson(int limit) throws Exception {
+        
+        JbgOrderDataAccessObject orderDao = new JbgOrderDataAccessObject();
+        JbgItemDataAccessObject itemDao = new JbgItemDataAccessObject();
+        
+        // 1. 주문 조회
+        List<JSONObject> orders = orderDao.getAllOrders(limit);
+        
+        if (orders == null || orders.isEmpty()) {
+            logger.warn("조회된 주문이 없습니다.");
+            return "[]";  // 빈 배열 반환
+        }
+        
+        logger.debug("조회된 주문 개수: {}", orders.size());
+        
+        // 2. jiniebox 형식 JSON 배열 생성
+        org.json.simple.JSONArray jsonArray = new org.json.simple.JSONArray();
+        
+        int totalItems = 0;
+        for (JSONObject orderJson : orders) {
+            org.json.simple.JSONObject orderObj = new org.json.simple.JSONObject();
+            
+            // 주문 정보
+            String serialNum = orderJson.get("serial_num").toString();
+            String dateTime = orderJson.get("date_time").toString();
+            int seqOrder = ((Number) orderJson.get("seq")).intValue();
+            int seqMall = ((Number) orderJson.get("seq_mall")).intValue();
+            
+            // mall_name 조회 (jiniebox에서 필수로 읽는 필드)
+            String mallName = orderJson.get("mall_name") != null ? 
+                             orderJson.get("mall_name").toString() : "";
+            
+            orderObj.put("serial", serialNum);
+            orderObj.put("datetime", dateTime);
+            orderObj.put("mall_id", getMallIdFromSeq(seqMall));  // seq → id 변환
+            orderObj.put("mallname", mallName);  // jiniebox가 읽는 필드명
+            
+            logger.debug("주문 처리: serial={}, datetime={}, mall_id={}, mallname={}", 
+                        serialNum, dateTime, getMallIdFromSeq(seqMall), mallName);
+            
+            // 해당 주문의 상품들 조회
+            List<JSONObject> items = itemDao.getItemsByOrder(String.valueOf(seqOrder));
+            
+            org.json.simple.JSONArray itemsArray = new org.json.simple.JSONArray();
+            if (items != null && !items.isEmpty()) {
+                for (JSONObject itemJson : items) {
+                    org.json.simple.JSONObject itemObj = new org.json.simple.JSONObject();
+                    itemObj.put("name", itemJson.get("name").toString());
+                    
+                    // qty가 있으면 사용, 없으면 "1"
+                    String qty = itemJson.get("qty") != null ? 
+                                itemJson.get("qty").toString() : "1";
+                    if (qty.isEmpty()) {
+                        qty = "1";
+                    }
+                    itemObj.put("qty", qty);
+                    
+                    itemsArray.add(itemObj);
+                }
+                
+                totalItems += itemsArray.size();
+                logger.debug("  └─ 상품 {}개", itemsArray.size());
+            } else {
+                logger.debug("  └─ 상품 없음");
+            }
+            
+            orderObj.put("items", itemsArray);
+            jsonArray.add(orderObj);
+        }
+        
+        logger.info("jiniebox JSON 생성 완료 - 주문: {}개, 상품: {}개", jsonArray.size(), totalItems);
+        
+        // 3. JSON 문자열 반환
+        return jsonArray.toJSONString();
+    }
+    
+    /**
+     * seq_jbgmall → mall_id 변환
+     * 
+     * @param seqMall 쇼핑몰 시퀀스
+     * @return 쇼핑몰 ID (emart, ssg, oasis, unknown)
+     */
+    private String getMallIdFromSeq(int seqMall) {
+        switch (seqMall) {
+            case 1:
+                return "emart";  // 이마트/SSG 그룹
+            case 2:
+                return "oasis";  // 오아시스
+            default:
+                logger.warn("알 수 없는 쇼핑몰 seq: {}", seqMall);
+                return "unknown";
+        }
+    }
 }
 

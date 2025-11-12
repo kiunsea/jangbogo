@@ -116,6 +116,17 @@
                             </li>
                             <li class="list-group-item">
                                 <div class="d-flex align-items-center justify-content-between">
+                                    <div>저장 범위</div>
+                                    <div>
+                                        <select class="form-select form-select-sm" id="export_limit" style="width: 150px;">
+                                            <option value="100">최근 100개</option>
+                                            <option value="0">전체</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </li>
+                            <li class="list-group-item">
+                                <div class="d-flex align-items-center justify-content-between">
                                     <div>지니박스에도 함께 저장</div>
                                     <div>
                                         <input type="checkbox" class="form-check-input" id="save_to_jiniebox" value="1" 
@@ -139,6 +150,28 @@
                                         <input type="password" class="form-control form-control-sm" id="ftp_pass" 
                                                placeholder="FTP 비밀번호">
                                     </div>
+                                    <div class="mb-2">
+                                        <label class="form-label mb-1" style="font-size: 0.875rem; font-weight: 500;">
+                                            <i class="bi bi-key-fill"></i> Public Key (암호화용)
+                                        </label>
+                                        <div class="input-group input-group-sm">
+                                            <input type="text" class="form-control form-control-sm" 
+                                                   id="public_key_input" 
+                                                   placeholder="지니박스에서 생성된 Public Key를 입력하세요"
+                                                   style="font-family: monospace; font-size: 0.75rem;"
+                                                   onblur="this.value = this.value.trim()">
+                                            <button type="button" 
+                                                    class="btn btn-outline-primary" 
+                                                    onclick="savePublicKeyOnly()"
+                                                    title="Public Key 저장">
+                                                <i class="bi bi-save"></i>
+                                            </button>
+                                        </div>
+                                        <div class="form-text" style="font-size: 0.7rem;">
+                                            <i class="bi bi-info-circle"></i> 
+                                            Public Key를 입력하면 FTP로 전송되는 파일이 자동으로 암호화됩니다.
+                                        </div>
+                                    </div>
                                     <div class="d-grid mb-2">
                                         <button type="button" 
                                                 class="btn btn-primary btn-sm" 
@@ -147,35 +180,20 @@
                                         </button>
                                     </div>
                                     <div class="alert alert-info py-1 px-2 mb-0" style="font-size: 0.75rem;">
-                                        <i class="bi bi-info-circle"></i> FTP 정보는 암호화되어 저장됩니다.
+                                        <i class="bi bi-info-circle"></i> FTP 정보와 Public Key가 암호화되어 저장됩니다.
                                     </div>
                                 </div>
                             </li>
-                            <li class="list-group-item" id="public_key_row" style="display: none;">
-                                <div class="ps-4 mb-2">
-                                    <label class="form-label mb-1" style="font-size: 0.875rem; font-weight: 500;">
-                                        <i class="bi bi-key-fill"></i> Public Key (암호화용)
-                                    </label>
-                                    <div class="d-flex align-items-center gap-2">
-                                        <input type="text" class="form-control form-control-sm flex-grow-1" 
-                                               id="public_key_input" 
-                                               placeholder="지니박스에서 생성된 Public Key를 입력하세요"
-                                               style="font-family: monospace; font-size: 0.75rem;">
-                                        <button type="button" class="btn btn-outline-success btn-sm" 
-                                                onclick="savePublicKeyToServer()" 
-                                                title="Public Key 저장">
-                                            <i class="bi bi-save-fill"></i>
-                                        </button>
-                                        <button type="button" class="btn btn-outline-secondary btn-sm" 
-                                                onclick="clearPublicKey(event)" 
-                                                title="Public Key 지우기">
-                                            <i class="bi bi-x-lg"></i>
-                                        </button>
-                                    </div>
-                                    <div class="alert alert-info py-1 px-2 mb-0 mt-2" style="font-size: 0.75rem;">
-                                        <i class="bi bi-info-circle"></i> 
-                                        Public Key를 입력하면 FTP로 전송되는 파일이 자동으로 암호화됩니다.
-                                    </div>
+                            <li class="list-group-item">
+                                <div class="d-grid">
+                                    <button type="button" 
+                                            class="btn btn-primary" 
+                                            onclick="exportAndUploadToFtp()">
+                                        <i class="bi bi-cloud-upload-fill"></i> 파일 저장 및 FTP 업로드
+                                    </button>
+                                    <small class="text-muted mt-1" style="font-size: 0.75rem;">
+                                        <i class="bi bi-info-circle"></i> 구매 내역을 파일로 저장하고, 설정에 따라 FTP 업로드합니다.
+                                    </small>
                                 </div>
                             </li>
                         </ul>
@@ -651,18 +669,209 @@
                 });
                 
                 /**
+                 * 필수 필드 유효성 검사 공통 함수
+                 * 
+                 * @param {Array<string>} requiredFields - 필수 필드 목록
+                 *   가능한 값: 'savePath', 'saveFormat', 'autoSaveEnabled', 'exportLimit', 
+                 *             'saveToJiniebox', 'ftpAddress', 'ftpId', 'ftpPass', 'publicKey'
+                 * @param {Object} options - 추가 옵션
+                 *   - checkSaveToJiniebox: true일 경우, saveToJiniebox가 체크되어 있으면 FTP 필드들도 필수로 체크
+                 *   - ignoreFtpPassIfExists: true일 경우, 기존에 비밀번호가 있으면 ftpPass를 필수로 체크하지 않음
+                 * @returns {Object} { valid: boolean, missingFields: Array<string>, values: Object }
+                 */
+                function validateRequiredFields(requiredFields, options = {}) {
+                    const _doc = window.document;
+                    const missingFields = [];
+                    const fieldLabels = {
+                        savePath: '저장 위치',
+                        saveFormat: '저장 포맷',
+                        autoSaveEnabled: '구매내역 수집시 함께 저장',
+                        exportLimit: '저장 범위',
+                        saveToJiniebox: '지니박스에도 함께 저장',
+                        ftpAddress: 'FTP 주소',
+                        ftpId: 'FTP 아이디',
+                        ftpPass: 'FTP 비밀번호',
+                        publicKey: 'Public Key'
+                    };
+                    
+                    // 모든 필드 값 수집
+                    const values = {
+                        savePath: _doc.querySelector('#file_save_path')?.value || '',
+                        saveFormat: _doc.querySelector('#file_save_format')?.value || '',
+                        autoSaveEnabled: _doc.querySelector('#auto_save_on_collect')?.checked || false,
+                        exportLimit: parseInt(_doc.querySelector('#export_limit')?.value) || 0,
+                        saveToJiniebox: _doc.querySelector('#save_to_jiniebox')?.checked || false,
+                        ftpAddress: _doc.querySelector('#ftp_address')?.value || '',
+                        ftpId: _doc.querySelector('#ftp_id')?.value || '',
+                        ftpPass: _doc.querySelector('#ftp_pass')?.value || '',
+                        publicKey: _doc.querySelector('#public_key_input')?.value || ''
+                    };
+                    
+                    // saveToJiniebox가 체크되어 있으면 FTP 관련 필드들도 필수로 추가
+                    let effectiveRequiredFields = [...requiredFields];
+                    if (options.checkSaveToJiniebox && values.saveToJiniebox) {
+                        const ftpFields = ['ftpAddress', 'ftpId', 'ftpPass', 'publicKey'];
+                        ftpFields.forEach(field => {
+                            if (!effectiveRequiredFields.includes(field)) {
+                                effectiveRequiredFields.push(field);
+                            }
+                        });
+                    }
+                    
+                    // 필수 필드 검증
+                    effectiveRequiredFields.forEach(field => {
+                        if (field === 'autoSaveEnabled' || field === 'saveToJiniebox') {
+                            // 체크박스는 체크 여부만 확인 (항상 값이 있음)
+                            return;
+                        }
+                        
+                        if (field === 'ftpPass') {
+                            // FTP 비밀번호: ignoreFtpPassIfExists 옵션이 있고 기존 비밀번호가 있으면 스킵
+                            if (options.ignoreFtpPassIfExists && hasFtpPassword && !values.ftpPass.trim()) {
+                                return; // 기존 비밀번호 유지
+                            }
+                            // 새로운 비밀번호 입력 필수
+                            if (!values.ftpPass.trim()) {
+                                missingFields.push(fieldLabels[field]);
+                            }
+                        } else if (field === 'exportLimit') {
+                            // exportLimit는 숫자이므로 0이어도 유효
+                            // 필드가 없거나 음수인 경우만 오류
+                            if (values.exportLimit === null || values.exportLimit === undefined || values.exportLimit < 0) {
+                                missingFields.push(fieldLabels[field]);
+                            }
+                        } else {
+                            // 일반 텍스트 필드: 비어있으면 오류
+                            if (!values[field] || values[field].trim() === '') {
+                                missingFields.push(fieldLabels[field]);
+                            }
+                        }
+                    });
+                    
+                    return {
+                        valid: missingFields.length === 0,
+                        missingFields: missingFields,
+                        values: values
+                    };
+                }
+                
+                /**
+                 * Public Key만 저장 (전용 함수)
+                 * 기존 설정을 불러와서 Public Key만 갱신
+                 */
+                function savePublicKeyOnly() {
+                    const _doc = window.document;
+                    const publicKeyInput = _doc.querySelector('#public_key_input');
+                    const publicKey = publicKeyInput ? publicKeyInput.value.trim() : '';
+                    
+                    // Public Key 입력 여부 확인
+                    if (!publicKey) {
+                        if (!confirm('Public Key가 비어있습니다.\n\nPublic Key를 삭제하시겠습니까?')) {
+                            return;
+                        }
+                    } else {
+                        // Public Key 변경 여부 확인
+                        if (!confirm('Public Key를 저장하시겠습니까?\n\n기존 Public Key가 있다면 새 값으로 갱신됩니다.')) {
+                            return;
+                        }
+                    }
+                    
+                    // 기존 설정 불러오기
+                    var getConfigXhr = new XMLHttpRequest();
+                    getConfigXhr.onreadystatechange = function() {
+                        if (checkAjaxSuc(getConfigXhr)) {
+                            try {
+                                var configJson = JSON.parse(getConfigXhr.responseText);
+                                var exportConfig = configJson.exportConfig || {};
+                                
+                                // 기존 설정값 가져오기
+                                const savePath = _doc.querySelector('#file_save_path')?.value || 
+                                                (exportConfig.save_path || '');
+                                const saveFormat = _doc.querySelector('#file_save_format')?.value || 
+                                                  (exportConfig.save_format || 'json');
+                                const autoSaveEnabled = _doc.querySelector('#auto_save_on_collect')?.checked || 
+                                                       (exportConfig.auto_save_enabled == 1);
+                                const saveToJiniebox = _doc.querySelector('#save_to_jiniebox')?.checked || 
+                                                       (exportConfig.save_to_jiniebox == 1);
+                                const ftpAddress = _doc.querySelector('#ftp_address')?.value || 
+                                                  (exportConfig.ftp_address || '');
+                                const ftpId = _doc.querySelector('#ftp_id')?.value || 
+                                            (exportConfig.ftp_id || '');
+                                
+                                // FTP 비밀번호는 기존 값 유지 (null로 전송)
+                                const ftpPass = null;
+                                
+                                // Public Key는 새로 입력한 값 사용
+                                
+                                // 서버에 저장 요청
+                                var saveXhr = new XMLHttpRequest();
+                                saveXhr.onreadystatechange = function() {
+                                    if (checkAjaxSuc(saveXhr)) {
+                                        try {
+                                            var resJson = JSON.parse(saveXhr.responseText);
+                                            if (resJson.success) {
+                                                console.log('Public Key 저장 완료');
+                                                
+                                                // Public Key 저장 완료 알림
+                                                if (publicKey) {
+                                                    alert('✓ Public Key가 저장되었습니다.\n\n' +
+                                                          '파일 암호화가 활성화되었습니다.\n' +
+                                                          '지니박스에서 Private Key를 이용하여 복호화할 수 있습니다.');
+                                                } else {
+                                                    alert('✓ Public Key가 삭제되었습니다.\n\n파일 암호화가 비활성화되었습니다.');
+                                                }
+                                            } else {
+                                                // 서버 검증 오류 메시지 표시
+                                                if (resJson.message) {
+                                                    alert('❌ 저장 실패\n\n' + resJson.message);
+                                                } else {
+                                                    alert('❌ Public Key 저장 중 오류가 발생했습니다.');
+                                                }
+                                            }
+                                        } catch (e) {
+                                            console.error('Public Key 저장 응답 파싱 오류:', e);
+                                            alert('❌ 서버 응답 처리 중 오류가 발생했습니다.');
+                                        }
+                                    }
+                                };
+                                
+                                saveXhr.open('POST', '/export/config', true);
+                                saveXhr.setRequestHeader('Content-Type', 'application/json;charset=UTF-8');
+                                saveXhr.send(JSON.stringify({ 
+                                    savePath: savePath, 
+                                    format: saveFormat,
+                                    autoSaveEnabled: autoSaveEnabled,
+                                    saveToJiniebox: saveToJiniebox,
+                                    ftpAddress: ftpAddress,
+                                    ftpId: ftpId,
+                                    ftpPass: ftpPass,  // null (기존 값 유지)
+                                    publicKey: publicKey
+                                }));
+                            } catch (e) {
+                                console.error('설정 조회 응답 파싱 오류:', e);
+                                alert('❌ 기존 설정을 불러오는 중 오류가 발생했습니다.');
+                            }
+                        }
+                    };
+                    
+                    getConfigXhr.open('GET', '/malls/getinfo', true);
+                    getConfigXhr.send();
+                }
+                
+                /**
                  * Public Key 저장 (전용 함수)
+                 * 필수: Public Key만 필수
                  */
                 function savePublicKeyToServer() {
-                    const _doc = window.document;
-                    const savePath = _doc.querySelector('#file_save_path').value;
-                    const saveFormat = _doc.querySelector('#file_save_format').value;
-                    const autoSaveEnabled = _doc.querySelector('#auto_save_on_collect').checked;
-                    const saveToJiniebox = _doc.querySelector('#save_to_jiniebox').checked;
-                    const ftpAddress = _doc.querySelector('#ftp_address').value || '';
-                    const ftpId = _doc.querySelector('#ftp_id').value || '';
-                    const ftpPass = _doc.querySelector('#ftp_pass').value || '';
-                    const publicKey = _doc.querySelector('#public_key_input').value || '';
+                    // 필수 필드 검증: Public Key만 필수
+                    const validation = validateRequiredFields(['publicKey']);
+                    
+                    if (!validation.valid) {
+                        alert('다음 정보를 입력해야 합니다:\n\n' + validation.missingFields.join(', '));
+                        return;
+                    }
+                    
+                    const values = validation.values;
                     
                     var xhr = new XMLHttpRequest();
                     xhr.onreadystatechange = function() {
@@ -673,7 +882,7 @@
                                     console.log('Public Key 저장 완료');
                                     
                                     // Public Key 저장 완료 알림
-                                    if (publicKey && publicKey.trim() !== '') {
+                                    if (values.publicKey && values.publicKey.trim() !== '') {
                                         alert('✓ Public Key가 저장되었습니다.\n\n' +
                                               '파일 암호화가 활성화되었습니다.\n' +
                                               '지니박스에서 Private Key를 이용하여 복호화할 수 있습니다.');
@@ -695,38 +904,46 @@
                     xhr.open('POST', '/export/config', true);
                     xhr.setRequestHeader('Content-Type', 'application/json;charset=UTF-8');
                     xhr.send(JSON.stringify({ 
-                        savePath: savePath, 
-                        format: saveFormat,
-                        autoSaveEnabled: autoSaveEnabled,
-                        saveToJiniebox: saveToJiniebox,
-                        ftpAddress: ftpAddress,
-                        ftpId: ftpId,
-                        ftpPass: ftpPass,
-                        publicKey: publicKey
+                        savePath: values.savePath, 
+                        format: values.saveFormat,
+                        autoSaveEnabled: values.autoSaveEnabled,
+                        saveToJiniebox: values.saveToJiniebox,
+                        ftpAddress: values.ftpAddress,
+                        ftpId: values.ftpId,
+                        ftpPass: values.ftpPass,
+                        publicKey: values.publicKey
                     }));
                 }
                 
                 /**
-                 * FTP 정보만 서버에 저장
+                 * FTP 정보 및 Public Key 서버에 저장
+                 * 필수: FTP 주소, FTP 아이디, Public Key
+                 * - FTP 비밀번호: 선택 (입력하지 않으면 기존 비밀번호 유지)
+                 * - FTP 주소 + ID + Public Key 입력 (비밀번호 없음): 기존 비밀번호 유지
+                 * - FTP 주소 + ID + Public Key + 비밀번호 입력: 모두 갱신
                  */
                 function saveFtpInfoToServer() {
                     const _doc = window.document;
                     const ftpAddress = _doc.querySelector('#ftp_address').value || '';
                     const ftpId = _doc.querySelector('#ftp_id').value || '';
                     const ftpPass = _doc.querySelector('#ftp_pass').value || '';
+                    const publicKey = _doc.querySelector('#public_key_input').value || '';
                     
-                    // FTP 정보 필수 입력 검증
-                    const missingFields = [];
-                    if (!ftpAddress.trim()) missingFields.push('FTP 주소');
-                    if (!ftpId.trim()) missingFields.push('FTP 아이디');
-                    
-                    // 비밀번호: 기존에 없었거나, 있었지만 변경하려는 경우에만 필수
-                    if (!hasFtpPassword && !ftpPass.trim()) {
-                        missingFields.push('FTP 비밀번호');
+                    // FTP 주소 필수 체크
+                    if (!ftpAddress.trim()) {
+                        alert('FTP 주소를 입력해주세요.');
+                        return;
                     }
                     
-                    if (missingFields.length > 0) {
-                        alert('다음 정보를 모두 입력해야 합니다:\n\n' + missingFields.join(', '));
+                    // FTP ID 필수 체크
+                    if (!ftpId.trim()) {
+                        alert('FTP 아이디를 입력해주세요.');
+                        return;
+                    }
+                    
+                    // Public Key 필수 체크
+                    if (!publicKey.trim()) {
+                        alert('Public Key를 입력해주세요.\n\n지니박스에서 생성된 Public Key를 입력하면\nFTP로 전송되는 파일이 암호화됩니다.');
                         return;
                     }
                     
@@ -734,8 +951,11 @@
                     const ftpPassToSend = ftpPass.trim() ? ftpPass : null;
                     const passwordChanged = (ftpPassToSend !== null);
                     
-                    console.log('FTP 비밀번호 상태:', 
-                        passwordChanged ? '새로 입력됨 (암호화하여 저장)' : '변경 없음 (기존 값 유지)');
+                    console.log('FTP 저장 요청:', {
+                        address: ftpAddress,
+                        id: ftpId,
+                        passwordChanged: passwordChanged
+                    });
                     
                     var xhr = new XMLHttpRequest();
                     xhr.onreadystatechange = function() {
@@ -743,11 +963,12 @@
                             try {
                                 var resJson = JSON.parse(xhr.responseText);
                                 if (resJson.success) {
-                                    console.log('FTP 정보 저장 완료');
+                                    console.log('FTP 정보 및 Public Key 저장 완료');
                                     
-                                    let alertMsg = '✅ FTP 정보가 저장되었습니다.\n\n' +
+                                    let alertMsg = '✅ FTP 정보와 Public Key가 저장되었습니다.\n\n' +
                                                    'FTP 주소: ' + ftpAddress + '\n' +
-                                                   'FTP 아이디: ' + ftpId;
+                                                   'FTP 아이디: ' + ftpId + '\n' +
+                                                   '🔑 Public Key: 저장됨 (파일 암호화 활성화)';
                                     
                                     if (passwordChanged) {
                                         alertMsg += '\n\n🔒 비밀번호가 암호화되어 저장되었습니다.';
@@ -764,20 +985,22 @@
                                 } else {
                                     if (resJson.message) {
                                         alert('❌ 저장 실패\n\n' + resJson.message);
+                                    } else {
+                                        alert('❌ FTP 정보 및 Public Key 저장 중 오류가 발생했습니다.');
                                     }
                                 }
                             } catch (e) {
-                                console.error('FTP 정보 저장 응답 파싱 오류:', e);
+                                console.error('FTP 정보 및 Public Key 저장 응답 파싱 오류:', e);
+                                alert('❌ 서버 응답 처리 중 오류가 발생했습니다.');
                             }
                         }
                     };
                     
-                    // 기존 설정값 유지하면서 FTP 정보만 업데이트
+                    // 기존 설정값 유지하면서 FTP 정보와 Public Key 함께 업데이트
                     const savePath = _doc.querySelector('#file_save_path').value;
                     const saveFormat = _doc.querySelector('#file_save_format').value;
                     const autoSaveEnabled = _doc.querySelector('#auto_save_on_collect').checked;
                     const saveToJiniebox = _doc.querySelector('#save_to_jiniebox').checked;
-                    const publicKey = _doc.querySelector('#public_key_input').value || '';
                     
                     xhr.open('POST', '/export/config', true);
                     xhr.setRequestHeader('Content-Type', 'application/json;charset=UTF-8');
@@ -882,6 +1105,93 @@
                     }
                 }
                 
+                /**
+                 * 파일 저장 및 FTP 업로드
+                 * 필수: 저장 위치, 저장 포맷, 저장 범위
+                 * 조건부 필수: saveToJiniebox가 체크되면 FTP 관련 필드들도 필수
+                 */
+                function exportAndUploadToFtp() {
+                    // 필수 필드 검증: savePath, saveFormat, exportLimit
+                    // + saveToJiniebox가 체크되면 FTP 필드들도 필수
+                    const validation = validateRequiredFields(
+                        ['savePath', 'saveFormat', 'exportLimit'],
+                        { 
+                            checkSaveToJiniebox: true,      // saveToJiniebox 체크 시 FTP 필드 필수
+                            ignoreFtpPassIfExists: true     // 기존 비밀번호가 있으면 입력 안 해도 됨
+                        }
+                    );
+                    
+                    if (!validation.valid) {
+                        alert('다음 정보를 모두 입력해야 합니다:\n\n' + validation.missingFields.join(', '));
+                        return;
+                    }
+                    
+                    const values = validation.values;
+                    
+                    // 확인 메시지 (FTP 업로드 여부 표시)
+                    const limitMsg = values.exportLimit > 0 ? '최근 ' + values.exportLimit + '개' : '전체';
+                    let confirmMsg = '구매 내역을 파일로 저장하시겠습니까?\n\n' +
+                                     '저장 경로: ' + values.savePath + '\n' +
+                                     '저장 범위: ' + limitMsg + '\n' +
+                                     '포맷: ' + values.saveFormat.toUpperCase();
+                    
+                    if (values.saveToJiniebox) {
+                        confirmMsg += '\n\n🌐 지니박스 FTP 업로드: 활성화';
+                    } else {
+                        confirmMsg += '\n\n📁 지니박스 FTP 업로드: 비활성화 (로컬 저장만)';
+                    }
+                    
+                    if (!confirm(confirmMsg)) {
+                        return;
+                    }
+                    
+                    console.log('파일 저장 요청:', { 
+                        savePath: values.savePath, 
+                        saveFormat: values.saveFormat, 
+                        limit: values.exportLimit,
+                        saveToJiniebox: values.saveToJiniebox
+                    });
+                    
+                    var xhr = new XMLHttpRequest();
+                    xhr.onreadystatechange = function() {
+                        if (checkAjaxSuc(xhr)) {
+                            try {
+                                var resJson = JSON.parse(xhr.responseText);
+                                if (resJson.success) {
+                                    let msg = '✅ 파일 저장이 완료되었습니다.\n\n' +
+                                              '파일: ' + resJson.filePath;
+                                    
+                                    if (resJson.ftpUploaded) {
+                                        msg += '\n\n🌐 FTP 업로드 완료';
+                                        if (resJson.encrypted) {
+                                            msg += ' (암호화됨 🔒)';
+                                        }
+                                    } else if (values.saveToJiniebox === false) {
+                                        msg += '\n\n📁 로컬 저장만 완료 (FTP 업로드 비활성화)';
+                                    }
+                                    
+                                    alert(msg);
+                                    
+                                    console.log('파일 저장 완료:', resJson);
+                                } else {
+                                    alert('❌ 저장 실패\n\n' + (resJson.message || '알 수 없는 오류'));
+                                }
+                            } catch (e) {
+                                console.error('응답 파싱 오류:', e);
+                                alert('❌ 응답 처리 오류');
+                            }
+                        }
+                    };
+                    
+                    xhr.open('POST', '/export/orders', true);
+                    xhr.setRequestHeader('Content-Type', 'application/json;charset=UTF-8');
+                    xhr.send(JSON.stringify({ 
+                        savePath: values.savePath,
+                        format: values.saveFormat,
+                        limit: values.exportLimit,
+                        saveToJiniebox: values.saveToJiniebox
+                    }));
+                }
                 
                 /**
                  * 기본 경로(설치 경로의 exports)로 설정

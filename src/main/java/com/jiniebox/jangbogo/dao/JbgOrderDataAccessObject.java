@@ -112,11 +112,27 @@ public class JbgOrderDataAccessObject extends CommonDataAccessObject {
      * @throws Exception
      */
     public List<JSONObject> getAllOrders() throws Exception {
+        return getAllOrders(0);  // 제한 없이 전체 조회
+    }
+    
+    /**
+     * 주문 조회 (개수 제한 옵션)
+     * 
+     * @param limit 조회 개수 (0이면 전체, 양수면 해당 개수만큼만 조회)
+     * @return 주문 목록 (seq, serial_num, date_time, mall_name, seq_mall 포함)
+     * @throws Exception
+     */
+    public List<JSONObject> getAllOrders(int limit) throws Exception {
         LocalDBConnection conn = null;
         try {
             conn = new LocalDBConnection();
             StringBuffer querySb = new StringBuffer("SELECT seq, serial_num, date_time, mall_name, seq_mall FROM jbg_order");
             querySb.append(" ORDER BY date_time DESC, seq DESC");
+            
+            if (limit > 0) {
+                querySb.append(" LIMIT " + limit);
+            }
+            
             log.debug("LOCALDB-QUERY------------------------------------------------------------------------------");
             log.debug(querySb);
             ResultSet rset = conn.executeQuery(querySb.toString());
@@ -134,6 +150,11 @@ public class JbgOrderDataAccessObject extends CommonDataAccessObject {
                     orders.add(orderJson);
                 }
             }
+            
+            log.info("주문 조회 완료 - count: {}, limit: {}", 
+                    orders != null ? orders.size() : 0, 
+                    limit > 0 ? limit : "전체");
+            
             return orders;
         } catch (Exception e) {
             log.error("* 프로그램 수행중 에러 발생");

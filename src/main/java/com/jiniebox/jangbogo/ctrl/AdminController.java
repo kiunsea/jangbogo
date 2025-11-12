@@ -770,8 +770,24 @@ public class AdminController {
                 format = "json"; // 기본값
             }
             
-            // 파일 저장 실행
-            String filePath = exportService.exportAllOrders(req.getSavePath(), format);
+            // limit 파라미터 처리 (0 또는 null이면 전체)
+            int limit = (req.getLimit() != null && req.getLimit() > 0) ? req.getLimit() : 0;
+            
+            // saveToJiniebox 파라미터 처리 (요청 값이 있으면 사용, 없으면 DB 설정 사용)
+            Boolean saveToJiniebox = req.getSaveToJiniebox();
+            
+            logger.info("파일 저장 요청 - 경로: {}, 포맷: {}, limit: {}, FTP 업로드: {}", 
+                       req.getSavePath(), format, limit > 0 ? limit : "전체", 
+                       saveToJiniebox != null ? (saveToJiniebox ? "활성화" : "비활성화") : "DB 설정 사용");
+            
+            // 파일명 생성
+            java.text.SimpleDateFormat dateFormat = new java.text.SimpleDateFormat("yyyyMMdd_HHmmss");
+            String timestamp = dateFormat.format(new java.util.Date());
+            String fileName = "purchase_" + timestamp + ".json";
+            String filePath = req.getSavePath() + java.io.File.separator + fileName;
+            
+            // jiniebox 형식 JSON 파일 생성
+            exportService.exportToJiniebox(filePath, limit);
             
             response.put("success", true);
             response.put("message", "파일 저장이 완료되었습니다.");
@@ -786,21 +802,33 @@ public class AdminController {
                 org.json.simple.JSONObject exportConfig = exportConfigDao.getConfig();
                 
                 if (exportConfig != null) {
-                    Object saveToJinieboxObj = exportConfig.get("save_to_jiniebox");
-                    int saveToJiniebox = 0;
+                    // 요청 파라미터로 전달된 saveToJiniebox 값 우선 사용
+                    boolean shouldUploadToFtp = false;
                     
-                    if (saveToJinieboxObj instanceof Number) {
-                        saveToJiniebox = ((Number) saveToJinieboxObj).intValue();
-                    } else if (saveToJinieboxObj instanceof String) {
-                        try {
-                            saveToJiniebox = Integer.parseInt((String) saveToJinieboxObj);
-                        } catch (NumberFormatException e) {
-                            logger.warn("save_to_jiniebox 값 변환 실패: {}", saveToJinieboxObj);
+                    if (saveToJiniebox != null) {
+                        // 요청에서 명시적으로 지정된 경우
+                        shouldUploadToFtp = saveToJiniebox;
+                        logger.info("FTP 업로드 여부: 요청 값 사용 = {}", shouldUploadToFtp);
+                    } else {
+                        // 요청 값이 없으면 DB 설정 사용
+                        Object saveToJinieboxObj = exportConfig.get("save_to_jiniebox");
+                        int saveToJinieboxDb = 0;
+                        
+                        if (saveToJinieboxObj instanceof Number) {
+                            saveToJinieboxDb = ((Number) saveToJinieboxObj).intValue();
+                        } else if (saveToJinieboxObj instanceof String) {
+                            try {
+                                saveToJinieboxDb = Integer.parseInt((String) saveToJinieboxObj);
+                            } catch (NumberFormatException e) {
+                                logger.warn("save_to_jiniebox 값 변환 실패: {}", saveToJinieboxObj);
+                            }
                         }
+                        shouldUploadToFtp = (saveToJinieboxDb == 1);
+                        logger.info("FTP 업로드 여부: DB 설정 사용 = {}", shouldUploadToFtp);
                     }
                     
                     // FTP 업로드가 활성화되어 있는 경우
-                    if (saveToJiniebox == 1) {
+                    if (shouldUploadToFtp) {
                         String ftpAddress = exportConfig.get("ftp_address") != null ? 
                             exportConfig.get("ftp_address").toString() : "";
                         String ftpId = exportConfig.get("ftp_id") != null ? 
@@ -884,6 +912,10 @@ public class AdminController {
                         } else {
                             logger.warn("FTP 정보가 불완전합니다. 업로드를 건너뜁니다.");
                         }
+                    } else {
+                        // FTP 업로드가 비활성화된 경우
+                        logger.info("FTP 업로드 비활성화 - 로컬 저장만 완료");
+                        response.put("ftpUploaded", false);
                     }
                 }
             } catch (Exception ftpEx) {
@@ -925,14 +957,18 @@ public class AdminController {
             int saveToJiniebox = (req.getSaveToJiniebox() != null && req.getSaveToJiniebox()) ? 1 : 0;
             String ftpAddress = req.getFtpAddress() != null ? req.getFtpAddress().trim() : "";
             String ftpId = req.getFtpId() != null ? req.getFtpId().trim() : "";
-            String ftpPass = req.getFtpPass() != null ? req.getFtpPass().trim() : "";
+            // ftpPass가 null이면 null로 유지, 빈 문자열이면 null로 변환 (기존 비밀번호 유지)
+            String ftpPass = (req.getFtpPass() != null && !req.getFtpPass().trim().isEmpty()) 
+                ? req.getFtpPass().trim() : null;
             
-            // 지니박스 저장이 활성화된 경우 FTP 정보 필수 입력 검증
+            // 지니박스 저장이 활성화된 경우 FTP 정보 검증
             if (saveToJiniebox == 1) {
                 java.util.List<String> missingFields = new java.util.ArrayList<>();
                 if (ftpAddress.isEmpty()) missingFields.add("FTP 주소");
                 if (ftpId.isEmpty()) missingFields.add("FTP 아이디");
-                if (ftpPass.isEmpty()) missingFields.add("FTP 비밀번호");
+                
+                // 비밀번호는 DB에 기존 값이 있으면 필수가 아님
+                // 여기서는 클라이언트가 이미 검증했으므로 생략
                 
                 if (!missingFields.isEmpty()) {
                     response.put("success", false);
@@ -942,11 +978,25 @@ public class AdminController {
                     return response;
                 }
                 
-                logger.info("FTP 정보 검증 성공 - 주소: {}, 아이디: {}", ftpAddress, ftpId);
+                logger.info("FTP 정보 검증 성공 - 주소: {}, 아이디: {}, 비밀번호 변경: {}", 
+                           ftpAddress, ftpId, (ftpPass != null ? "예" : "아니오 (기존 값 유지)"));
             }
             
-            // Public Key 추출 (요청에서 전달된 경우만 저장)
+            // Public Key 추출 및 검증 (요청에서 전달된 경우만 저장)
             String publicKey = req.getPublicKey() != null ? req.getPublicKey().trim() : "";
+            
+            // Public Key 유효성 검사 (Base64 포맷 확인)
+            if (!publicKey.isEmpty()) {
+                try {
+                    java.util.Base64.getDecoder().decode(publicKey);
+                    logger.info("Public Key 포맷 검증 완료 (길이: {})", publicKey.length());
+                } catch (IllegalArgumentException e) {
+                    logger.error("잘못된 Public Key 포맷 (Base64가 아님): {}", e.getMessage());
+                    response.put("success", false);
+                    response.put("message", "Public Key 포맷이 올바르지 않습니다. Base64 형식이어야 합니다.");
+                    return response;
+                }
+            }
             
             com.jiniebox.jangbogo.dao.JbgExportConfigDataAccessObject exportConfigDao = 
                 new com.jiniebox.jangbogo.dao.JbgExportConfigDataAccessObject();
@@ -975,12 +1025,20 @@ public class AdminController {
     public static class ExportRequest {
         private String savePath;
         private String format;
+        private Integer limit;  // 조회 개수 제한 (0 또는 null이면 전체, 100이면 최근 100개)
+        private Boolean saveToJiniebox;  // 지니박스 FTP 업로드 여부
         
         public String getSavePath() { return savePath; }
         public void setSavePath(String savePath) { this.savePath = savePath; }
         
         public String getFormat() { return format; }
         public void setFormat(String format) { this.format = format; }
+        
+        public Integer getLimit() { return limit; }
+        public void setLimit(Integer limit) { this.limit = limit; }
+        
+        public Boolean getSaveToJiniebox() { return saveToJiniebox; }
+        public void setSaveToJiniebox(Boolean saveToJiniebox) { this.saveToJiniebox = saveToJiniebox; }
     }
     
     /**
