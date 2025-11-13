@@ -38,7 +38,7 @@ public class JbgExportConfigDataAccessObject extends CommonDataAccessObject {
             ensureExportConfigTable(conn);
             
             StringBuffer querySb = new StringBuffer("SELECT id, save_path, save_format, auto_save_enabled, ");
-            querySb.append("save_to_jiniebox, ftp_address, ftp_id, ftp_pass, public_key");
+            querySb.append("save_to_jiniebox, ftp_address, ftp_id, ftp_pass, public_key, ftp_encrypt_enabled");
             querySb.append(" FROM jbg_export_config WHERE id=1");
             log.debug("LOCALDB-QUERY------------------------------------------------------------------------------");
             log.debug(querySb);
@@ -61,6 +61,7 @@ public class JbgExportConfigDataAccessObject extends CommonDataAccessObject {
                 config.put("has_ftp_password", hasPassword);
                 
                 config.put("public_key", rset.getString("public_key"));
+                config.put("ftp_encrypt_enabled", rset.getInt("ftp_encrypt_enabled"));
             } else {
                 // 설정이 없으면 기본값 생성
                 config = createDefaultConfig();
@@ -92,7 +93,7 @@ public class JbgExportConfigDataAccessObject extends CommonDataAccessObject {
      */
     public void updateConfig(String savePath, String saveFormat, int autoSaveEnabled, 
                            int saveToJiniebox, String ftpAddress, String ftpId, String ftpPass,
-                           String publicKey) throws Exception {
+                           String publicKey, int ftpEncryptEnabled) throws Exception {
         LocalDBConnection conn = null;
         try {
             conn = new LocalDBConnection();
@@ -133,6 +134,7 @@ public class JbgExportConfigDataAccessObject extends CommonDataAccessObject {
                 querySb.append(", ftp_id='" + (ftpId != null ? ftpId : "") + "'");
                 querySb.append(", ftp_pass='" + encryptedPass + "'");  // 암호화된 비밀번호 저장
                 querySb.append(", public_key='" + (publicKey != null ? publicKey : "") + "'");
+                querySb.append(", ftp_encrypt_enabled=" + ftpEncryptEnabled);
                 querySb.append(" WHERE id=1");
                 
                 log.debug("LOCALDB-QUERY------------------------------------------------------------------------------");
@@ -143,11 +145,11 @@ public class JbgExportConfigDataAccessObject extends CommonDataAccessObject {
                 // 삽입
                 StringBuffer querySb = new StringBuffer();
                 querySb.append("INSERT INTO jbg_export_config (id, save_path, save_format, auto_save_enabled, ");
-                querySb.append("save_to_jiniebox, ftp_address, ftp_id, ftp_pass, public_key)");
+                querySb.append("save_to_jiniebox, ftp_address, ftp_id, ftp_pass, public_key, ftp_encrypt_enabled)");
                 querySb.append(" VALUES (1, '" + savePath + "', '" + saveFormat + "', " + autoSaveEnabled + ", ");
                 querySb.append(saveToJiniebox + ", '" + (ftpAddress != null ? ftpAddress : "") + "', ");
                 querySb.append("'" + (ftpId != null ? ftpId : "") + "', '" + encryptedPass + "', ");  // 암호화된 비밀번호 저장
-                querySb.append("'" + (publicKey != null ? publicKey : "") + "')");
+                querySb.append("'" + (publicKey != null ? publicKey : "") + "', " + ftpEncryptEnabled + ")");
                 
                 log.debug("LOCALDB-QUERY------------------------------------------------------------------------------");
                 log.debug(querySb);
@@ -229,6 +231,16 @@ public class JbgExportConfigDataAccessObject extends CommonDataAccessObject {
                     conn.txCommit();
                     log.info("jbg_export_config 테이블에 public_key 컬럼 추가");
                 }
+
+                // ftp_encrypt_enabled 컬럼 추가
+                try {
+                    conn.executeQuery("SELECT ftp_encrypt_enabled FROM jbg_export_config LIMIT 1");
+                } catch (Exception e6) {
+                    conn.txOpen();
+                    conn.txExecuteUpdate("ALTER TABLE jbg_export_config ADD COLUMN ftp_encrypt_enabled INTEGER NOT NULL DEFAULT 1");
+                    conn.txCommit();
+                    log.info("jbg_export_config 테이블에 ftp_encrypt_enabled 컬럼 추가");
+                }
             } catch (Exception migrationEx) {
                 try { conn.txRollBack(); } catch (Exception ignore) {}
                 log.debug("컬럼 마이그레이션 체크: {}", migrationEx.getMessage());
@@ -247,7 +259,8 @@ public class JbgExportConfigDataAccessObject extends CommonDataAccessObject {
                     "ftp_address TEXT NOT NULL DEFAULT '', " +
                     "ftp_id TEXT NOT NULL DEFAULT '', " +
                     "ftp_pass TEXT NOT NULL DEFAULT '', " +
-                    "public_key TEXT NOT NULL DEFAULT '')";
+                    "public_key TEXT NOT NULL DEFAULT '', " +
+                    "ftp_encrypt_enabled INTEGER NOT NULL DEFAULT 1)";
                 conn.txExecuteUpdate(createTable);
                 conn.txCommit();
                 log.info("jbg_export_config 테이블 생성 완료");
@@ -272,9 +285,10 @@ public class JbgExportConfigDataAccessObject extends CommonDataAccessObject {
         config.put("ftp_id", "");
         config.put("has_ftp_password", false);  // 비밀번호 없음
         config.put("public_key", "");
+        config.put("ftp_encrypt_enabled", 1);
         
         // DB에 기본값 삽입
-        updateConfig("", "json", 0, 0, "", "", "", "");
+        updateConfig("", "json", 0, 0, "", "", "", "", 1);
         
         return config;
     }

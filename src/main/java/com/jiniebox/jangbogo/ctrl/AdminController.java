@@ -804,6 +804,7 @@ public class AdminController {
                 if (exportConfig != null) {
                     // 요청 파라미터로 전달된 saveToJiniebox 값 우선 사용
                     boolean shouldUploadToFtp = false;
+                    boolean ftpEncryptEnabled = true;
                     
                     if (saveToJiniebox != null) {
                         // 요청에서 명시적으로 지정된 경우
@@ -825,6 +826,13 @@ public class AdminController {
                         }
                         shouldUploadToFtp = (saveToJinieboxDb == 1);
                         logger.info("FTP 업로드 여부: DB 설정 사용 = {}", shouldUploadToFtp);
+                    }
+                    
+                    Object ftpEncryptObj = exportConfig.get("ftp_encrypt_enabled");
+                    if (ftpEncryptObj instanceof Number) {
+                        ftpEncryptEnabled = (((Number) ftpEncryptObj).intValue() == 1);
+                    } else if (ftpEncryptObj instanceof String) {
+                        ftpEncryptEnabled = "1".equals(ftpEncryptObj);
                     }
                     
                     // FTP 업로드가 활성화되어 있는 경우
@@ -851,29 +859,34 @@ public class AdminController {
                             String fileToUpload = filePath;
                             boolean fileEncrypted = false;
                             
-                            // Public Key가 있으면 파일 암호화
-                            if (!publicKey.isEmpty()) {
-                                try {
-                                    String encryptedFilePath = filePath + ".encrypted";
-                                    logger.info("파일 암호화 시작 - Public Key 사용");
-                                    
-                                    boolean encryptSuccess = com.jiniebox.jangbogo.util.security.RsaFileEncryption.encryptFile(
-                                        filePath, encryptedFilePath, publicKey
-                                    );
-                                    
-                                    if (encryptSuccess) {
-                                        fileToUpload = encryptedFilePath;
-                                        fileEncrypted = true;
-                                        logger.info("파일 암호화 완료: {}", encryptedFilePath);
-                                    } else {
-                                        logger.warn("파일 암호화 실패 - 원본 파일 업로드");
+                            if (ftpEncryptEnabled) {
+                                // Public Key가 있으면 파일 암호화
+                                if (!publicKey.isEmpty()) {
+                                    try {
+                                        String encryptedFilePath = filePath + ".encrypted";
+                                        logger.info("파일 암호화 시작 - Public Key 사용");
+                                        
+                                        boolean encryptSuccess = com.jiniebox.jangbogo.util.security.RsaFileEncryption.encryptFile(
+                                            filePath, encryptedFilePath, publicKey
+                                        );
+                                        
+                                        if (encryptSuccess) {
+                                            fileToUpload = encryptedFilePath;
+                                            fileEncrypted = true;
+                                            logger.info("파일 암호화 완료: {}", encryptedFilePath);
+                                        } else {
+                                            logger.warn("파일 암호화 실패 - 원본 파일 업로드");
+                                        }
+                                    } catch (Exception encEx) {
+                                        logger.warn("파일 암호화 중 오류 - 원본 파일 업로드: {}", encEx.getMessage());
                                     }
-                                } catch (Exception encEx) {
-                                    logger.warn("파일 암호화 중 오류 - 원본 파일 업로드: {}", encEx.getMessage());
+                                } else {
+                                    logger.warn("FTP 암호화가 활성화되어 있으나 Public Key가 없습니다. 평문으로 업로드합니다.");
                                 }
                             } else {
-                                logger.info("Public Key가 없어 파일을 암호화하지 않고 업로드합니다.");
+                                logger.info("FTP 암호화 옵션이 비활성화되어 평문 파일을 업로드합니다.");
                             }
+                            
                             
                             logger.info("FTP 업로드 시작 - 서버: {}, 파일: {}", ftpAddress, fileToUpload);
                             
@@ -954,12 +967,19 @@ public class AdminController {
             String savePath = req.getSavePath() != null ? req.getSavePath().trim() : "";
             String format = req.getFormat() != null ? req.getFormat().trim() : "json";
             int autoSaveEnabled = (req.getAutoSaveEnabled() != null && req.getAutoSaveEnabled()) ? 1 : 0;
+            int ftpEncryptEnabled = 1;
+            if (req.getFtpEncryptEnabled() != null) {
+                ftpEncryptEnabled = req.getFtpEncryptEnabled() ? 1 : 0;
+            }
             int saveToJiniebox = (req.getSaveToJiniebox() != null && req.getSaveToJiniebox()) ? 1 : 0;
             String ftpAddress = req.getFtpAddress() != null ? req.getFtpAddress().trim() : "";
             String ftpId = req.getFtpId() != null ? req.getFtpId().trim() : "";
             // ftpPass가 null이면 null로 유지, 빈 문자열이면 null로 변환 (기존 비밀번호 유지)
             String ftpPass = (req.getFtpPass() != null && !req.getFtpPass().trim().isEmpty()) 
                 ? req.getFtpPass().trim() : null;
+            
+            // Public Key 추출 및 검증 (요청에서 전달된 경우만 저장)
+            String publicKey = req.getPublicKey() != null ? req.getPublicKey().trim() : "";
             
             // 지니박스 저장이 활성화된 경우 FTP 정보 검증
             if (saveToJiniebox == 1) {
@@ -978,12 +998,17 @@ public class AdminController {
                     return response;
                 }
                 
-                logger.info("FTP 정보 검증 성공 - 주소: {}, 아이디: {}, 비밀번호 변경: {}", 
-                           ftpAddress, ftpId, (ftpPass != null ? "예" : "아니오 (기존 값 유지)"));
+                if (ftpEncryptEnabled == 1 && (publicKey == null || publicKey.isEmpty())) {
+                    response.put("success", false);
+                    response.put("message", "FTP 파일 암호화를 사용하려면 Public Key를 입력해야 합니다.");
+                    logger.warn("FTP 암호화 사용 설정이지만 Public Key가 비어있음");
+                    return response;
+                }
+                
+                logger.info("FTP 정보 검증 성공 - 주소: {}, 아이디: {}, 비밀번호 변경: {}, 암호화 사용: {}", 
+                           ftpAddress, ftpId, (ftpPass != null ? "예" : "아니오 (기존 값 유지)"),
+                           (ftpEncryptEnabled == 1 ? "예" : "아니오"));
             }
-            
-            // Public Key 추출 및 검증 (요청에서 전달된 경우만 저장)
-            String publicKey = req.getPublicKey() != null ? req.getPublicKey().trim() : "";
             
             // Public Key 유효성 검사 (Base64 포맷 확인)
             if (!publicKey.isEmpty()) {
@@ -1002,13 +1027,13 @@ public class AdminController {
                 new com.jiniebox.jangbogo.dao.JbgExportConfigDataAccessObject();
             exportConfigDao.updateConfig(savePath, format, autoSaveEnabled, 
                                         saveToJiniebox, ftpAddress, ftpId, ftpPass,
-                                        publicKey);
+                                        publicKey, ftpEncryptEnabled);
             
             response.put("success", true);
             response.put("message", "파일 저장 설정이 저장되었습니다.");
             
-            logger.info("파일 저장 설정 업데이트 - path: {}, format: {}, autoSave: {}, jiniebox: {}", 
-                       savePath, format, autoSaveEnabled, saveToJiniebox);
+            logger.info("파일 저장 설정 업데이트 - path: {}, format: {}, autoSave: {}, jiniebox: {}, ftpEncrypt: {}", 
+                       savePath, format, autoSaveEnabled, saveToJiniebox, ftpEncryptEnabled);
             
         } catch (Exception e) {
             response.put("success", false);
@@ -1053,6 +1078,7 @@ public class AdminController {
         private String ftpId;
         private String ftpPass;
         private String publicKey;
+        private Boolean ftpEncryptEnabled;
         
         public String getSavePath() { return savePath; }
         public void setSavePath(String savePath) { this.savePath = savePath; }
@@ -1077,6 +1103,9 @@ public class AdminController {
         
         public String getPublicKey() { return publicKey; }
         public void setPublicKey(String publicKey) { this.publicKey = publicKey; }
+        
+        public Boolean getFtpEncryptEnabled() { return ftpEncryptEnabled; }
+        public void setFtpEncryptEnabled(Boolean ftpEncryptEnabled) { this.ftpEncryptEnabled = ftpEncryptEnabled; }
     }
 
 }

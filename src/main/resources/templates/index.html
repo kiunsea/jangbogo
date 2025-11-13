@@ -68,141 +68,7 @@
             </div>
             
             <hr class="mb-3" style="border-top: 1px dotted gray;">
-
-            <div id="autosave_options_div" class="card-body">
-                <h5 class="card-title mb-3">구매정보 저장 옵션</h5>
-                <div class="mb-3">
-                    <div class="d-flex align-items-center justify-content-between">
-                        <div>
-                            <i class="bi bi-file-earmark-text"></i>&nbsp; <span>수집 결과 파일 저장</span>
-                        </div>
-                        <button type="button" class="btn btn-secondary btn-sm" onclick="saveCollectionResultsNow()">지금저장</button>
-                    </div>
-                    <div class="ps-3 mb-2">
-                        <ul class="list-group">
-                            <li class="list-group-item">
-                                <div class="d-flex align-items-center gap-2">
-                                    <div style="white-space: nowrap;">저장 위치</div>
-                                    <div class="d-flex align-items-center gap-2 flex-grow-1">
-                                        <input type="text" class="form-control form-control-sm flex-grow-1" 
-                                               id="file_save_path" th:value="${defaultSavePath ?: './exports'}" 
-                                               placeholder="저장 경로를 입력하세요">
-                                        <button type="button" class="btn btn-outline-secondary btn-sm" 
-                                                onclick="setDefaultDocumentsPath()" title="기본 경로로 초기화 (설치 폴더\exports)">
-                                            <i class="bi bi-arrow-counterclockwise"></i>
-                                        </button>
-                                    </div>
-                                </div>
-                            </li>
-                            <li class="list-group-item">
-                                <div class="d-flex align-items-center justify-content-between">
-                                    <div>저장 포맷</div>
-                                    <div>
-                                        <select class="form-select form-select-sm" id="file_save_format" style="width: 150px;">
-                                            <option value="json">JSON</option>
-                                            <option value="csv">CSV</option>
-                                            <option value="excel">Excel</option>
-                                        </select>
-                                    </div>
-                                </div>
-                            </li>
-                            <li class="list-group-item">
-                                <div class="d-flex align-items-center justify-content-between">
-                                    <div>구매내역 수집시 함께 저장</div>
-                                    <div>
-                                        <input type="checkbox" class="form-check-input" id="auto_save_on_collect" value="1">
-                                    </div>
-                                </div>
-                            </li>
-                            <li class="list-group-item">
-                                <div class="d-flex align-items-center justify-content-between">
-                                    <div>저장 범위</div>
-                                    <div>
-                                        <select class="form-select form-select-sm" id="export_limit" style="width: 150px;">
-                                            <option value="100">최근 100개</option>
-                                            <option value="0">전체</option>
-                                        </select>
-                                    </div>
-                                </div>
-                            </li>
-                            <li class="list-group-item">
-                                <div class="d-flex align-items-center justify-content-between">
-                                    <div>FTP서버에 동시 저장</div>
-                                    <div>
-                                        <input type="checkbox" class="form-check-input" id="save_to_ftp" value="1" 
-                                               onchange="toggleFtpSettings(false)">
-                                    </div>
-                                </div>
-                                <!-- FTP 설정 서브 블록 (체크 시 표시) -->
-                                <div id="jangbogo_ftp_settings" class="ps-4" style="display: none; margin-top: 10px; padding-top: 10px; border-top: 1px dashed #dee2e6;">
-                                    <div class="mb-2" id="public_key_row">
-                                        <label class="form-label mb-1" style="font-size: 0.875rem; font-weight: 500;">FTP 주소</label>
-                                        <input type="text" class="form-control form-control-sm" id="ftp_address" 
-                                               placeholder="예: ftp.jiniebox.com 또는 127.0.0.1:21">
-                                    </div>
-                                    <div class="mb-2">
-                                        <label class="form-label mb-1" style="font-size: 0.875rem; font-weight: 500;">FTP 아이디</label>
-                                        <input type="text" class="form-control form-control-sm" id="ftp_id" 
-                                               placeholder="FTP 사용자 아이디">
-                                    </div>
-                                    <div class="mb-2">
-                                        <label class="form-label mb-1" style="font-size: 0.875rem; font-weight: 500;">FTP 비밀번호</label>
-                                        <input type="password" class="form-control form-control-sm" id="ftp_pass" 
-                                               placeholder="FTP 비밀번호">
-                                    </div>
-                                    <div class="mb-2">
-                                        <label class="form-label mb-1" style="font-size: 0.875rem; font-weight: 500;">
-                                            <i class="bi bi-key-fill"></i> Public Key (암호화용)
-                                        </label>
-                                        <div class="input-group input-group-sm">
-                                            <input type="text" class="form-control form-control-sm" 
-                                                   id="public_key_input" 
-                                                   placeholder="FTP 서버에서 생성된 Public Key를 입력하세요"
-                                                   style="font-family: monospace; font-size: 0.75rem;"
-                                                   onblur="this.value = this.value.trim()">
-                                            <button type="button" 
-                                                    class="btn btn-outline-primary" 
-                                                    onclick="savePublicKeyOnly()"
-                                                    title="Public Key 저장">
-                                                <i class="bi bi-save"></i>
-                                            </button>
-                                        </div>
-                                        <div class="form-text" style="font-size: 0.7rem;">
-                                            <i class="bi bi-info-circle"></i> 
-                                            Public Key를 입력하면 FTP로 전송되는 파일이 자동으로 암호화됩니다.
-                                        </div>
-                                    </div>
-                                    <div class="d-grid mb-2">
-                                        <button type="button" 
-                                                class="btn btn-primary btn-sm" 
-                                                onclick="saveFtpInfoToServer()">
-                                            <i class="bi bi-save-fill"></i> FTP 정보 저장
-                                        </button>
-                                    </div>
-                                    <div class="alert alert-info py-1 px-2 mb-0" style="font-size: 0.75rem;">
-                                        <i class="bi bi-info-circle"></i> FTP 정보와 Public Key가 암호화되어 저장됩니다.
-                                    </div>
-                                </div>
-                            </li>
-                            <li class="list-group-item">
-                                <div class="d-grid">
-                                    <button type="button" 
-                                            class="btn btn-primary" 
-                                            onclick="exportAndUploadToFtp()">
-                                        <i class="bi bi-cloud-upload-fill"></i> 파일 저장 및 FTP 업로드
-                                    </button>
-                                    <small class="text-muted mt-1" style="font-size: 0.75rem;">
-                                        <i class="bi bi-info-circle"></i> 구매 내역을 파일로 저장하고, 설정에 따라 FTP 업로드합니다.
-                                    </small>
-                                </div>
-                            </li>
-                        </ul>
-                    </div>
-                </div>
-            </div>
             
-            <hr class="mb-3" style="border-top: 1px dotted gray;">
-
             <div id="automall_div" class="card-body">
                 <div class="d-flex align-items-center justify-content-between">
                     <h5 class="card-title mb-0">쇼핑몰 목록</h5>
@@ -329,6 +195,7 @@
                                         const formatSelect = _doc.querySelector('#file_save_format');
                                         const autoSaveCheck = _doc.querySelector('#auto_save_on_collect');
                                         const saveToFTPCheck = _doc.querySelector('#save_to_ftp');
+                                        const ftpEncryptCheck = _doc.querySelector('#ftp_encrypt_enabled');
                                         const ftpAddressInput = _doc.querySelector('#ftp_address');
                                         const ftpIdInput = _doc.querySelector('#ftp_id');
                                         const ftpPassInput = _doc.querySelector('#ftp_pass');
@@ -353,6 +220,16 @@
                                             : exportConfig.save_to_ftp;
                                         if (saveToJinieboxValue != null) {
                                             saveToFTPCheck.checked = (parseInt(saveToJinieboxValue, 10) === 1);
+                                        }
+                                        
+                                        // FTP 암호화 설정 적용
+                                        if (ftpEncryptCheck) {
+                                            let ftpEncryptValue = 1;
+                                            if (exportConfig.ftp_encrypt_enabled !== undefined && exportConfig.ftp_encrypt_enabled !== null) {
+                                                ftpEncryptValue = parseInt(exportConfig.ftp_encrypt_enabled, 10);
+                                                ftpEncryptValue = isNaN(ftpEncryptValue) ? 1 : ftpEncryptValue;
+                                            }
+                                            ftpEncryptCheck.checked = (ftpEncryptValue === 1);
                                         }
                                         
                                         // FTP 정보 적용
@@ -382,6 +259,7 @@
                                         
                                         // FTP 설정 블록 초기 표시/숨김 (저장하지 않음)
                                         toggleFtpSettings(true);
+                                        toggleFtpEncryption(true);
                                     } else if (resJson.defaultExportPath) {
                                         _doc.querySelector('#file_save_path').value = resJson.defaultExportPath;
                                     }
@@ -691,6 +569,7 @@
                         autoSaveEnabled: '구매내역 수집시 함께 저장',
                         exportLimit: '저장 범위',
                         saveToFTP: 'FTP에도 함께 저장',
+                        ftpEncryptEnabled: 'FTP 암호화 사용',
                         ftpAddress: 'FTP 주소',
                         ftpId: 'FTP 아이디',
                         ftpPass: 'FTP 비밀번호',
@@ -704,6 +583,7 @@
                         autoSaveEnabled: _doc.querySelector('#auto_save_on_collect')?.checked || false,
                         exportLimit: parseInt(_doc.querySelector('#export_limit')?.value) || 0,
                         saveToFTP: _doc.querySelector('#save_to_ftp')?.checked || false,
+                        ftpEncryptEnabled: (_doc.querySelector('#ftp_encrypt_enabled')?.checked !== false),
                         ftpAddress: _doc.querySelector('#ftp_address')?.value || '',
                         ftpId: _doc.querySelector('#ftp_id')?.value || '',
                         ftpPass: _doc.querySelector('#ftp_pass')?.value || '',
@@ -713,7 +593,10 @@
                     // saveToFTP가 체크되어 있으면 FTP 관련 필드들도 필수로 추가
                     let effectiveRequiredFields = [...requiredFields];
                     if (options.checksaveToFTP && values.saveToFTP) {
-                        const ftpFields = ['ftpAddress', 'ftpId', 'ftpPass', 'publicKey'];
+                        const ftpFields = ['ftpAddress', 'ftpId', 'ftpPass'];
+                        if (values.ftpEncryptEnabled) {
+                            ftpFields.push('publicKey');
+                        }
                         ftpFields.forEach(field => {
                             if (!effectiveRequiredFields.includes(field)) {
                                 effectiveRequiredFields.push(field);
@@ -723,7 +606,7 @@
                     
                     // 필수 필드 검증
                     effectiveRequiredFields.forEach(field => {
-                        if (field === 'autoSaveEnabled' || field === 'saveToFTP') {
+                        if (field === 'autoSaveEnabled' || field === 'saveToFTP' || field === 'ftpEncryptEnabled') {
                             // 체크박스는 체크 여부만 확인 (항상 값이 있음)
                             return;
                         }
@@ -804,6 +687,11 @@
                                 const saveToFTP = (saveToFtpCheckbox != null) 
                                     ? saveToFtpCheckbox.checked 
                                     : (parseInt(saveToJinieboxConfigValue, 10) === 1);
+                                const ftpEncryptCheckbox = _doc.querySelector('#ftp_encrypt_enabled');
+                                const ftpEncryptConfigValue = exportConfig.ftp_encrypt_enabled;
+                                const ftpEncryptEnabled = (ftpEncryptCheckbox != null)
+                                    ? ftpEncryptCheckbox.checked
+                                    : (ftpEncryptConfigValue != null ? parseInt(ftpEncryptConfigValue, 10) === 1 : true);
                                 const ftpAddress = _doc.querySelector('#ftp_address')?.value || 
                                                   (exportConfig.ftp_address || '');
                                 const ftpId = _doc.querySelector('#ftp_id')?.value || 
@@ -825,9 +713,14 @@
                                                 
                                                 // Public Key 저장 완료 알림
                                                 if (publicKey) {
-                                                    alert('✓ Public Key가 저장되었습니다.\n\n' +
-                                                          '파일 암호화가 활성화되었습니다.\n' +
-                                                          'FTP Server에서 Private Key를 이용하여 복호화할 수 있습니다.');
+                                                    if (ftpEncryptEnabled) {
+                                                        alert('✓ Public Key가 저장되었습니다.\n\n' +
+                                                              '파일 암호화가 활성화되었습니다.\n' +
+                                                              'FTP Server에서 Private Key를 이용하여 복호화할 수 있습니다.');
+                                                    } else {
+                                                        alert('✓ Public Key가 저장되었습니다.\n\n' +
+                                                              '현재는 암호화 없이 평문으로 업로드하도록 설정되어 있습니다.');
+                                                    }
                                                 } else {
                                                     alert('✓ Public Key가 삭제되었습니다.\n\n파일 암호화가 비활성화되었습니다.');
                                                 }
@@ -854,6 +747,7 @@
                                     autoSaveEnabled: autoSaveEnabled,
                                     saveToJiniebox: saveToFTP,
                                     saveToFTP: saveToFTP,
+                                    ftpEncryptEnabled: ftpEncryptEnabled,
                                     ftpAddress: ftpAddress,
                                     ftpId: ftpId,
                                     ftpPass: ftpPass,  // null (기존 값 유지)
@@ -895,9 +789,17 @@
                                     
                                     // Public Key 저장 완료 알림
                                     if (values.publicKey && values.publicKey.trim() !== '') {
-                                        alert('✓ Public Key가 저장되었습니다.\n\n' +
-                                              '파일 암호화가 활성화되었습니다.\n' +
-                                              'FTP Server에서 Private Key를 이용하여 복호화 할 수 있습니다.');
+                                        if (values.ftpEncryptEnabled && values.saveToFTP) {
+                                            alert('✓ Public Key가 저장되었습니다.\n\n' +
+                                                  '파일 암호화가 활성화되었습니다.\n' +
+                                                  'FTP Server에서 Private Key를 이용하여 복호화할 수 있습니다.');
+                                        } else if (values.ftpEncryptEnabled) {
+                                            alert('✓ Public Key가 저장되었습니다.\n\n' +
+                                                  'FTP 업로드가 활성화되면 암호화되어 전송됩니다.');
+                                        } else {
+                                            alert('✓ Public Key가 저장되었습니다.\n\n' +
+                                                  '현재는 암호화 없이 평문으로 업로드하도록 설정되어 있습니다.');
+                                        }
                                     } else {
                                         alert('✓ Public Key가 삭제되었습니다.\n\n파일 암호화가 비활성화되었습니다.');
                                     }
@@ -921,6 +823,7 @@
                         autoSaveEnabled: values.autoSaveEnabled,
                         saveToJiniebox: values.saveToFTP,
                         saveToFTP: values.saveToFTP,
+                        ftpEncryptEnabled: values.ftpEncryptEnabled,
                         ftpAddress: values.ftpAddress,
                         ftpId: values.ftpId,
                         ftpPass: values.ftpPass,
@@ -941,6 +844,7 @@
                     const ftpId = _doc.querySelector('#ftp_id').value || '';
                     const ftpPass = _doc.querySelector('#ftp_pass').value || '';
                     const publicKey = _doc.querySelector('#public_key_input').value || '';
+                    const ftpEncryptEnabled = _doc.querySelector('#ftp_encrypt_enabled')?.checked !== false;
                     
                     // FTP 주소 필수 체크
                     if (!ftpAddress.trim()) {
@@ -954,8 +858,8 @@
                         return;
                     }
                     
-                    // Public Key 필수 체크
-                    if (!publicKey.trim()) {
+                    // Public Key 필수 체크 (암호화 사용 시)
+                    if (ftpEncryptEnabled && !publicKey.trim()) {
                         alert('Public Key를 입력해주세요.\n\nFTP Server에서 생성된 Public Key를 입력하면\nFTP로 전송되는 파일이 암호화됩니다.');
                         return;
                     }
@@ -978,10 +882,17 @@
                                 if (resJson.success) {
                                     console.log('FTP 정보 및 Public Key 저장 완료');
                                     
-                                    let alertMsg = '✅ FTP 정보와 Public Key가 저장되었습니다.\n\n' +
+                                    let alertMsg = '✅ FTP 정보가 저장되었습니다.\n\n' +
                                                    'FTP 주소: ' + ftpAddress + '\n' +
-                                                   'FTP 아이디: ' + ftpId + '\n' +
-                                                   '🔑 Public Key: 저장됨 (파일 암호화 활성화)';
+                                                   'FTP 아이디: ' + ftpId;
+                                    
+                                    if (ftpEncryptEnabled && publicKey.trim()) {
+                                        alertMsg += '\n🔑 Public Key: 저장됨 (파일 암호화 활성화)';
+                                    } else if (ftpEncryptEnabled) {
+                                        alertMsg += '\n🔑 Public Key: 미설정 (암호화 사용 시 설정해주세요)';
+                                    } else {
+                                        alertMsg += '\n🌐 FTP 암호화: 비활성화 (평문 업로드)';
+                                    }
                                     
                                     if (passwordChanged) {
                                         alertMsg += '\n\n🔒 비밀번호가 암호화되어 저장되었습니다.';
@@ -1014,6 +925,7 @@
                     const saveFormat = _doc.querySelector('#file_save_format').value;
                     const autoSaveEnabled = _doc.querySelector('#auto_save_on_collect').checked;
                     const saveToFTP = _doc.querySelector('#save_to_ftp').checked;
+                    const ftpEncryptEnabledForSave = _doc.querySelector('#ftp_encrypt_enabled')?.checked !== false;
                     
                     xhr.open('POST', '/export/config', true);
                     xhr.setRequestHeader('Content-Type', 'application/json;charset=UTF-8');
@@ -1023,6 +935,7 @@
                         autoSaveEnabled: autoSaveEnabled,
                         saveToJiniebox: saveToFTP,
                         saveToFTP: saveToFTP,
+                        ftpEncryptEnabled: ftpEncryptEnabledForSave,
                         ftpAddress: ftpAddress,
                         ftpId: ftpId,
                         ftpPass: ftpPassToSend,  // 비어있으면 null (기존 값 유지)
@@ -1039,6 +952,7 @@
                     const saveFormat = _doc.querySelector('#file_save_format').value;
                     const autoSaveEnabled = _doc.querySelector('#auto_save_on_collect').checked;
                     const saveToFTP = _doc.querySelector('#save_to_ftp').checked;
+                    const ftpEncryptEnabled = _doc.querySelector('#ftp_encrypt_enabled')?.checked !== false;
                     const ftpAddress = _doc.querySelector('#ftp_address').value || '';
                     const ftpId = _doc.querySelector('#ftp_id').value || '';
                     const ftpPass = _doc.querySelector('#ftp_pass').value || '';
@@ -1080,6 +994,7 @@
                         autoSaveEnabled: autoSaveEnabled,
                         saveToJiniebox: saveToFTP,
                         saveToFTP: saveToFTP,
+                        ftpEncryptEnabled: ftpEncryptEnabled,
                         ftpAddress: ftpAddress,
                         ftpId: ftpId,
                         ftpPass: ftpPassToSend,  // 비어있으면 null (기존 값 유지)
@@ -1092,27 +1007,64 @@
                  * @param {boolean} skipSave - true면 저장하지 않음 (초기화 시)
                  */
                 function toggleFtpSettings(skipSave) {
-                    const checkbox = document.querySelector('#save_to_ftp');
+                    const saveToFtpCheckbox = document.querySelector('#save_to_ftp');
                     const ftpSettingsDiv = document.querySelector('#jangbogo_ftp_settings');
                     const publicKeyRow = document.querySelector('#public_key_row');
+                    const encryptCheckbox = document.querySelector('#ftp_encrypt_enabled');
+                    const encryptionEnabled = encryptCheckbox ? encryptCheckbox.checked : true;
                     
-                    if (checkbox.checked) {
+                    if (saveToFtpCheckbox.checked) {
                         if (ftpSettingsDiv) {
                             ftpSettingsDiv.style.display = 'block';
                         }
-                        if (publicKeyRow) {
+                    } else if (ftpSettingsDiv) {
+                        ftpSettingsDiv.style.display = 'none';
+                    }
+                    
+                    if (publicKeyRow) {
+                        if (saveToFtpCheckbox.checked && encryptionEnabled) {
                             publicKeyRow.style.display = 'block';
-                        }
-                    } else {
-                        if (ftpSettingsDiv) {
-                            ftpSettingsDiv.style.display = 'none';
-                        }
-                        if (publicKeyRow) {
+                        } else {
                             publicKeyRow.style.display = 'none';
                         }
                     }
                     
-                    // 체크박스 변경 시 서버에 저장 (초기화 시에는 제외)
+                    // 암호화 안내 및 표시 갱신
+                    toggleFtpEncryption(true);
+                    
+                    if (!skipSave) {
+                        saveExportConfigToServer();
+                    }
+                }
+                
+                /**
+                 * FTP 암호화 옵션 토글
+                 * @param {boolean} skipSave - true면 설정 저장을 생략
+                 */
+                function toggleFtpEncryption(skipSave) {
+                    const saveToFtp = document.querySelector('#save_to_ftp')?.checked || false;
+                    const encryptCheckbox = document.querySelector('#ftp_encrypt_enabled');
+                    const publicKeyRow = document.querySelector('#public_key_row');
+                    const helper = document.querySelector('#ftp_encrypt_helper');
+                    
+                    const encryptionEnabled = encryptCheckbox ? encryptCheckbox.checked : true;
+                    
+                    if (publicKeyRow) {
+                        if (saveToFtp && encryptionEnabled) {
+                            publicKeyRow.style.display = 'block';
+                        } else {
+                            publicKeyRow.style.display = 'none';
+                        }
+                    }
+                    
+                    if (helper) {
+                        if (encryptionEnabled) {
+                            helper.innerHTML = "<i class='bi bi-info-circle'></i> Public Key가 설정되면 FTP로 업로드하기 전에 파일을 암호화합니다.";
+                        } else {
+                            helper.innerHTML = "<i class='bi bi-info-circle'></i> 암호화를 사용하지 않고 평문 JSON 파일을 업로드합니다.";
+                        }
+                    }
+                    
                     if (!skipSave) {
                         saveExportConfigToServer();
                     }
@@ -1160,6 +1112,9 @@
                     
                     if (values.saveToFTP) {
                         confirmMsg += '\n\n🌐 FTP 업로드: 활성화';
+                        confirmMsg += values.ftpEncryptEnabled
+                            ? '\n🔒 FTP 암호화: 활성화'
+                            : '\n⚠️ FTP 암호화: 비활성화 (평문 업로드)';
                     } else {
                         confirmMsg += '\n\n📁 FTP 업로드: 비활성화 (로컬 저장만)';
                     }
@@ -1172,7 +1127,8 @@
                         savePath: values.savePath, 
                         saveFormat: values.saveFormat, 
                         limit: values.exportLimit,
-                        saveToFTP: values.saveToFTP
+                        saveToFTP: values.saveToFTP,
+                        ftpEncryptEnabled: values.ftpEncryptEnabled
                     });
                     
                     var xhr = new XMLHttpRequest();
@@ -1213,7 +1169,8 @@
                         format: values.saveFormat,
                         limit: values.exportLimit,
                         saveToJiniebox: values.saveToFTP,
-                        saveToFTP: values.saveToFTP
+                        saveToFTP: values.saveToFTP,
+                        ftpEncryptEnabled: values.ftpEncryptEnabled
                     }));
                 }
                 
@@ -1292,6 +1249,152 @@
                     }));
                 }
                 </script>
+            </div>
+
+            <hr class="mb-3" style="border-top: 1px dotted gray;">
+
+            <div id="autosave_options_div" class="card-body">
+                <h5 class="card-title mb-3">구매정보 저장 옵션</h5>
+                <div class="mb-3">
+                    <div class="d-flex align-items-center justify-content-between">
+                        <div>
+                            <i class="bi bi-file-earmark-text"></i>&nbsp; <span>수집 결과 파일 저장</span>
+                        </div>
+                        <button type="button" class="btn btn-secondary btn-sm" onclick="saveCollectionResultsNow()">지금저장</button>
+                    </div>
+                    <div class="ps-3 mb-2">
+                        <ul class="list-group">
+                            <li class="list-group-item">
+                                <div class="d-flex align-items-center gap-2">
+                                    <div style="white-space: nowrap;">저장 위치</div>
+                                    <div class="d-flex align-items-center gap-2 flex-grow-1">
+                                        <input type="text" class="form-control form-control-sm flex-grow-1" 
+                                               id="file_save_path" th:value="${defaultSavePath ?: './exports'}" 
+                                               placeholder="저장 경로를 입력하세요">
+                                        <button type="button" class="btn btn-outline-secondary btn-sm" 
+                                                onclick="setDefaultDocumentsPath()" title="기본 경로로 초기화 (설치 폴더\exports)">
+                                            <i class="bi bi-arrow-counterclockwise"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            </li>
+                            <li class="list-group-item">
+                                <div class="d-flex align-items-center justify-content-between">
+                                    <div>저장 포맷</div>
+                                    <div>
+                                        <select class="form-select form-select-sm" id="file_save_format" style="width: 150px;">
+                                            <option value="json">JSON</option>
+                                            <option value="csv">CSV</option>
+                                            <option value="excel">Excel</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </li>
+                            <li class="list-group-item">
+                                <div class="d-flex align-items-center justify-content-between">
+                                    <div>저장 범위</div>
+                                    <div>
+                                        <select class="form-select form-select-sm" id="export_limit" style="width: 150px;">
+                                            <option value="100">최근 100개</option>
+                                            <option value="0">전체</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </li>
+                            <li class="list-group-item">
+                                <div class="d-flex align-items-center justify-content-between mb-2">
+                                    <div>구매내역 수집시 옵션</div>
+                                </div>
+                                <div class="ps-3">
+                                    <div class="d-flex align-items-center justify-content-between mb-3">
+                                        <div>로컬 파일로 함께 저장</div>
+                                        <div>
+                                            <input type="checkbox" class="form-check-input" id="auto_save_on_collect" value="1">
+                                        </div>
+                                    </div>
+                                    <div class="d-flex align-items-center justify-content-between">
+                                        <div>FTP서버에 동시 저장</div>
+                                        <div>
+                                            <input type="checkbox" class="form-check-input" id="save_to_ftp" value="1" 
+                                                   onchange="toggleFtpSettings(false)">
+                                        </div>
+                                    </div>
+                                    <!-- FTP 설정 서브 블록 (체크 시 표시) -->
+                                    <div id="jangbogo_ftp_settings" class="ps-4" style="display: none; margin-top: 10px; padding-top: 10px; border-top: 1px dashed #dee2e6;">
+                                        <div class="mb-2" id="ftp_address_row">
+                                            <label class="form-label mb-1" style="font-size: 0.875rem; font-weight: 500;">FTP 주소</label>
+                                            <input type="text" class="form-control form-control-sm" id="ftp_address" 
+                                                   placeholder="예: ftp.jiniebox.com 또는 127.0.0.1:21">
+                                        </div>
+                                        <div class="mb-2">
+                                            <label class="form-label mb-1" style="font-size: 0.875rem; font-weight: 500;">FTP 아이디</label>
+                                            <input type="text" class="form-control form-control-sm" id="ftp_id" 
+                                                   placeholder="FTP 사용자 아이디">
+                                        </div>
+                                        <div class="mb-2">
+                                            <label class="form-label mb-1" style="font-size: 0.875rem; font-weight: 500;">FTP 비밀번호</label>
+                                            <input type="password" class="form-control form-control-sm" id="ftp_pass" 
+                                                   placeholder="FTP 비밀번호">
+                                        </div>
+                                        <div class="form-check form-switch mb-3">
+                                            <input class="form-check-input" type="checkbox" role="switch" id="ftp_encrypt_enabled" checked
+                                                   onchange="toggleFtpEncryption(false)">
+                                            <label class="form-check-label" for="ftp_encrypt_enabled" style="font-size: 0.875rem; font-weight: 500;">
+                                                <i class="bi bi-shield-lock"></i> FTP 업로드 시 파일 암호화 (권장)
+                                            </label>
+                                            <div class="form-text" id="ftp_encrypt_helper" style="font-size: 0.7rem;">
+                                                <i class="bi bi-info-circle"></i> Public Key가 설정되면 FTP로 업로드하기 전에 파일을 암호화합니다.
+                                            </div>
+                                        </div>
+                                        <div class="mb-2" id="public_key_row">
+                                            <label class="form-label mb-1" style="font-size: 0.875rem; font-weight: 500;">
+                                                <i class="bi bi-key-fill"></i> Public Key (암호화용)
+                                            </label>
+                                            <div class="input-group input-group-sm">
+                                                <input type="text" class="form-control form-control-sm" 
+                                                       id="public_key_input" 
+                                                       placeholder="FTP 서버에서 생성된 Public Key를 입력하세요"
+                                                       style="font-family: monospace; font-size: 0.75rem;"
+                                                       onblur="this.value = this.value.trim()">
+                                                <button type="button" 
+                                                        class="btn btn-outline-primary" 
+                                                        onclick="savePublicKeyOnly()"
+                                                        title="Public Key 저장">
+                                                    <i class="bi bi-save"></i>
+                                                </button>
+                                            </div>
+                                            <div class="form-text" style="font-size: 0.7rem;">
+                                                <i class="bi bi-info-circle"></i> Public Key를 입력하면 FTP로 전송되는 파일이 자동으로 암호화됩니다.
+                                            </div>
+                                        </div>
+                                        <div class="d-grid mb-2">
+                                            <button type="button" 
+                                                    class="btn btn-primary btn-sm" 
+                                                    onclick="saveFtpInfoToServer()">
+                                                <i class="bi bi-save-fill"></i> FTP 정보 저장
+                                            </button>
+                                        </div>
+                                        <div class="alert alert-info py-1 px-2 mb-0" style="font-size: 0.75rem;">
+                                            <i class="bi bi-info-circle"></i> FTP 정보와 Public Key가 암호화되어 저장됩니다.
+                                        </div>
+                                    </div>
+                                </div>
+                            </li>
+                            <li class="list-group-item">
+                                <div class="d-grid">
+                                    <button type="button" 
+                                            class="btn btn-primary" 
+                                            onclick="exportAndUploadToFtp()">
+                                        <i class="bi bi-cloud-upload-fill"></i> 파일 저장 및 FTP 업로드
+                                    </button>
+                                    <small class="text-muted mt-1" style="font-size: 0.75rem;">
+                                        <i class="bi bi-info-circle"></i> 구매 내역을 파일로 저장하고, 설정에 따라 FTP 업로드합니다.
+                                    </small>
+                                </div>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
             </div>
             
         </div>
