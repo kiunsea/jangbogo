@@ -13,7 +13,7 @@
   <executable>%BASE%\..\jre\bin\java.exe</executable>
   
   <!-- 실행 인자 (JVM 옵션 + JAR 파일) -->
-  <arguments>-Xms256m -Xmx1024m -jar "%BASE%\..\jangbogo-0.5.0.jar"</arguments>
+  <arguments>-Xms256m -Xmx1024m -jar "%BASE%\..\jangbogo-0.5.1.jar"</arguments>
   
   <!-- 작업 디렉토리 -->
   <workingdirectory>%BASE%\..</workingdirectory>

@@ -459,77 +459,48 @@ public class ExportService {
     public String exportToJinieboxJson(int limit) throws Exception {
         
         JbgOrderDataAccessObject orderDao = new JbgOrderDataAccessObject();
-        JbgItemDataAccessObject itemDao = new JbgItemDataAccessObject();
-        
-        // 1. 주문 조회
         List<JSONObject> orders = orderDao.getAllOrders(limit);
-        
-        if (orders == null || orders.isEmpty()) {
-            logger.warn("조회된 주문이 없습니다.");
-            return "[]";  // 빈 배열 반환
+        return buildJinieboxJsonFromOrders(orders);
+    }
+
+    /**
+     * 지정한 주문 목록을 jiniebox JSON 배열 문자열로 변환
+     */
+    public String exportToJinieboxJsonBySeqList(List<Integer> orderSeqs) throws Exception {
+        if (orderSeqs == null || orderSeqs.isEmpty()) {
+            throw new IllegalStateException("저장할 주문이 없습니다.");
+        }
+        JbgOrderDataAccessObject orderDao = new JbgOrderDataAccessObject();
+        List<JSONObject> orders = orderDao.getOrdersBySeqList(orderSeqs);
+        return buildJinieboxJsonFromOrders(orders);
+    }
+    
+    /**
+     * FTP 업로드 전용 jiniebox JSON 파일 생성 (주문 seq 리스트 기반)
+     * @param directory 저장 디렉터리
+     * @param orderSeqs 저장할 주문 seq 목록
+     */
+    public String exportToJinieboxFileBySeqList(String directory, List<Integer> orderSeqs) throws Exception {
+        if (directory == null || directory.trim().isEmpty()) {
+            throw new IllegalArgumentException("FTP 업로드용 파일을 생성하려면 저장 경로가 필요합니다.");
+        }
+        File dir = new File(directory);
+        if (!dir.exists() && !dir.mkdirs()) {
+            throw new IOException("저장 경로를 생성할 수 없습니다: " + directory);
         }
         
-        logger.debug("조회된 주문 개수: {}", orders.size());
+        String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
+        String fileName = "jangbogo_orders_" + timestamp + "_ftp.json";
+        String filePath = directory + File.separator + fileName;
         
-        // 2. jiniebox 형식 JSON 배열 생성
-        org.json.simple.JSONArray jsonArray = new org.json.simple.JSONArray();
-        
-        int totalItems = 0;
-        for (JSONObject orderJson : orders) {
-            org.json.simple.JSONObject orderObj = new org.json.simple.JSONObject();
-            
-            // 주문 정보
-            String serialNum = orderJson.get("serial_num").toString();
-            String dateTime = orderJson.get("date_time").toString();
-            int seqOrder = ((Number) orderJson.get("seq")).intValue();
-            int seqMall = ((Number) orderJson.get("seq_mall")).intValue();
-            
-            // mall_name 조회 (jiniebox에서 필수로 읽는 필드)
-            String mallName = orderJson.get("mall_name") != null ? 
-                             orderJson.get("mall_name").toString() : "";
-            
-            orderObj.put("serial", serialNum);
-            orderObj.put("datetime", dateTime);
-            orderObj.put("mall_id", getMallIdFromSeq(seqMall));  // seq → id 변환
-            orderObj.put("mallname", mallName);  // jiniebox가 읽는 필드명
-            
-            logger.debug("주문 처리: serial={}, datetime={}, mall_id={}, mallname={}", 
-                        serialNum, dateTime, getMallIdFromSeq(seqMall), mallName);
-            
-            // 해당 주문의 상품들 조회
-            List<JSONObject> items = itemDao.getItemsByOrder(String.valueOf(seqOrder));
-            
-            org.json.simple.JSONArray itemsArray = new org.json.simple.JSONArray();
-            if (items != null && !items.isEmpty()) {
-                for (JSONObject itemJson : items) {
-                    org.json.simple.JSONObject itemObj = new org.json.simple.JSONObject();
-                    itemObj.put("name", itemJson.get("name").toString());
-                    
-                    // qty가 있으면 사용, 없으면 "1"
-                    String qty = itemJson.get("qty") != null ? 
-                                itemJson.get("qty").toString() : "1";
-                    if (qty.isEmpty()) {
-                        qty = "1";
-                    }
-                    itemObj.put("qty", qty);
-                    
-                    itemsArray.add(itemObj);
-                }
-                
-                totalItems += itemsArray.size();
-                logger.debug("  └─ 상품 {}개", itemsArray.size());
-            } else {
-                logger.debug("  └─ 상품 없음");
-            }
-            
-            orderObj.put("items", itemsArray);
-            jsonArray.add(orderObj);
+        String jsonContent = exportToJinieboxJsonBySeqList(orderSeqs);
+        try (FileWriter writer = new FileWriter(filePath, java.nio.charset.StandardCharsets.UTF_8)) {
+            writer.write(jsonContent);
+            writer.flush();
         }
         
-        logger.info("jiniebox JSON 생성 완료 - 주문: {}개, 상품: {}개", jsonArray.size(), totalItems);
-        
-        // 3. JSON 문자열 반환
-        return jsonArray.toJSONString();
+        logger.info("FTP 업로드용 jiniebox JSON 생성 완료: {}", filePath);
+        return filePath;
     }
     
     /**
@@ -548,6 +519,60 @@ public class ExportService {
                 logger.warn("알 수 없는 쇼핑몰 seq: {}", seqMall);
                 return "unknown";
         }
+    }
+    private String buildJinieboxJsonFromOrders(List<JSONObject> orders) throws Exception {
+        if (orders == null || orders.isEmpty()) {
+            logger.warn("조회된 주문이 없습니다.");
+            return "[]";
+        }
+        
+        JbgItemDataAccessObject itemDao = new JbgItemDataAccessObject();
+        org.json.simple.JSONArray jsonArray = new org.json.simple.JSONArray();
+        
+        int totalItems = 0;
+        for (JSONObject orderJson : orders) {
+            org.json.simple.JSONObject orderObj = new org.json.simple.JSONObject();
+            
+            String serialNum = orderJson.get("serial_num").toString();
+            String dateTime = orderJson.get("date_time").toString();
+            int seqOrder = ((Number) orderJson.get("seq")).intValue();
+            int seqMall = ((Number) orderJson.get("seq_mall")).intValue();
+            String mallName = orderJson.get("mall_name") != null ? orderJson.get("mall_name").toString() : "";
+            
+            orderObj.put("serial", serialNum);
+            orderObj.put("datetime", dateTime);
+            orderObj.put("mall_id", getMallIdFromSeq(seqMall));
+            orderObj.put("mallname", mallName);
+            
+            logger.debug("주문 처리: serial={}, datetime={}, mall_id={}, mallname={}",
+                    serialNum, dateTime, getMallIdFromSeq(seqMall), mallName);
+            
+            List<JSONObject> items = itemDao.getItemsByOrder(String.valueOf(seqOrder));
+            org.json.simple.JSONArray itemsArray = new org.json.simple.JSONArray();
+            if (items != null && !items.isEmpty()) {
+                for (JSONObject itemJson : items) {
+                    org.json.simple.JSONObject itemObj = new org.json.simple.JSONObject();
+                    itemObj.put("name", itemJson.get("name").toString());
+                    
+                    String qty = itemJson.get("qty") != null ? itemJson.get("qty").toString() : "1";
+                    if (qty.isEmpty()) {
+                        qty = "1";
+                    }
+                    itemObj.put("qty", qty);
+                    itemsArray.add(itemObj);
+                }
+                totalItems += itemsArray.size();
+                logger.debug("  └─ 상품 {}개", itemsArray.size());
+            } else {
+                logger.debug("  └─ 상품 없음");
+            }
+            
+            orderObj.put("items", itemsArray);
+            jsonArray.add(orderObj);
+        }
+        
+        logger.info("jiniebox JSON 생성 완료 - 주문: {}개, 상품: {}개", jsonArray.size(), totalItems);
+        return jsonArray.toJSONString();
     }
 }
 

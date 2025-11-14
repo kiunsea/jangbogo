@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.5.1] - 2025-11-14
+
+### Fixed
+
+- FTP 자동 업로드 및 “FTP로 저장” 기능이 서로 다른 JSON 포맷을 사용해 jiniebox에서 복호화 후 파싱이 실패하던 문제를 해결했습니다. 이제 두 경로 모두 jiniebox `JangbogoDataParser`가 기대하는 배열 구조(JSON array)를 생성합니다.
+- 기본 내보내기 경로(`C:\Users\<사용자>\Documents\jangbogo_exports`)가 존재하지 않을 경우 서버 재시작 후 Public Key 입력 필드가 비어 보이거나 저장 실패하던 문제를 방지하기 위해 폴더를 자동으로 생성합니다.
+
+### Changed
+
+- FTP 자동 업로드 시 생성되는 임시 JSON 파일과 선택적 암호화 결과 파일을 업로드 후 즉시 정리하여 디스크 점유를 줄였습니다.
+
+---
+
 ## [0.5.0] - 2025-11-04
 
 ### Added
@@ -146,6 +159,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+[0.5.1]: https://github.com/kiunsea/jangbogo/releases/tag/v0.5.1
 [0.5.0]: https://github.com/kiunsea/jangbogo/releases/tag/v0.5.0
-[Unreleased]: https://github.com/kiunsea/jangbogo/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/kiunsea/jangbogo/compare/v0.5.1...HEAD
 

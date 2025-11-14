@@ -14,7 +14,7 @@ timeout-seconds: 30
 debug-mode: true
 
 # 애플리케이션 정보
-app-version: 0.5.0
+app-version: 0.5.1
 
 # 쇼핑몰 로그인 지연 시간 (밀리초)
 # 21600000ms = 6시간

@@ -30,6 +30,6 @@ if not exist "exports" mkdir exports
 
 REM JAR 파일 실행
 echo Jangbogo 애플리케이션을 시작합니다...
-java -Xms256m -Xmx1024m -jar jangbogo-0.5.0.jar
+java -Xms256m -Xmx1024m -jar jangbogo-0.5.1.jar
 
 pause

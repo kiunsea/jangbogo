@@ -1,5 +1,6 @@
 package com.jiniebox.jangbogo.ctrl;
 
+import java.io.File;
 import java.io.IOException;
 import java.util.List;
 import java.util.ArrayList;
@@ -222,6 +223,18 @@ public class AdminController {
         // Windows 사용자 내문서 경로 제공
         String userHome = System.getProperty("user.home");
         String documentsPath = userHome + "\\Documents\\jangbogo_exports";
+        try {
+            File defaultDir = new File(documentsPath);
+            if (!defaultDir.exists()) {
+                if (defaultDir.mkdirs()) {
+                    logger.info("기본 내보내기 폴더 생성: {}", documentsPath);
+                } else {
+                    logger.warn("기본 내보내기 폴더를 생성하지 못했습니다: {}", documentsPath);
+                }
+            }
+        } catch (SecurityException se) {
+            logger.warn("기본 내보내기 폴더 생성 중 권한 오류: {}", se.getMessage());
+        }
         node.put("defaultExportPath", documentsPath);
         
         // 파일 저장 설정 조회
@@ -629,35 +642,198 @@ public class AdminController {
                     Integer autoSaveEnabled = exportConfig.get("auto_save_enabled") != null ? 
                         Integer.parseInt(exportConfig.get("auto_save_enabled").toString()) : 0;
                     
-                    if (autoSaveEnabled == 1) {
-                        // 구매내역 수집시 함께 저장이 활성화되어 있으면 파일 저장
-                        String savePath = exportConfig.get("save_path") != null ? 
+                    Integer saveToJinieboxCfg = null;
+                    if (exportConfig.get("save_to_jiniebox") != null) {
+                        saveToJinieboxCfg = Integer.parseInt(exportConfig.get("save_to_jiniebox").toString());
+                    } else if (exportConfig.get("save_to_ftp") != null) { // 구 설정 호환
+                        saveToJinieboxCfg = Integer.parseInt(exportConfig.get("save_to_ftp").toString());
+                    }
+                    int saveToJinieboxVal = (saveToJinieboxCfg != null) ? saveToJinieboxCfg : 0;
+                    
+                    boolean shouldAutoSave = (autoSaveEnabled == 1);
+                    boolean shouldUploadToFtp = (saveToJinieboxVal == 1);
+                    
+                    String savePath = exportConfig.get("save_path") != null ? 
                             exportConfig.get("save_path").toString() : "";
-                        String format = exportConfig.get("save_format") != null ? 
+                    String format = exportConfig.get("save_format") != null ? 
                             exportConfig.get("save_format").toString() : "json";
-                        
+                    
+                    String exportedFile = null;
+                    boolean exportedSuccessfully = false;
+                    String ftpReadyFile = null;
+                    boolean ftpReadyFileGenerated = false;
+                    
+                    if ((shouldAutoSave || shouldUploadToFtp)) {
                         if (!savePath.isEmpty()) {
                             try {
-                                // 신규 추가된 주문 seq 목록으로 파일 저장
-                                String exportedFile = exportService.exportOrdersBySeqList(savePath, format, allNewOrderSeqs);
+                                exportedFile = exportService.exportOrdersBySeqList(savePath, format, allNewOrderSeqs);
+                                exportedSuccessfully = true;
                                 
-                                response.put("autoSaved", true);
                                 response.put("exportedFile", exportedFile);
                                 response.put("newOrderCount", allNewOrderSeqs.size());
-                                logger.info("구매내역 수집 후 신규 데이터 파일 자동저장 완료: {}, 주문: {}개", 
-                                           exportedFile, allNewOrderSeqs.size());
+                                
+                                if (shouldAutoSave) {
+                                    response.put("autoSaved", true);
+                                    logger.info("구매내역 수집 후 신규 데이터 파일 자동저장 완료: {}, 주문: {}개", 
+                                                exportedFile, allNewOrderSeqs.size());
+                                } else {
+                                    logger.info("FTP 업로드를 위해 파일을 생성했습니다: {}", exportedFile);
+                                }
                             } catch (Exception exportEx) {
-                                logger.error("구매내역 수집 후 파일 자동저장 실패: {}", exportEx.getMessage(), exportEx);
-                                response.put("autoSaveError", exportEx.getMessage());
+                                logger.error("구매내역 수집 후 파일 생성 실패: {}", exportEx.getMessage(), exportEx);
+                                if (shouldAutoSave) {
+                                    response.put("autoSaveError", exportEx.getMessage());
+                                }
+                                if (shouldUploadToFtp) {
+                                    response.put("autoFtpUploaded", false);
+                                    response.put("autoFtpError", "FTP 전송용 파일 생성에 실패했습니다.");
+                                }
                             }
                         } else {
-                            logger.debug("파일 저장 경로가 설정되지 않아 파일 저장을 건너뜁니다.");
+                            if (shouldAutoSave) {
+                                logger.debug("파일 저장 경로가 설정되지 않아 파일 저장을 건너뜁니다.");
+                            }
+                            if (shouldUploadToFtp) {
+                                logger.warn("FTP 업로드를 요청했지만 파일 저장 경로가 없어 업로드를 건너뜁니다.");
+                                response.put("autoFtpUploaded", false);
+                                response.put("autoFtpError", "파일 저장 경로가 설정되지 않았습니다.");
+                            }
                         }
                     } else {
-                        logger.debug("구매내역 수집시 함께 저장 옵션이 비활성화되어 있습니다.");
+                        logger.debug("자동 저장 및 FTP 업로드 옵션이 모두 비활성화되어 있습니다.");
                     }
+                    
+                    // FTP 자동 업로드 처리
+                    if (shouldUploadToFtp) {
+                        if (exportedSuccessfully && exportedFile != null && !exportedFile.isEmpty()) {
+                            
+                            try {
+                                ftpReadyFile = exportService.exportToJinieboxFileBySeqList(savePath, allNewOrderSeqs);
+                                ftpReadyFileGenerated = true;
+                                logger.info("FTP 업로드용 jiniebox JSON 생성: {}", ftpReadyFile);
+                            } catch (Exception ftpJsonEx) {
+                                logger.error("FTP 업로드용 JSON 생성 실패", ftpJsonEx);
+                                response.put("autoFtpUploaded", false);
+                                response.put("autoFtpError", "FTP 업로드용 JSON 생성 실패: " + ftpJsonEx.getMessage());
+                                ftpReadyFile = null;
+                            }
+                            
+                            if (ftpReadyFile != null) {
+                                String ftpAddress = exportConfig.get("ftp_address") != null ? 
+                                        exportConfig.get("ftp_address").toString() : "";
+                                String ftpId = exportConfig.get("ftp_id") != null ? 
+                                        exportConfig.get("ftp_id").toString() : "";
+                                String ftpPass = "";
+                                try {
+                                    ftpPass = exportConfigDao.getDecryptedFtpPassword();
+                                } catch (Exception e) {
+                                    logger.error("FTP 비밀번호 복호화 실패", e);
+                                }
+                                
+                                int ftpEncryptEnabledVal = 1;
+                                if (exportConfig.get("ftp_encrypt_enabled") != null) {
+                                    try {
+                                        ftpEncryptEnabledVal = Integer.parseInt(exportConfig.get("ftp_encrypt_enabled").toString());
+                                    } catch (NumberFormatException ignore) {}
+                                }
+                                boolean ftpEncryptEnabled = (ftpEncryptEnabledVal == 1);
+                                
+                                String publicKey = exportConfig.get("public_key") != null ? 
+                                        exportConfig.get("public_key").toString() : "";
+                                
+                                if (!ftpAddress.isEmpty() && !ftpId.isEmpty() && !ftpPass.isEmpty()) {
+                                    String fileToUpload = ftpReadyFile;
+                                    boolean fileEncrypted = false;
+                                    
+                                    try {
+                                        if (ftpEncryptEnabled) {
+                                            if (!publicKey.isEmpty()) {
+                                                String encryptedFilePath = ftpReadyFile + ".encrypted";
+                                                logger.info("자동 FTP 업로드를 위한 파일 암호화 시작");
+                                                
+                                                boolean encryptSuccess = com.jiniebox.jangbogo.util.security.RsaFileEncryption.encryptFile(
+                                                        ftpReadyFile, encryptedFilePath, publicKey
+                                                );
+                                                
+                                                if (encryptSuccess) {
+                                                    fileToUpload = encryptedFilePath;
+                                                    fileEncrypted = true;
+                                                    logger.info("자동 FTP 업로드용 암호화 완료: {}", encryptedFilePath);
+                                                } else {
+                                                    logger.warn("자동 FTP 업로드용 파일 암호화 실패 - 평문 업로드 진행");
+                                                }
+                                            } else {
+                                                logger.warn("FTP 암호화가 활성화되어 있으나 Public Key가 없습니다. 평문으로 업로드합니다.");
+                                            }
+                                        } else {
+                                            logger.info("자동 FTP 업로드: 암호화 비활성화 상태(평문 업로드)");
+                                        }
+                                        
+                                        boolean uploadSuccess = com.jiniebox.jangbogo.util.FtpUploadUtil.uploadFile(
+                                                ftpAddress, ftpId, ftpPass, fileToUpload
+                                        );
+                                        
+                                        if (uploadSuccess) {
+                                            response.put("autoFtpUploaded", true);
+                                            response.put("autoFtpEncrypted", fileEncrypted);
+                                            logger.info("자동 FTP 업로드 완료 - 서버: {}, 암호화: {}", ftpAddress, fileEncrypted);
+                                        } else {
+                                            response.put("autoFtpUploaded", false);
+                                            response.put("autoFtpError", "FTP 업로드에 실패했습니다.");
+                                            logger.warn("자동 FTP 업로드 실패 - 서버: {}", ftpAddress);
+                                        }
+                                        
+                                    } catch (Exception ftpUploadEx) {
+                                        response.put("autoFtpUploaded", false);
+                                        response.put("autoFtpError", ftpUploadEx.getMessage());
+                                        logger.warn("자동 FTP 업로드 중 오류 발생: {}", ftpUploadEx.getMessage(), ftpUploadEx);
+                                    } finally {
+                                        if (fileEncrypted) {
+                                            try {
+                                                java.io.File encFile = new java.io.File(fileToUpload);
+                                                if (encFile.exists()) {
+                                                    encFile.delete();
+                                                    logger.debug("자동 FTP 업로드용 암호화 임시 파일 삭제: {}", fileToUpload);
+                                                }
+                                            } catch (Exception delEx) {
+                                                logger.warn("암호화 임시 파일 삭제 실패: {}", delEx.getMessage());
+                                            }
+                                        }
+                                        if (ftpReadyFileGenerated && ftpReadyFile != null) {
+                                            try {
+                                                java.io.File tempFile = new java.io.File(ftpReadyFile);
+                                                if (tempFile.exists()) {
+                                                    tempFile.delete();
+                                                    logger.debug("FTP 업로드용 임시 JSON 파일 삭제: {}", ftpReadyFile);
+                                                }
+                                            } catch (Exception delEx) {
+                                                logger.warn("FTP 임시 파일 삭제 실패: {}", delEx.getMessage());
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    logger.warn("자동 FTP 업로드를 위한 정보가 불완전합니다. (주소/아이디/비밀번호 확인)");
+                                    response.put("autoFtpUploaded", false);
+                                    response.put("autoFtpError", "FTP 정보가 설정되지 않았습니다.");
+                                    if (ftpReadyFileGenerated && ftpReadyFile != null) {
+                                        try {
+                                            java.io.File tempFile = new java.io.File(ftpReadyFile);
+                                            if (tempFile.exists()) {
+                                                tempFile.delete();
+                                            }
+                                        } catch (Exception ignore) {}
+                                    }
+                                }
+                            }
+                        } else {
+                            logger.warn("자동 FTP 업로드를 수행할 파일이 생성되지 않았습니다.");
+                            response.put("autoFtpUploaded", false);
+                            response.put("autoFtpError", "FTP 업로드용 파일이 없습니다.");
+                        }
+                    }
+                    
                 } catch (Exception configEx) {
-                    logger.warn("파일 저장 설정 확인 중 오류: {}", configEx.getMessage());
+                    logger.warn("파일 저장/FTP 설정 확인 중 오류: {}", configEx.getMessage());
                 }
             } else if (executeNow && allNewOrderSeqs.isEmpty()) {
                 logger.info("신규 추가된 주문이 없어 파일 저장을 건너뜁니다.");

@@ -4,4 +4,5 @@
 
 admin.id=your_admin_id
 admin.pass=your_admin_password
+server.port=your_port
 
