@@ -1,6 +1,4 @@
-<!DOCTYPE html>
-<html lang="ko" xmlns:th="http://www.thymeleaf.org">
-<head th:fragment="head">
+<head xmlns:th="http://www.thymeleaf.org" th:fragment="head">
     <meta charset="UTF-8">
     <title th:text="${pageTitle} ?: 'JangBoGo'">JangBoGo</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -34,8 +32,8 @@
         }
     </style>
 </head>
-<body>
-<header th:fragment="header" class="bg-dark text-white py-3 mb-4">
+
+<header xmlns:th="http://www.thymeleaf.org" th:fragment="header" class="bg-dark text-white py-3 mb-4">
     <div class="container d-flex justify-content-between align-items-center">
         <h2 class="mb-0">🛒 JangBoGo</h2>
         <div class="user-info">
@@ -49,3 +47,24 @@
         </div>
     </div>
 </header>
+
+<nav xmlns:th="http://www.thymeleaf.org" th:fragment="nav" class="border-bottom mb-4 bg-white">
+    <div class="container">
+        <ul class="nav nav-pills gap-2 py-2">
+            <li class="nav-item">
+                <a class="nav-link"
+                   th:classappend="${activePage == 'dashboard'} ? 'active' : ''"
+                   href="/">
+                    <i class="bi bi-speedometer2"></i> 대시보드
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link"
+                   th:classappend="${activePage == 'profile'} ? 'active' : ''"
+                   href="/profile">
+                    <i class="bi bi-person-gear"></i> 계정 설정
+                </a>
+            </li>
+        </ul>
+    </div>
+</nav>

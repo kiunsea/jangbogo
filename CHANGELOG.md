@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.5.2] - 2025-11-15
+
+### Added
+
+- `계정 설정` 화면에서 관리자 아이디·비밀번호를 직접 수정할 수 있는 UI와 API를 제공했습니다. 저장 성공/실패 여부를 즉시 안내하고, `admin.properties`와 애플리케이션 세션에 동시에 반영합니다.
+
+### Changed
+
+- `profile.html` 스크립트를 레이아웃 fragment 내부에 포함시켜 템플릿 확장 시 모든 로직이 누락 없이 내려가도록 정리했습니다.
+- `test_run.bat` 실행 시 Gradle Clean, 캐시 디렉터리 삭제, 템플릿 캐시 비활성화를 자동으로 수행해 개발 중 최신 템플릿/정적 리소스가 항상 로드되도록 했습니다.
+
+### Fixed
+
+- 계정 정보 저장 버튼이 폼 기본 제출만 트리거하던 문제를 수정하고, JSON Payload가 `/api/admin/profile`로 안전하게 전송되도록 했습니다.
+
+---
+
 ## [0.5.1] - 2025-11-14
 
 ### Fixed
@@ -159,7 +176,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+[0.5.2]: https://github.com/kiunsea/jangbogo/releases/tag/v0.5.2
 [0.5.1]: https://github.com/kiunsea/jangbogo/releases/tag/v0.5.1
 [0.5.0]: https://github.com/kiunsea/jangbogo/releases/tag/v0.5.0
-[Unreleased]: https://github.com/kiunsea/jangbogo/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/kiunsea/jangbogo/compare/v0.5.2...HEAD
 

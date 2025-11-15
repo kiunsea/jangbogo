@@ -544,10 +544,13 @@
                     }
                 });
                 
-                // 저장 경로 입력 필드는 blur 시 저장
-                document.querySelector('#file_save_path').addEventListener('blur', function() {
-                    saveExportConfigToServer();
-                });
+                // 저장 경로 입력 필드는 blur 시 저장 (요소가 존재하는 페이지에서만)
+                const fileSavePathInput = document.querySelector('#file_save_path');
+                if (fileSavePathInput) {
+                    fileSavePathInput.addEventListener('blur', function() {
+                        saveExportConfigToServer();
+                    });
+                }
                 
                 /**
                  * 필수 필드 유효성 검사 공통 함수

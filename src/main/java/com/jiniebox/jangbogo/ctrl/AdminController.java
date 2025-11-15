@@ -14,7 +14,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.simple.JSONObject;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -47,11 +46,8 @@ public class AdminController {
     
     private static final Logger logger = LogManager.getLogger(AdminController.class);
     
-    @Value("${admin.id}")
-    private String adminId;
-    
-    @Value("${admin.pass}")
-    private String adminPass;
+    @Autowired
+    private com.jiniebox.jangbogo.svc.AdminCredentialService adminCredentialService;
     
     @Autowired
     private JangbogoConfig jangbogoConfig;
@@ -91,7 +87,7 @@ public class AdminController {
             }
             
             // 로그인 검증
-            if (adminId.equals(inputId) && adminPass.equals(inputPass)) {
+            if (adminCredentialService.matches(inputId, inputPass)) {
                 // 세션에 로그인 정보 저장 (SessionConstants 사용)
                 session.setAttribute(SessionConstants.SESSION_ADMIN_KEY, true);
                 session.setAttribute(SessionConstants.SESSION_USERNAME_KEY, inputId);
@@ -122,6 +118,70 @@ public class AdminController {
     }
     
     /**
+     * 관리자 프로필 정보 조회
+     */
+    @GetMapping("/api/admin/profile")
+    @ResponseBody
+    public JsonNode getAdminProfile() {
+        ObjectMapper objectMapper = new ObjectMapper();
+        ObjectNode response = objectMapper.createObjectNode();
+        try {
+            com.jiniebox.jangbogo.svc.AdminCredentialService.AdminCredentials credentials =
+                adminCredentialService.getCredentials();
+            response.put("success", true);
+            response.put("adminId", credentials.getAdminId());
+            response.put("hasPassword", credentials.hasPassword());
+            response.put("configPath", adminCredentialService.getConfigFilePath());
+            response.put("configSource", adminCredentialService.getEffectiveSource());
+        } catch (Exception e) {
+            logger.error("관리자 프로필 정보 조회 실패", e);
+            response.put("success", false);
+            response.put("message", "관리자 정보를 조회할 수 없습니다.");
+        }
+        return response;
+    }
+    
+    /**
+     * 관리자 프로필 업데이트
+     */
+    @PostMapping("/api/admin/profile")
+    @ResponseBody
+    public JsonNode updateAdminProfile(@RequestBody AdminProfileRequest request) {
+        ObjectMapper objectMapper = new ObjectMapper();
+        ObjectNode response = objectMapper.createObjectNode();
+        
+        String newAdminId = request != null ? request.getAdminId() : null;
+        String newAdminPass = request != null ? request.getAdminPass() : null;
+        
+        if (newAdminId == null || newAdminId.trim().isEmpty()) {
+            response.put("success", false);
+            response.put("message", "관리자 아이디를 입력해주세요.");
+            return response;
+        }
+        
+        String normalizedPass = newAdminPass != null ? newAdminPass.trim() : "";
+        boolean updatePassword = !normalizedPass.isEmpty();
+        
+        try {
+            adminCredentialService.updateCredentials(newAdminId.trim(),
+                    updatePassword ? normalizedPass : null, updatePassword);
+            
+            response.put("success", true);
+            response.put("message", "관리자 정보가 저장되었습니다.");
+            response.put("configPath", adminCredentialService.getConfigFilePath());
+            response.put("configSource", adminCredentialService.getEffectiveSource());
+        } catch (IllegalArgumentException e) {
+            response.put("success", false);
+            response.put("message", e.getMessage());
+        } catch (IOException e) {
+            logger.error("관리자 정보 저장 실패", e);
+            response.put("success", false);
+            response.put("message", "관리자 정보를 저장하지 못했습니다: " + e.getMessage());
+        }
+        return response;
+    }
+    
+    /**
      * 로그인 요청 DTO
      */
     public static class LoginRequest {
@@ -142,6 +202,30 @@ public class AdminController {
         
         public void setPassword(String password) {
             this.password = password;
+        }
+    }
+
+    /**
+     * 관리자 프로필 요청 DTO
+     */
+    public static class AdminProfileRequest {
+        private String adminId;
+        private String adminPass;
+        
+        public String getAdminId() {
+            return adminId;
+        }
+        
+        public void setAdminId(String adminId) {
+            this.adminId = adminId;
+        }
+        
+        public String getAdminPass() {
+            return adminPass;
+        }
+        
+        public void setAdminPass(String adminPass) {
+            this.adminPass = adminPass;
         }
     }
     
@@ -213,7 +297,8 @@ public class AdminController {
         
         String username = (String) session.getAttribute(SessionConstants.SESSION_USERNAME_KEY);
         
-        logger.debug("사용자 정보 조회 - Admin ID: {}, Current User: {}", adminId, username);
+        logger.debug("사용자 정보 조회 - Admin ID: {}, Current User: {}", 
+                adminCredentialService.getCredentials().getAdminId(), username);
         
         node.put("success", true);
         node.put("message", "장보고 프로젝트");
@@ -653,11 +738,11 @@ public class AdminController {
                     boolean shouldAutoSave = (autoSaveEnabled == 1);
                     boolean shouldUploadToFtp = (saveToJinieboxVal == 1);
                     
-                    String savePath = exportConfig.get("save_path") != null ? 
+                        String savePath = exportConfig.get("save_path") != null ? 
                             exportConfig.get("save_path").toString() : "";
-                    String format = exportConfig.get("save_format") != null ? 
+                        String format = exportConfig.get("save_format") != null ? 
                             exportConfig.get("save_format").toString() : "json";
-                    
+                        
                     String exportedFile = null;
                     boolean exportedSuccessfully = false;
                     String ftpReadyFile = null;
@@ -674,15 +759,15 @@ public class AdminController {
                                 
                                 if (shouldAutoSave) {
                                     response.put("autoSaved", true);
-                                    logger.info("구매내역 수집 후 신규 데이터 파일 자동저장 완료: {}, 주문: {}개", 
-                                                exportedFile, allNewOrderSeqs.size());
+                                logger.info("구매내역 수집 후 신규 데이터 파일 자동저장 완료: {}, 주문: {}개", 
+                                           exportedFile, allNewOrderSeqs.size());
                                 } else {
                                     logger.info("FTP 업로드를 위해 파일을 생성했습니다: {}", exportedFile);
                                 }
                             } catch (Exception exportEx) {
                                 logger.error("구매내역 수집 후 파일 생성 실패: {}", exportEx.getMessage(), exportEx);
                                 if (shouldAutoSave) {
-                                    response.put("autoSaveError", exportEx.getMessage());
+                                response.put("autoSaveError", exportEx.getMessage());
                                 }
                                 if (shouldUploadToFtp) {
                                     response.put("autoFtpUploaded", false);
@@ -691,7 +776,7 @@ public class AdminController {
                             }
                         } else {
                             if (shouldAutoSave) {
-                                logger.debug("파일 저장 경로가 설정되지 않아 파일 저장을 건너뜁니다.");
+                            logger.debug("파일 저장 경로가 설정되지 않아 파일 저장을 건너뜁니다.");
                             }
                             if (shouldUploadToFtp) {
                                 logger.warn("FTP 업로드를 요청했지만 파일 저장 경로가 없어 업로드를 건너뜁니다.");
@@ -988,17 +1073,17 @@ public class AdminController {
                         logger.info("FTP 업로드 여부: 요청 값 사용 = {}", shouldUploadToFtp);
                     } else {
                         // 요청 값이 없으면 DB 설정 사용
-                        Object saveToJinieboxObj = exportConfig.get("save_to_jiniebox");
+                    Object saveToJinieboxObj = exportConfig.get("save_to_jiniebox");
                         int saveToJinieboxDb = 0;
-                        
-                        if (saveToJinieboxObj instanceof Number) {
+                    
+                    if (saveToJinieboxObj instanceof Number) {
                             saveToJinieboxDb = ((Number) saveToJinieboxObj).intValue();
-                        } else if (saveToJinieboxObj instanceof String) {
-                            try {
+                    } else if (saveToJinieboxObj instanceof String) {
+                        try {
                                 saveToJinieboxDb = Integer.parseInt((String) saveToJinieboxObj);
-                            } catch (NumberFormatException e) {
-                                logger.warn("save_to_jiniebox 값 변환 실패: {}", saveToJinieboxObj);
-                            }
+                        } catch (NumberFormatException e) {
+                            logger.warn("save_to_jiniebox 값 변환 실패: {}", saveToJinieboxObj);
+                        }
                         }
                         shouldUploadToFtp = (saveToJinieboxDb == 1);
                         logger.info("FTP 업로드 여부: DB 설정 사용 = {}", shouldUploadToFtp);
@@ -1036,27 +1121,27 @@ public class AdminController {
                             boolean fileEncrypted = false;
                             
                             if (ftpEncryptEnabled) {
-                                // Public Key가 있으면 파일 암호화
-                                if (!publicKey.isEmpty()) {
-                                    try {
-                                        String encryptedFilePath = filePath + ".encrypted";
-                                        logger.info("파일 암호화 시작 - Public Key 사용");
-                                        
-                                        boolean encryptSuccess = com.jiniebox.jangbogo.util.security.RsaFileEncryption.encryptFile(
-                                            filePath, encryptedFilePath, publicKey
-                                        );
-                                        
-                                        if (encryptSuccess) {
-                                            fileToUpload = encryptedFilePath;
-                                            fileEncrypted = true;
-                                            logger.info("파일 암호화 완료: {}", encryptedFilePath);
-                                        } else {
-                                            logger.warn("파일 암호화 실패 - 원본 파일 업로드");
-                                        }
-                                    } catch (Exception encEx) {
-                                        logger.warn("파일 암호화 중 오류 - 원본 파일 업로드: {}", encEx.getMessage());
+                            // Public Key가 있으면 파일 암호화
+                            if (!publicKey.isEmpty()) {
+                                try {
+                                    String encryptedFilePath = filePath + ".encrypted";
+                                    logger.info("파일 암호화 시작 - Public Key 사용");
+                                    
+                                    boolean encryptSuccess = com.jiniebox.jangbogo.util.security.RsaFileEncryption.encryptFile(
+                                        filePath, encryptedFilePath, publicKey
+                                    );
+                                    
+                                    if (encryptSuccess) {
+                                        fileToUpload = encryptedFilePath;
+                                        fileEncrypted = true;
+                                        logger.info("파일 암호화 완료: {}", encryptedFilePath);
+                                    } else {
+                                        logger.warn("파일 암호화 실패 - 원본 파일 업로드");
                                     }
-                                } else {
+                                } catch (Exception encEx) {
+                                    logger.warn("파일 암호화 중 오류 - 원본 파일 업로드: {}", encEx.getMessage());
+                                }
+                            } else {
                                     logger.warn("FTP 암호화가 활성화되어 있으나 Public Key가 없습니다. 평문으로 업로드합니다.");
                                 }
                             } else {

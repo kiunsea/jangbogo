@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org"
+      xmlns:layout="http://www.ultraq.net.nz/thymeleaf/layout"
+      layout:decorate="~{layout}">
+<head>
+    <title layout:title-pattern="$DECORATOR_TITLE - $CONTENT_TITLE">계정 설정</title>
+    <style>
+        .profile-card {
+            max-width: 640px;
+            margin: 0 auto;
+        }
+        .form-label {
+            font-weight: 600;
+            color: #495057;
+        }
+        .masked-placeholder {
+            letter-spacing: 0.3rem;
+        }
+    </style>
+</head>
+<body>
+<div layout:fragment="content">
+    <div class="page-header mt-3 mb-4">
+        <div>
+            <h2 class="mb-1 text-primary"><i class="bi bi-person-gear"></i> 관리자 프로필</h2>
+            <p class="text-muted mb-0">장보고 관리자 앱에 접속할 아이디와 비밀번호를 안전하게 관리하세요.</p>
+        </div>
+    </div>
+
+    <div id="profileAlert"></div>
+
+    <div class="card profile-card shadow-sm">
+        <div class="card-body">
+            <form id="profileForm">
+                <div class="mb-3">
+                    <label for="profileAdminId" class="form-label">관리자 아이디</label>
+                    <input type="text" class="form-control" id="profileAdminId" placeholder="로그인 아이디" required>
+                    <div class="form-text text-muted">
+                        • 장보고 웹 관리자 화면에 로그인할 때 사용할 아이디입니다.
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label for="profileAdminPass" class="form-label">비밀번호</label>
+                    <div class="input-group">
+                        <input type="password" class="form-control" id="profileAdminPass" placeholder="********" required>
+                        <button class="btn btn-outline-secondary" type="button" id="togglePasswordBtn">
+                            <i class="bi bi-eye-slash"></i>
+                        </button>
+                    </div>
+                    <div class="form-text text-muted">
+                        • 새 비밀번호를 입력하면 즉시 적용됩니다.<br>
+                        • 별표(********) 상태로 저장하면 기존 비밀번호가 유지됩니다.
+                    </div>
+                </div>
+
+                <div class="border rounded-3 bg-light p-3 mb-3">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <strong>저장 위치</strong><br>
+                            <small class="text-muted" id="configPathLabel">config/admin.properties</small>
+                        </div>
+                        <span class="badge bg-secondary" id="configSourceBadge">admin.properties</span>
+                    </div>
+                </div>
+
+                <div class="d-flex gap-2">
+                    <button type="button" class="btn btn-primary flex-grow-1" id="profileSaveBtn">
+                        <i class="bi bi-save"></i> 저장
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary" id="resetFormBtn">
+                        <i class="bi bi-arrow-counterclockwise"></i> 초기화
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+        const profileAlert = document.getElementById('profileAlert');
+        const profileForm = document.getElementById('profileForm');
+        const profileSaveBtn = document.getElementById('profileSaveBtn');
+        const adminIdInput = document.getElementById('profileAdminId');
+        const adminPassInput = document.getElementById('profileAdminPass');
+        const togglePasswordBtn = document.getElementById('togglePasswordBtn');
+        const resetFormBtn = document.getElementById('resetFormBtn');
+        const configPathLabel = document.getElementById('configPathLabel');
+        const configSourceBadge = document.getElementById('configSourceBadge');
+
+        function showProfileAlert(message, type = 'success') {
+            profileAlert.innerHTML = `
+                <div class="alert alert-${type} alert-dismissible fade show" role="alert">
+                    ${message}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
+            `;
+            profileAlert.scrollIntoView({behavior: 'smooth', block: 'center'});
+        }
+
+        function showProfileToast(message) {
+            window.alert(message);
+        }
+
+        function loadProfile() {
+            fetch('/api/admin/profile')
+                .then(res => res.json())
+                .then(data => {
+                    if (!data.success) {
+                        showProfileAlert(data.message || '관리자 정보를 불러오지 못했습니다.', 'danger');
+                        return;
+                    }
+                    adminIdInput.value = data.adminId || '';
+                    if (data.hasPassword) {
+                        adminPassInput.value = '********';
+                        adminPassInput.dataset.masked = 'true';
+                    } else {
+                        adminPassInput.value = '';
+                        adminPassInput.dataset.masked = 'false';
+                    }
+                    configPathLabel.textContent = data.configPath || 'config/admin.properties';
+                    configSourceBadge.textContent = data.configSource || 'application.yml';
+                })
+                .catch(() => showProfileAlert('관리자 정보를 불러오지 못했습니다.', 'danger'));
+        }
+
+        if (togglePasswordBtn && adminPassInput) {
+            togglePasswordBtn.addEventListener('click', () => {
+                const currentType = adminPassInput.getAttribute('type');
+                adminPassInput.setAttribute('type', currentType === 'password' ? 'text' : 'password');
+                togglePasswordBtn.innerHTML = currentType === 'password'
+                    ? '<i class="bi bi-eye"></i>'
+                    : '<i class="bi bi-eye-slash"></i>';
+            });
+        }
+
+        if (adminPassInput) {
+            adminPassInput.addEventListener('input', () => {
+                adminPassInput.dataset.masked = 'false';
+            });
+        }
+
+        if (resetFormBtn) {
+            resetFormBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                loadProfile();
+                showProfileAlert('폼을 초기화했습니다.', 'info');
+            });
+        }
+
+        function submitProfileForm() {
+                const adminId = adminIdInput.value.trim();
+                let adminPass = adminPassInput.value;
+                let updatePassword = true;
+
+                if (adminPassInput.dataset.masked === 'true' && adminPass === '********') {
+                    adminPass = '';
+                    updatePassword = false;
+                }
+
+                if (!adminId) {
+                    showProfileAlert('관리자 아이디를 입력해주세요.', 'warning');
+                    return;
+                }
+
+                const payload = {
+                    adminId,
+                    adminPass: updatePassword ? adminPass : ''
+                };
+
+                fetch('/api/admin/profile', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                })
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data.success) {
+                            const successMessage = data.message || '관리자 정보가 저장되었습니다.';
+                            showProfileAlert(successMessage, 'success');
+                            showProfileToast(successMessage, 'success');
+                            adminPassInput.value = '********';
+                            adminPassInput.dataset.masked = 'true';
+                            configPathLabel.textContent = data.configPath || configPathLabel.textContent;
+                            configSourceBadge.textContent = data.configSource || configSourceBadge.textContent;
+                        } else {
+                            const failMessage = data.message || '저장에 실패했습니다.';
+                            showProfileAlert(failMessage, 'danger');
+                            showProfileToast(failMessage, 'danger');
+                        }
+                    })
+                    .catch(() => {
+                        const errorMessage = '저장 요청 중 오류가 발생했습니다.';
+                        showProfileAlert(errorMessage, 'danger');
+                        showProfileToast(errorMessage, 'danger');
+                    });
+        }
+
+        if (profileSaveBtn) {
+            profileSaveBtn.addEventListener('click', submitProfileForm);
+        }
+
+            loadProfile();
+        });
+    </script>
+</div>
+</body>
+</html>
+

@@ -35,6 +35,7 @@ public class HomeController {
         // ✅ 개선: Interceptor가 세션 체크를 수행하므로 중복 제거
         // 여기까지 도달했다면 이미 로그인된 상태
         
+        model.addAttribute("activePage", "dashboard");
         try {
             // DB에서 저장 경로 설정 가져오기
             JbgExportConfigDataAccessObject exportConfigDao = new JbgExportConfigDataAccessObject();
@@ -65,6 +66,15 @@ public class HomeController {
         }
         
         return "index";
+    }
+    
+    /**
+     * 관리자 프로필 페이지
+     */
+    @GetMapping("/profile")
+    public String profile(Model model) {
+        model.addAttribute("activePage", "profile");
+        return "profile";
     }
     
     /**

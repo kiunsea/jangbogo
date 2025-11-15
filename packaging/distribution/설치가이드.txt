@@ -168,7 +168,7 @@
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   Jangbogo/
   ├─ Jangbogo.bat          # 실행 파일
-  ├─ jangbogo-0.5.1.jar    # 애플리케이션
+  ├─ jangbogo-0.5.2.jar    # 애플리케이션
   ├─ jre/                  # 번들된 Java 런타임
   ├─ service/              # Windows 서비스 설정
   ├─ db/                   # 데이터베이스 (자동 생성)
