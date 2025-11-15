@@ -1,28 +1,162 @@
 plugins {
-    id 'java-library'
+	id 'java'
+	id 'application'
+	id 'org.springframework.boot' version '3.5.6'
+	id 'io.spring.dependency-management' version '1.1.7'
 }
 
-group = 'com.doribox'
-version = '0.1.0-SNAPSHOT'
+group = 'com.jiniebox'
+version = '0.5.2'
+description = '사용자 온라인/오프라인 구매 내역 수집기'
 
 java {
-    sourceCompatibility = JavaVersion.VERSION_17
+	toolchain {
+		languageVersion = JavaLanguageVersion.of(21)
+	}
+	sourceCompatibility = '21'
+	targetCompatibility = '21'
+}
+
+configurations {
+	compileOnly {
+		extendsFrom annotationProcessor
+	}
 }
 
 repositories {
-    mavenCentral()
+	mavenCentral()
 }
 
 dependencies {
-    implementation 'org.seleniumhq.selenium:selenium-java:4.16.1'
-    implementation 'com.fasterxml.jackson.core:jackson-databind:2.16.0'
-    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
-
-    testImplementation 'org.junit.jupiter:junit-jupiter-api:5.10.1'
-    testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:5.10.1'
+    implementation 'nz.net.ultraq.thymeleaf:thymeleaf-layout-dialect:3.2.1'
+	
+	// Spring Boot Starters - Logback 제외하고 Log4j2 사용
+	implementation('org.springframework.boot:spring-boot-starter-thymeleaf') {
+		exclude group: 'org.springframework.boot', module: 'spring-boot-starter-logging'
+	}
+	implementation('org.springframework.boot:spring-boot-starter') {
+		exclude group: 'org.springframework.boot', module: 'spring-boot-starter-logging'
+	}
+	implementation('org.springframework.boot:spring-boot-starter-web') {
+		exclude group: 'org.springframework.boot', module: 'spring-boot-starter-logging'
+	}
+	implementation('org.springframework.boot:spring-boot-starter-jdbc') {
+		exclude group: 'org.springframework.boot', module: 'spring-boot-starter-logging'
+	}
+	
+	// Log4j2 추가
+	implementation 'org.springframework.boot:spring-boot-starter-log4j2'
+	
+	implementation 'org.xerial:sqlite-jdbc:3.45.3.0'
+	
+	// Selenium WebDriver (selenium-java에 모든 드라이버 포함)
+	implementation 'org.seleniumhq.selenium:selenium-java:4.25.0'
+	
+	// JSON Simple
+	implementation 'com.googlecode.json-simple:json-simple:1.1.1'
+	
+	// Jackson YAML (YAML 파일 읽기/쓰기)
+	implementation 'com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.15.3'
+	
+	// Apache Commons Net (FTP/FTPS 클라이언트)
+	implementation 'commons-net:commons-net:3.11.1'
+	
+	compileOnly 'org.projectlombok:lombok'
+	annotationProcessor 'org.projectlombok:lombok'
+	
+	testImplementation('org.springframework.boot:spring-boot-starter-test') {
+		exclude group: 'org.springframework.boot', module: 'spring-boot-starter-logging'
+	}
+	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+	
+	developmentOnly('org.springframework.boot:spring-boot-devtools') {
+		exclude group: 'org.springframework.boot', module: 'spring-boot-starter-logging'
+	}
 }
 
-test {
-    useJUnitPlatform()
+tasks.named('test') {
+	useJUnitPlatform()
+}
+
+// Spring Boot JAR 설정: plain JAR 생성 안 함
+jar {
+	enabled = false
+}
+
+bootJar {
+	enabled = true
+}
+
+application {
+	mainClass = 'com.jiniebox.jangbogo.JangbogoLauncher'
+	applicationName = 'jangbogo'
+}
+
+// Custom JRE 생성 태스크 (jlink 사용)
+tasks.register('createJre') {
+	def jreDir = file("${buildDir}/jre")
+	
+	outputs.dir(jreDir)
+	
+	doFirst {
+		// 기존 JRE 강제 삭제
+		if (jreDir.exists()) {
+			println "기존 JRE 디렉토리 삭제 중..."
+			jreDir.deleteDir()
+		}
+	}
+	
+	doLast {
+		// jlink로 custom JRE 생성
+		exec {
+			commandLine 'jlink',
+				'--add-modules', 'java.base,java.compiler,java.desktop,java.instrument,java.logging,java.management,java.management.rmi,java.naming,java.net.http,java.prefs,java.rmi,java.scripting,java.security.jgss,java.security.sasl,java.sql,java.transaction.xa,java.xml,java.xml.crypto,jdk.crypto.ec,jdk.httpserver,jdk.jdwp.agent,jdk.jfr,jdk.management,jdk.management.agent,jdk.naming.dns,jdk.net,jdk.security.auth,jdk.unsupported,jdk.zipfs',
+				'--strip-debug',
+				'--no-man-pages',
+				'--no-header-files',
+				'--compress=2',
+				'--output', jreDir.absolutePath
+		}
+		println "✓ Custom JRE 생성 완료: ${jreDir.absolutePath}"
+		println "  포함된 모듈: Spring Boot 및 Tomcat 구동에 필요한 모든 모듈"
+	}
+}
+
+// 배포 패키지 생성 태스크: JAR + 배치 스크립트 + Custom JRE + WinSW
+tasks.register('packageDist', Zip) {
+	dependsOn bootJar, createJre
+	
+	archiveFileName = 'Jangbogo-distribution.zip'
+	destinationDirectory = file("${buildDir}/distributions")
+	
+	from(bootJar) {
+		into('/')
+	}
+	
+	from('packaging/distribution') {
+		include 'Jangbogo.bat', '설치가이드.txt', '사용설명서.txt', 'README.md'
+		into('/')
+	}
+	
+	from("${buildDir}/jre") {
+		into('jre')
+	}
+	
+	from('packaging/winsw') {
+		include '*.exe', '*.xml', '*.md'
+		into('service')
+	}
+	
+	doLast {
+		println "✅ 배포 패키지 생성 완료!"
+		println "📦 파일 위치: ${archiveFile.get().asFile}"
+		println ""
+		println "📌 이 패키지는 Java 설치 없이 실행 가능합니다."
+		println ""
+		println "배포 방법:"
+		println "1. ZIP 파일을 원하는 위치에 압축 해제"
+		println "2. Jangbogo.bat 실행 (일반 실행)"
+		println "3. service 폴더의 README.md 참조 (Windows 서비스 등록)"
+	}
 }
 
