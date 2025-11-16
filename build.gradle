@@ -3,6 +3,7 @@ plugins {
 	id 'application'
 	id 'org.springframework.boot' version '3.5.6'
 	id 'io.spring.dependency-management' version '1.1.7'
+	id 'com.diffplug.spotless' version '6.25.0'
 }
 
 group = 'com.jiniebox'
@@ -25,10 +26,13 @@ configurations {
 
 repositories {
 	mavenCentral()
+    mavenLocal()
 }
 
 dependencies {
     implementation 'nz.net.ultraq.thymeleaf:thymeleaf-layout-dialect:3.2.1'
+    // DoriBox 엔진 - 로컬 포함빌드(설정에 includeBuild가 있을 경우) 또는 mavenLocal 좌표를 통해 사용
+    implementation 'com.doribox:doribox:0.1.0-SNAPSHOT'
 	
 	// Spring Boot Starters - Logback 제외하고 Log4j2 사용
 	implementation('org.springframework.boot:spring-boot-starter-thymeleaf') {
@@ -76,6 +80,13 @@ dependencies {
 
 tasks.named('test') {
 	useJUnitPlatform()
+}
+
+spotless {
+	java {
+		target 'src/**/*.java'
+		googleJavaFormat('1.17.0')
+	}
 }
 
 // Spring Boot JAR 설정: plain JAR 생성 안 함

@@ -1,1 +1,6 @@
 rootProject.name = 'jangbogo'
+// DoriBox를 로컬 포함 빌드로 연결하여 변경 시 자동 반영되도록 구성
+def doriboxPath = 'D:/GIT/doribox'
+if (new File(doriboxPath).exists()) {
+	includeBuild(doriboxPath)
+}
