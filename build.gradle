@@ -31,13 +31,7 @@ repositories {
 
 dependencies {
     implementation 'nz.net.ultraq.thymeleaf:thymeleaf-layout-dialect:3.2.1'
-    // DoriBox 엔진 - 로컬 포함빌드(설정에 includeBuild가 있을 경우) 또는 mavenLocal 좌표를 통해 사용
-    // 참고: doribox는 멀티모듈 프로젝트이므로 필요한 모듈을 개별적으로 참조해야 합니다
-    // core: 도메인 모델, 검증 로직 등 핵심 기능
-    implementation 'com.doribox:core:0.1.0-SNAPSHOT'
-    // 필요시 다른 모듈도 추가:
-    // implementation 'com.doribox:runtime-ui-collector-selenium:0.1.0-SNAPSHOT'
-	
+
 	// Spring Boot Starters - Logback 제외하고 Log4j2 사용
 	implementation('org.springframework.boot:spring-boot-starter-thymeleaf') {
 		exclude group: 'org.springframework.boot', module: 'spring-boot-starter-logging'
