@@ -75,6 +75,9 @@ dependencies {
 	testImplementation('org.springframework.boot:spring-boot-starter-test') {
 		exclude group: 'org.springframework.boot', module: 'spring-boot-starter-logging'
 	}
+	// JUnit 5 명시적 추가 (IDE 호환성)
+	testImplementation 'org.junit.jupiter:junit-jupiter-api'
+	testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine'
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 	
 	developmentOnly('org.springframework.boot:spring-boot-devtools') {
