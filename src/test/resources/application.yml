@@ -1,0 +1,38 @@
+spring:
+  application:
+    name: jangbogo-test
+
+  datasource:
+    url: jdbc:sqlite::memory:
+    driver-class-name: org.sqlite.JDBC
+    hikari:
+      maximum-pool-size: 5
+      connection-init-sql: "PRAGMA foreign_keys=ON;"
+
+  sql:
+    init:
+      mode: always
+      continue-on-error: true
+      encoding: UTF-8
+
+server:
+  port: 0  # 랜덤 포트 사용
+
+# Admin 설정 (테스트용)
+admin:
+  id: test_admin
+  pass: test1234
+
+# 사용자 정의 설정 (테스트용)
+jangbogo:
+  config:
+    localdb-name: jangbogo-test
+    localdb-path: ./test-db
+    max-retry-count: 3
+    timeout-seconds: 30
+    debug-mode: false
+    app-version: 1.0.0-TEST
+    mall_signin_delay: 1000
+    default_web_driver: chrome
+    browser_headless: true
+
