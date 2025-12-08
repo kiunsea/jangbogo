@@ -7,7 +7,7 @@ plugins {
 }
 
 group = 'com.jiniebox'
-version = '0.5.2'
+version = '0.5.3'
 description = '사용자 온라인/오프라인 구매 내역 수집기'
 
 java {

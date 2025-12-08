@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.5.3] - 2025-12-09
+
+### Changed
+
+- UI 개선: '구매내역 수집시 옵션' 블록 내의 항목들에 depth 표시를 추가하여 계층 구조를 명확하게 표시했습니다. 하위 항목에는 작은 원형 아이콘을 사용하여 시각적 구분을 강화했습니다.
+- UI 개선: 'FTP 업로드 시 파일 암호화'와 'Public Key (암호화용)' 항목을 하나의 블록으로 묶고 연한 아이보리 배경색(`#f5f5f0`)을 적용하여 관련 설정을 그룹화했습니다.
+- UI 개선: 쇼핑몰 목록의 각 쇼핑몰에 연한 파스텔 톤 배경색을 적용하여 시각적 구분을 개선했습니다. SSG(신세계)는 연한 파스텔 블루(`#e8f4f8`), OASIS(오아시스)는 연한 파스텔 라벤더(`#f4e8f8`)로 표시됩니다.
+
+---
+
 ## [0.5.2] - 2025-11-15
 
 ### Added
@@ -176,8 +186,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+[0.5.3]: https://github.com/kiunsea/jangbogo/releases/tag/v0.5.3
 [0.5.2]: https://github.com/kiunsea/jangbogo/releases/tag/v0.5.2
 [0.5.1]: https://github.com/kiunsea/jangbogo/releases/tag/v0.5.1
 [0.5.0]: https://github.com/kiunsea/jangbogo/releases/tag/v0.5.0
-[Unreleased]: https://github.com/kiunsea/jangbogo/compare/v0.5.2...HEAD
+[Unreleased]: https://github.com/kiunsea/jangbogo/compare/v0.5.3...HEAD
 
