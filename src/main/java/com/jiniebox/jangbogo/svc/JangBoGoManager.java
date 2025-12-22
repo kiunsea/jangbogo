@@ -110,6 +110,37 @@ public class JangBoGoManager {
   }
 
   /**
+   * 공통 수집 실행 로직 (내부 메서드)
+   *
+   * @param seqMall 수집할 쇼핑몰
+   * @param mallId 쇼핑몰 사용자 아이디
+   * @param mallPw 쇼핑몰 사용자 비밀번호
+   * @return MallOrderUpdaterRunner 인스턴스 (실행 완료 후 신규 주문 seq 조회 가능)
+   * @throws IllegalStateException 이미 실행 중인 경우
+   */
+  private MallOrderUpdaterRunner executeCollectionInternal(
+      String seqMall, String mallId, String mallPw) throws IllegalStateException {
+    // 이미 실행 중이면 예외 발생
+    if (runningCollections.contains(seqMall)) {
+      throw new IllegalStateException("쇼핑몰 seq=" + seqMall + " 이미 수집 작업 실행 중");
+    }
+
+    // 실행 중으로 표시 (Thread 생성 전에 보장)
+    runningCollections.add(seqMall);
+    logger.info("쇼핑몰 seq={} 수집 작업 시작", seqMall);
+
+    try {
+      MallOrderUpdaterRunner runner = new MallOrderUpdaterRunner(seqMall, mallId, mallPw);
+      return runner;
+    } catch (Exception e) {
+      // 생성 실패 시 즉시 제거
+      runningCollections.remove(seqMall);
+      logger.error("쇼핑몰 seq={} 수집 작업 준비 실패", seqMall, e);
+      throw new RuntimeException("수집 작업 준비 실패: " + e.getMessage(), e);
+    }
+  }
+
+  /**
    * 온라인/오프라인 쇼핑몰에서 구매한 아이템 내역들을 수집하고 지니박스 데이터베이스에 반영한다.
    *
    * @param seqMall 수집할 쇼핑몰
@@ -118,27 +149,37 @@ public class JangBoGoManager {
    * @throws Exception
    */
   public void updateItems(String seqMall, String mallId, String mallPw) throws Exception {
-    // 이미 실행 중이면 무시
-    if (runningCollections.contains(seqMall)) {
+    MallOrderUpdaterRunner runner;
+    try {
+      runner = executeCollectionInternal(seqMall, mallId, mallPw);
+    } catch (IllegalStateException e) {
       logger.warn("쇼핑몰 seq={} 이미 수집 작업 실행 중, 건너뜀", seqMall);
       return;
+    } catch (RuntimeException e) {
+      logger.error("쇼핑몰 seq={} 수집 작업 준비 실패", seqMall, e);
+      throw e;
     }
 
-    // 실행 중으로 표시
-    runningCollections.add(seqMall);
-    logger.info("쇼핑몰 seq={} 수집 작업 시작", seqMall);
-
     // Thread로 실행하되 종료 시 Set에서 제거
-    new Thread(
+    Thread collectionThread =
+        new Thread(
             () -> {
               try {
-                new MallOrderUpdaterRunner(seqMall, mallId, mallPw).run();
+                runner.run();
               } finally {
                 runningCollections.remove(seqMall);
                 logger.info("쇼핑몰 seq={} 수집 작업 완료", seqMall);
               }
-            })
-        .start();
+            });
+
+    try {
+      collectionThread.start();
+    } catch (Exception e) {
+      // Thread 시작 실패 시 즉시 제거
+      runningCollections.remove(seqMall);
+      logger.error("쇼핑몰 seq={} 수집 작업 Thread 시작 실패", seqMall, e);
+      throw new RuntimeException("수집 작업 Thread 시작 실패: " + e.getMessage(), e);
+    }
   }
 
   /**
@@ -152,19 +193,19 @@ public class JangBoGoManager {
    */
   public List<Integer> updateItemsAndGetNewSeqs(String seqMall, String mallId, String mallPw)
       throws Exception {
-    // 이미 실행 중이면 빈 리스트 반환
-    if (runningCollections.contains(seqMall)) {
+    MallOrderUpdaterRunner runner;
+    try {
+      runner = executeCollectionInternal(seqMall, mallId, mallPw);
+    } catch (IllegalStateException e) {
       logger.warn("쇼핑몰 seq={} 이미 수집 작업 실행 중, 건너뜀", seqMall);
       return new java.util.ArrayList<>();
+    } catch (RuntimeException e) {
+      logger.error("쇼핑몰 seq={} 수집 작업 준비 실패", seqMall, e);
+      throw e;
     }
-
-    // 실행 중으로 표시
-    runningCollections.add(seqMall);
-    logger.info("쇼핑몰 seq={} 수집 작업 시작 (동기 실행)", seqMall);
 
     try {
       // 동기 실행하여 결과 받기
-      MallOrderUpdaterRunner runner = new MallOrderUpdaterRunner(seqMall, mallId, mallPw);
       runner.run();
 
       // 신규 추가된 주문 seq 목록 반환

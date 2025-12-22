@@ -108,6 +108,55 @@ public class JbgOrderDataAccessObject extends CommonDataAccessObject {
   }
 
   /**
+   * 주문 정보 등록 (기존 Connection 사용, PreparedStatement로 SQL Injection 방지)
+   *
+   * <p>트랜잭션 관리는 호출자가 담당합니다. 이 메서드는 기존 트랜잭션 내에서 실행됩니다.
+   *
+   * @param conn 기존 LocalDBConnection (트랜잭션이 이미 시작된 상태)
+   * @param serialNum 시리얼 번호 (영수증 바코드 또는 주문번호)
+   * @param dateTime 구매일자 (YYYYMMDD 형식의 정수 문자열)
+   * @param mallName 매장명
+   * @param seqMall 쇼핑몰 시퀀스
+   * @return 생성된 주문 시퀀스
+   * @throws Exception
+   */
+  public int addWithConnection(
+      LocalDBConnection conn, String serialNum, String dateTime, String mallName, String seqMall)
+      throws Exception {
+
+    int seqOrder = -1;
+
+    // PreparedStatement 사용으로 SQL Injection 방지
+    String query =
+        "INSERT INTO jbg_order (serial_num, date_time, mall_name, seq_mall) VALUES (?, ?, ?, ?)";
+
+    log.debug(
+        "LOCALDB-QUERY------------------------------------------------------------------------------");
+    log.debug("{} [serialNum={}, dateTime={}, mallName={}, seqMall={}]", query, serialNum, dateTime, mallName, seqMall);
+
+    log.info(
+        "주문 등록 시도 (트랜잭션 내) - serial: {}, datetime: {}, mallName: {}, seqMall: {}",
+        serialNum,
+        dateTime,
+        mallName,
+        seqMall);
+
+    // PreparedStatement로 실행
+    conn.txPstmtExecuteUpdate(query, serialNum, dateTime, mallName, seqMall);
+
+    // SQLite에서는 last_insert_rowid() 사용
+    ResultSet rset = conn.executeQuery("SELECT last_insert_rowid() id");
+    if (rset != null && rset.next()) {
+      seqOrder = rset.getInt("id");
+      log.info("주문 등록 성공 (트랜잭션 내) - seq_order: {}", seqOrder);
+    } else {
+      log.warn("주문 등록 후 seq_order 조회 실패");
+    }
+
+    return seqOrder;
+  }
+
+  /**
    * 모든 주문 조회
    *
    * @return 주문 목록 (seq, serial_num, date_time, mall_name, seq_mall 포함)

@@ -261,6 +261,67 @@ public class JbgItemDataAccessObject extends CommonDataAccessObject {
     }
   }
 
+  /**
+   * 아이템 등록 (기존 Connection 사용, PreparedStatement로 SQL Injection 방지)
+   *
+   * <p>트랜잭션 관리는 호출자가 담당합니다. 이 메서드는 기존 트랜잭션 내에서 실행됩니다.
+   *
+   * @param conn 기존 LocalDBConnection (트랜잭션이 이미 시작된 상태)
+   * @param name 아이템명 (필수)
+   * @param seqOrder 주문 시퀀스 (옵션, null 가능)
+   * @param qty 수량 (옵션, null 가능)
+   * @return 생성된 아이템 시퀀스
+   * @throws Exception
+   */
+  public int addWithConnection(LocalDBConnection conn, String name, String seqOrder, String qty)
+      throws Exception {
+
+    // qty 컬럼이 있는지 확인하고 없으면 추가
+    ensureQtyColumn(conn);
+
+    // PreparedStatement 사용으로 SQL Injection 방지
+    StringBuffer querySb = new StringBuffer();
+    querySb.append("INSERT INTO jbg_item (");
+    querySb.append("name");
+    if (seqOrder != null && !seqOrder.isEmpty()) {
+      querySb.append(", seq_order");
+    }
+    if (qty != null && !qty.isEmpty()) {
+      querySb.append(", qty");
+    }
+    querySb.append(", insert_time");
+    querySb.append(") values (?");
+
+    // 파라미터 목록 생성
+    java.util.List<Object> params = new java.util.ArrayList<>();
+    params.add(name);
+
+    if (seqOrder != null && !seqOrder.isEmpty()) {
+      querySb.append(", ?");
+      params.add(Integer.parseInt(seqOrder));
+    }
+    if (qty != null && !qty.isEmpty()) {
+      querySb.append(", ?");
+      params.add(qty);
+    }
+    querySb.append(", ?");
+    params.add(System.currentTimeMillis());
+    querySb.append(")");
+
+    String query = querySb.toString();
+    log.debug(
+        "LOCALDB-QUERY------------------------------------------------------------------------------");
+    log.debug("{} [name={}, seqOrder={}, qty={}]", query, name, seqOrder, qty);
+
+    // PreparedStatement로 실행
+    conn.txPstmtExecuteUpdate(query, params.toArray());
+
+    // 생성된 seq 조회
+    int seq = getLastInsertSeq(conn);
+
+    return seq;
+  }
+
   /** jbg_item 테이블에 qty 컬럼이 있는지 확인하고 없으면 추가 */
   private void ensureQtyColumn(LocalDBConnection conn) {
     try {

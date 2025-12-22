@@ -12,6 +12,7 @@
 
 ---
 
+<a id="빌드-방법"></a>
 ## 빌드 방법
 
 ### 사전 요구 사항
@@ -38,6 +39,7 @@ build\distributions\Jangbogo-distribution.zip
 
 ---
 
+<a id="배포-패키지-구성"></a>
 ## 배포 패키지 구성
 
 `Jangbogo-distribution.zip` 파일의 구조:
@@ -67,6 +69,7 @@ Jangbogo-distribution/
 
 ---
 
+<a id="설치-방법"></a>
 ## 설치 방법
 
 ### 1. ZIP 파일 압축 해제
@@ -109,6 +112,7 @@ cd C:\Jangbogo
 
 ---
 
+<a id="실행-방법"></a>
 ## 실행 방법
 
 ### 방법 1: 기본 실행 (권장)
@@ -181,6 +185,7 @@ taskkill /F /PID [PID번호]
 
 ---
 
+<a id="관리자-계정-설정"></a>
 ## 관리자 계정 설정
 
 ### 기본 계정
@@ -224,6 +229,7 @@ set ADMIN_PASS=새로운_비밀번호
 
 ---
 
+<a id="windows-서비스-등록"></a>
 ## Windows 서비스 등록
 
 OS 시작 시 자동으로 실행되도록 Windows 서비스로 등록할 수 있습니다.
@@ -281,6 +287,7 @@ jangbogo-service.exe uninstall
 
 ---
 
+<a id="제거-방법"></a>
 ## 제거 방법
 
 ### 1. 서비스 제거 (서비스 등록한 경우)
@@ -309,6 +316,7 @@ jangbogo-service.exe uninstall
 
 ---
 
+<a id="문제-해결"></a>
 ## 문제 해결
 
 ### 1. 한글이 깨져서 보입니다

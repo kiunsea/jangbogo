@@ -11,8 +11,7 @@ import org.json.simple.JSONObject;
 
 public class MallOrderUpdater {
 
-  /** 서버 환경 변경시 log4j.properties 설정 정보도 함께 변경 필요 */
-  private Logger log = LogManager.getLogger(MallOrderUpdater.class);
+  private static final Logger logger = LogManager.getLogger(MallOrderUpdater.class);
 
   /**
    * 각 쇼핑몰에서의 주문 내역들을 수집한다
@@ -21,7 +20,7 @@ public class MallOrderUpdater {
    * @throws Exception
    */
   public JSONArray collectItems(String seqMall, String mallId, String mallPw) throws Exception {
-    log.info("구매내역 수집 시작 - seqMall: {}, mallId: {}", seqMall, mallId);
+    logger.info("구매내역 수집 시작 - seqMall: {}, mallId: {}", seqMall, mallId);
 
     // 수집 시작 전에 로그인 시간 갱신
     JbgMallDataAccessObject jaDao = new JbgMallDataAccessObject();
@@ -35,23 +34,23 @@ public class MallOrderUpdater {
     JSONArray itemArr = new JSONArray();
     int seqMallInt = Integer.parseInt(seqMall);
     if (seqMallInt == 1) {
-      log.info("SSG 구매 내역 수집 시작");
+      logger.info("SSG 구매 내역 수집 시작");
       JSONArray ssgItems = new Ssg(mallId, mallPw).getItems();
-      log.info("SSG 수집 완료 - {} 건", ssgItems != null ? ssgItems.size() : 0);
+      logger.info("SSG 수집 완료 - {} 건", ssgItems != null ? ssgItems.size() : 0);
       if (ssgItems != null) itemArr.addAll(ssgItems);
 
-      log.info("Emart 구매 내역 수집 시작");
+      logger.info("Emart 구매 내역 수집 시작");
       JSONArray emartItems = new Emart(mallId, mallPw).getItems();
-      log.info("Emart 수집 완료 - {} 건", emartItems != null ? emartItems.size() : 0);
+      logger.info("Emart 수집 완료 - {} 건", emartItems != null ? emartItems.size() : 0);
       if (emartItems != null) itemArr.addAll(emartItems);
     } else if (seqMallInt == 2) {
-      log.info("Oasis 구매 내역 수집 시작");
+      logger.info("Oasis 구매 내역 수집 시작");
       JSONArray oasisItems = new Oasis(mallId, mallPw).getItems();
-      log.info("Oasis 수집 완료 - {} 건", oasisItems != null ? oasisItems.size() : 0);
+      logger.info("Oasis 수집 완료 - {} 건", oasisItems != null ? oasisItems.size() : 0);
       if (oasisItems != null) itemArr.addAll(oasisItems);
     }
 
-    log.info("전체 수집 완료 - 총 {} 건", itemArr.size());
+    logger.info("전체 수집 완료 - 총 {} 건", itemArr.size());
     return itemArr;
   }
 

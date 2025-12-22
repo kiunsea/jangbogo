@@ -573,4 +573,40 @@ public class ExportService {
     logger.info("jiniebox JSON 생성 완료 - 주문: {}개, 상품: {}개", jsonArray.size(), totalItems);
     return jsonArray.toJSONString();
   }
+
+  /**
+   * 신규 주문이 없을 때 FTP 업로드를 위한 상태 파일 생성
+   *
+   * @param directory 저장 디렉터리
+   * @return 생성된 상태 파일 경로
+   * @throws Exception
+   */
+  public String createEmptyStatusFile(String directory) throws Exception {
+    if (directory == null || directory.trim().isEmpty()) {
+      throw new IllegalArgumentException("상태 파일을 생성하려면 저장 경로가 필요합니다.");
+    }
+    File dir = new File(directory);
+    if (!dir.exists() && !dir.mkdirs()) {
+      throw new IOException("저장 경로를 생성할 수 없습니다: " + directory);
+    }
+
+    String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
+    String fileName = "jangbogo_status_" + timestamp + "_ftp.json";
+    String filePath = directory + File.separator + fileName;
+
+    // 빈 배열과 상태 정보를 포함한 JSON 생성
+    org.json.simple.JSONObject statusObj = new org.json.simple.JSONObject();
+    statusObj.put("status", "no_new_orders");
+    statusObj.put("timestamp", timestamp);
+    statusObj.put("message", "신규 주문이 없어 빈 상태 파일을 생성했습니다.");
+    statusObj.put("orders", new org.json.simple.JSONArray());
+
+    try (FileWriter writer = new FileWriter(filePath, java.nio.charset.StandardCharsets.UTF_8)) {
+      writer.write(statusObj.toJSONString());
+      writer.flush();
+    }
+
+    logger.info("FTP 업로드용 상태 파일 생성 완료: {}", filePath);
+    return filePath;
+  }
 }

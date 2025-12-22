@@ -483,56 +483,68 @@
 
                     var _ajax = new XMLHttpRequest();
                     _ajax.onreadystatechange = function () {
-                        if (checkAjaxSuc(_ajax)) {
-                            var resMsg = _ajax.responseText || '';
-                            try {
-                                var resJson = JSON.parse(resMsg);
-                                if (resJson) {
-                                    // 오류 처리
-                                    var errs = [];
-                                    if (Array.isArray(resJson.decryptionFailed) && resJson.decryptionFailed.length) {
-                                        errs = errs.concat(resJson.decryptionFailed.map(String));
-                                    }
-                                    if (Array.isArray(resJson.skipped) && resJson.skipped.length) {
-                                        errs = errs.concat(resJson.skipped.map(String));
-                                    }
+                        if (_ajax.readyState === XMLHttpRequest.DONE) {
+                            if (_ajax.status === 401) {
+                                // 세션 만료 - 로그인 필요
+                                alert('세션이 만료되었습니다.\n다시 로그인해주세요.');
+                                window.location.href = '/signin';
+                                return;
+                            }
+                            if (checkAjaxSuc(_ajax)) {
+                                var resMsg = _ajax.responseText || '';
+                                try {
+                                    var resJson = JSON.parse(resMsg);
+                                    if (resJson) {
+                                        // 오류 처리
+                                        var errs = [];
+                                        if (Array.isArray(resJson.decryptionFailed) && resJson.decryptionFailed.length) {
+                                            errs = errs.concat(resJson.decryptionFailed.map(String));
+                                        }
+                                        if (Array.isArray(resJson.skipped) && resJson.skipped.length) {
+                                            errs = errs.concat(resJson.skipped.map(String));
+                                        }
 
-                                    if (errs.length) {
-                                        // 오류난 쇼핑몰들을 UI에서 해제 상태로 전환
-                                        errs.forEach(function(seq){
-                                            try {
-                                                var mall = findMallBySeq(seq);
-                                                if (!mall) return;
-                                                mall.account_status = 0; mall.status = 0;
-                                                var btn = document.querySelector('#btn_signin_' + mall.id);
-                                                if (btn) {
-                                                    btn.innerText = '계정연결';
-                                                    btn.className = 'btn btn-primary btn-sm btn-block';
-                                                    btn.setAttribute('onclick', 'javascript:openSigninMallForm(' + seq + ')');
-                                                }
-                                            } catch(e) { /* ignore per item */ }
-                                        });
+                                        if (errs.length) {
+                                            // 오류난 쇼핑몰들을 UI에서 해제 상태로 전환
+                                            errs.forEach(function(seq){
+                                                try {
+                                                    var mall = findMallBySeq(seq);
+                                                    if (!mall) return;
+                                                    mall.account_status = 0; mall.status = 0;
+                                                    var btn = document.querySelector('#btn_signin_' + mall.id);
+                                                    if (btn) {
+                                                        btn.innerText = '계정연결';
+                                                        btn.className = 'btn btn-primary btn-sm btn-block';
+                                                        btn.setAttribute('onclick', 'javascript:openSigninMallForm(' + seq + ')');
+                                                    }
+                                                } catch(e) { /* ignore per item */ }
+                                            });
+                                        }
+                                        
+                                        // 메시지 표시 (자동수집 완료 메시지만)
+                                        let msg = resJson.message || '';
+                                        if (msg) {
+                                            alert(msg);
+                                        }
+                                        
+                                        // 파일 자동저장 결과는 서버 로그로만 기록 (alert 안 함)
+                                        if (resJson.autoSaved && resJson.exportedFile) {
+                                            console.log('파일 자동저장 완료:', resJson.exportedFile);
+                                        } else if (resJson.autoSaveSkipped) {
+                                            console.log('파일 저장 건너뜀:', resJson.autoSaveReason);
+                                        } else if (resJson.autoSaveError) {
+                                            console.warn('파일 자동저장 실패:', resJson.autoSaveError);
+                                        }
                                     }
-                                    
-                                    // 메시지 표시 (자동수집 완료 메시지만)
-                                    let msg = resJson.message || '';
-                                    if (msg) {
-                                        alert(msg);
-                                    }
-                                    
-                                    // 파일 자동저장 결과는 서버 로그로만 기록 (alert 안 함)
-                                    if (resJson.autoSaved && resJson.exportedFile) {
-                                        console.log('파일 자동저장 완료:', resJson.exportedFile);
-                                    } else if (resJson.autoSaveSkipped) {
-                                        console.log('파일 저장 건너뜀:', resJson.autoSaveReason);
-                                    } else if (resJson.autoSaveError) {
-                                        console.warn('파일 자동저장 실패:', resJson.autoSaveError);
-                                    }
+                                } catch (e) {
+                                    // ignore
                                 }
-                            } catch (e) {
-                                // ignore
                             }
                         }
+                    };
+                    _ajax.onerror = function() {
+                        // 네트워크 오류 등의 경우
+                        console.error('자동수집 실행 중 오류 발생');
                     };
                     _ajax.open('POST', '/malls/auto-collect', true);
                     _ajax.setRequestHeader('Content-Type', 'application/json;charset=UTF-8');
@@ -560,9 +572,21 @@
                     
                     var xhr = new XMLHttpRequest();
                     xhr.onreadystatechange = function() {
-                        if (checkAjaxSuc(xhr)) {
-                            if (typeof done === 'function') done();
+                        if (xhr.readyState === XMLHttpRequest.DONE) {
+                            if (xhr.status === 401) {
+                                // 세션 만료 - 로그인 필요
+                                alert('세션이 만료되었습니다.\n다시 로그인해주세요.');
+                                window.location.href = '/signin';
+                                return;
+                            }
+                            if (checkAjaxSuc(xhr)) {
+                                if (typeof done === 'function') done();
+                            }
                         }
+                    };
+                    xhr.onerror = function() {
+                        // 네트워크 오류 등의 경우
+                        console.error('자동수집 설정 저장 중 오류 발생');
                     };
                     xhr.open('POST', '/malls/auto-collect/flags', true);
                     xhr.setRequestHeader('Content-Type', 'application/json;charset=UTF-8');

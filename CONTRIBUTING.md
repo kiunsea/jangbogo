@@ -18,6 +18,7 @@ Jangbogo 프로젝트에 기여해주셔서 감사합니다! 🎉
 
 ---
 
+<a id="행동-강령"></a>
 ## 행동 강령
 
 Jangbogo 프로젝트는 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)를 준수합니다.
@@ -26,6 +27,7 @@ Jangbogo 프로젝트는 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)를 준수합�
 
 ---
 
+<a id="기여-방법"></a>
 ## 기여 방법
 
 다음과 같은 방법으로 기여할 수 있습니다:
@@ -39,6 +41,7 @@ Jangbogo 프로젝트는 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)를 준수합�
 
 ---
 
+<a id="개발-환경-설정"></a>
 ## 개발 환경 설정
 
 ### 1. 필수 도구
@@ -86,6 +89,7 @@ admin.pass=dev1234
 
 ---
 
+<a id="코드-스타일"></a>
 ## 코드 스타일
 
 ### Java 코드 스타일
@@ -124,6 +128,7 @@ public int collectOrders(int mallSeq) {
 
 ---
 
+<a id="커밋-메시지-규칙"></a>
 ## 커밋 메시지 규칙
 
 [Conventional Commits](https://www.conventionalcommits.org/) 규칙을 따릅니다.
@@ -174,6 +179,7 @@ docs: README에 설치 방법 추가
 
 ---
 
+<a id="pull-request-절차"></a>
 ## Pull Request 절차
 
 ### 1. Fork 및 브랜치 생성
@@ -223,6 +229,7 @@ PR 생성 시 다음 정보를 포함해주세요:
 
 ---
 
+<a id="이슈-제출"></a>
 ## 이슈 제출
 
 ### 버그 리포트

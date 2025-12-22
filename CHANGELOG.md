@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.5.4] - 2025-12-21
+
+### Changed
+
+- **데이터베이스 트랜잭션 개선**: 구매내역 수집 시 주문과 아이템을 하나의 트랜잭션으로 처리하도록 개선했습니다. 주문 저장 후 아이템 저장 실패 시 전체 롤백되어 데이터 일관성이 보장됩니다.
+- **SQL Injection 방지**: 주문 및 아이템 저장 시 PreparedStatement를 사용하여 SQL Injection 공격을 방지했습니다. 문자열 연결 방식에서 파라미터 바인딩 방식으로 변경되었습니다.
+
+### Fixed
+
+- 주문은 저장되었으나 아이템이 없는 불일치 상태가 발생할 수 있던 문제를 해결했습니다.
+- 특수문자가 포함된 주문번호나 상품명으로 인한 SQL 오류를 방지했습니다.
+
+---
+
 ## [0.5.3] - 2025-12-09
 
 ### Changed
@@ -186,9 +200,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+[0.5.4]: https://github.com/kiunsea/jangbogo/releases/tag/v0.5.4
 [0.5.3]: https://github.com/kiunsea/jangbogo/releases/tag/v0.5.3
 [0.5.2]: https://github.com/kiunsea/jangbogo/releases/tag/v0.5.2
 [0.5.1]: https://github.com/kiunsea/jangbogo/releases/tag/v0.5.1
 [0.5.0]: https://github.com/kiunsea/jangbogo/releases/tag/v0.5.0
-[Unreleased]: https://github.com/kiunsea/jangbogo/compare/v0.5.3...HEAD
+[Unreleased]: https://github.com/kiunsea/jangbogo/compare/v0.5.4...HEAD
 

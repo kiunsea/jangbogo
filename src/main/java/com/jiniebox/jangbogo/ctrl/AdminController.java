@@ -742,13 +742,24 @@ public class AdminController {
       response.put("message", message.toString());
 
       // 구매내역 수집 시 파일 저장 옵션 확인 및 실행 (수집 및 DB 저장 완료 후)
-      if (executeNow && !allNewOrderSeqs.isEmpty()) {
-        logger.info("신규 추가된 주문 총 {}개 - seq: {}", allNewOrderSeqs.size(), allNewOrderSeqs);
+      if (executeNow) {
+        if (!allNewOrderSeqs.isEmpty()) {
+          logger.info("신규 추가된 주문 총 {}개 - seq: {}", allNewOrderSeqs.size(), allNewOrderSeqs);
+        } else {
+          logger.info("신규 추가된 주문이 없습니다.");
+        }
 
         try {
           com.jiniebox.jangbogo.dao.JbgExportConfigDataAccessObject exportConfigDao =
               new com.jiniebox.jangbogo.dao.JbgExportConfigDataAccessObject();
           JSONObject exportConfig = exportConfigDao.getConfig();
+
+          // 설정 검증
+          String validationError = validateExportConfig(exportConfig);
+          if (validationError != null) {
+            logger.warn("파일 저장/FTP 설정 검증 실패: {}", validationError);
+            response.put("configValidationError", validationError);
+          }
 
           Integer autoSaveEnabled =
               exportConfig.get("auto_save_enabled") != null
@@ -777,8 +788,10 @@ public class AdminController {
           boolean exportedSuccessfully = false;
           String ftpReadyFile = null;
           boolean ftpReadyFileGenerated = false;
+          boolean fileExportFailed = false; // 파일 저장 실패 플래그
 
-          if ((shouldAutoSave || shouldUploadToFtp)) {
+          // 신규 주문이 있는 경우 파일 저장
+          if (!allNewOrderSeqs.isEmpty() && (shouldAutoSave || shouldUploadToFtp)) {
             if (!savePath.isEmpty()) {
               try {
                 exportedFile =
@@ -798,18 +811,22 @@ public class AdminController {
                   logger.info("FTP 업로드를 위해 파일을 생성했습니다: {}", exportedFile);
                 }
               } catch (Exception exportEx) {
+                fileExportFailed = true;
                 logger.error("구매내역 수집 후 파일 생성 실패: {}", exportEx.getMessage(), exportEx);
                 if (shouldAutoSave) {
-                  response.put("autoSaveError", exportEx.getMessage());
+                  response.put("autoSaveError", getErrorMessage(exportEx));
                 }
+                // 파일 저장 실패 시 FTP 업로드도 명시적으로 건너뛰기
                 if (shouldUploadToFtp) {
                   response.put("autoFtpUploaded", false);
-                  response.put("autoFtpError", "FTP 전송용 파일 생성에 실패했습니다.");
+                  response.put("autoFtpError", "파일 생성 실패로 인해 FTP 업로드를 건너뜁니다: " + getErrorMessage(exportEx));
+                  logger.warn("파일 저장 실패로 인해 FTP 업로드를 건너뜁니다.");
                 }
               }
             } else {
               if (shouldAutoSave) {
-                logger.debug("파일 저장 경로가 설정되지 않아 파일 저장을 건너뜁니다.");
+                logger.warn("파일 저장 경로가 설정되지 않아 파일 저장을 건너뜁니다.");
+                response.put("autoSaveError", "파일 저장 경로가 설정되지 않았습니다.");
               }
               if (shouldUploadToFtp) {
                 logger.warn("FTP 업로드를 요청했지만 파일 저장 경로가 없어 업로드를 건너뜁니다.");
@@ -817,24 +834,45 @@ public class AdminController {
                 response.put("autoFtpError", "파일 저장 경로가 설정되지 않았습니다.");
               }
             }
-          } else {
+          } else if (allNewOrderSeqs.isEmpty() && shouldUploadToFtp) {
+            // 신규 주문이 없어도 FTP 업로드 설정이 있으면 상태 파일 생성
+            if (!savePath.isEmpty()) {
+              try {
+                ftpReadyFile = exportService.createEmptyStatusFile(savePath);
+                ftpReadyFileGenerated = true;
+                logger.info("신규 주문 없음, FTP 업로드용 상태 파일 생성: {}", ftpReadyFile);
+              } catch (Exception statusEx) {
+                logger.error("상태 파일 생성 실패: {}", statusEx.getMessage(), statusEx);
+                response.put("autoFtpUploaded", false);
+                response.put("autoFtpError", "상태 파일 생성 실패: " + getErrorMessage(statusEx));
+              }
+            } else {
+              logger.warn("FTP 업로드를 요청했지만 파일 저장 경로가 없어 상태 파일 생성을 건너뜁니다.");
+              response.put("autoFtpUploaded", false);
+              response.put("autoFtpError", "파일 저장 경로가 설정되지 않았습니다.");
+            }
+          } else if (!shouldAutoSave && !shouldUploadToFtp) {
             logger.debug("자동 저장 및 FTP 업로드 옵션이 모두 비활성화되어 있습니다.");
           }
 
-          // FTP 자동 업로드 처리
-          if (shouldUploadToFtp) {
-            if (exportedSuccessfully && exportedFile != null && !exportedFile.isEmpty()) {
+          // FTP 자동 업로드 처리 (파일 저장 실패 시 건너뛰기)
+          if (shouldUploadToFtp && !fileExportFailed) {
+            if ((exportedSuccessfully && exportedFile != null && !exportedFile.isEmpty())
+                || (ftpReadyFileGenerated && ftpReadyFile != null && !ftpReadyFile.isEmpty())) {
 
-              try {
-                ftpReadyFile =
-                    exportService.exportToJinieboxFileBySeqList(savePath, allNewOrderSeqs);
-                ftpReadyFileGenerated = true;
-                logger.info("FTP 업로드용 jiniebox JSON 생성: {}", ftpReadyFile);
-              } catch (Exception ftpJsonEx) {
-                logger.error("FTP 업로드용 JSON 생성 실패", ftpJsonEx);
-                response.put("autoFtpUploaded", false);
-                response.put("autoFtpError", "FTP 업로드용 JSON 생성 실패: " + ftpJsonEx.getMessage());
-                ftpReadyFile = null;
+              // 신규 주문이 있으면 jiniebox JSON 생성, 없으면 상태 파일 사용
+              if (!allNewOrderSeqs.isEmpty() && !ftpReadyFileGenerated) {
+                try {
+                  ftpReadyFile =
+                      exportService.exportToJinieboxFileBySeqList(savePath, allNewOrderSeqs);
+                  ftpReadyFileGenerated = true;
+                  logger.info("FTP 업로드용 jiniebox JSON 생성: {}", ftpReadyFile);
+                } catch (Exception ftpJsonEx) {
+                  logger.error("FTP 업로드용 JSON 생성 실패", ftpJsonEx);
+                  response.put("autoFtpUploaded", false);
+                  response.put("autoFtpError", "FTP 업로드용 JSON 생성 실패: " + getErrorMessage(ftpJsonEx));
+                  ftpReadyFile = null;
+                }
               }
 
               if (ftpReadyFile != null) {
@@ -913,27 +951,12 @@ public class AdminController {
                     response.put("autoFtpError", ftpUploadEx.getMessage());
                     logger.warn("자동 FTP 업로드 중 오류 발생: {}", ftpUploadEx.getMessage(), ftpUploadEx);
                   } finally {
+                    // 임시 파일 삭제 (재시도 로직 포함)
                     if (fileEncrypted) {
-                      try {
-                        java.io.File encFile = new java.io.File(fileToUpload);
-                        if (encFile.exists()) {
-                          encFile.delete();
-                          logger.debug("자동 FTP 업로드용 암호화 임시 파일 삭제: {}", fileToUpload);
-                        }
-                      } catch (Exception delEx) {
-                        logger.warn("암호화 임시 파일 삭제 실패: {}", delEx.getMessage());
-                      }
+                      deleteTempFileSafely(fileToUpload, "암호화 임시 파일", 3);
                     }
-                    if (ftpReadyFileGenerated && ftpReadyFile != null) {
-                      try {
-                        java.io.File tempFile = new java.io.File(ftpReadyFile);
-                        if (tempFile.exists()) {
-                          tempFile.delete();
-                          logger.debug("FTP 업로드용 임시 JSON 파일 삭제: {}", ftpReadyFile);
-                        }
-                      } catch (Exception delEx) {
-                        logger.warn("FTP 임시 파일 삭제 실패: {}", delEx.getMessage());
-                      }
+                    if (ftpReadyFileGenerated && ftpReadyFile != null && !ftpReadyFile.equals(fileToUpload)) {
+                      deleteTempFileSafely(ftpReadyFile, "FTP 업로드용 임시 JSON 파일", 3);
                     }
                   }
                 } else {
@@ -941,13 +964,7 @@ public class AdminController {
                   response.put("autoFtpUploaded", false);
                   response.put("autoFtpError", "FTP 정보가 설정되지 않았습니다.");
                   if (ftpReadyFileGenerated && ftpReadyFile != null) {
-                    try {
-                      java.io.File tempFile = new java.io.File(ftpReadyFile);
-                      if (tempFile.exists()) {
-                        tempFile.delete();
-                      }
-                    } catch (Exception ignore) {
-                    }
+                    deleteTempFileSafely(ftpReadyFile, "FTP 업로드용 임시 파일", 3);
                   }
                 }
               }
@@ -959,18 +976,153 @@ public class AdminController {
           }
 
         } catch (Exception configEx) {
-          logger.warn("파일 저장/FTP 설정 확인 중 오류: {}", configEx.getMessage());
+          logger.error("파일 저장/FTP 설정 확인 중 오류: {}", getErrorMessage(configEx), configEx);
+          response.put("configError", getErrorMessage(configEx));
         }
-      } else if (executeNow && allNewOrderSeqs.isEmpty()) {
-        logger.info("신규 추가된 주문이 없어 파일 저장을 건너뜁니다.");
       }
 
       return response;
-    } catch (Exception e) {
-      logger.error("자동 수집 요청 처리 오류", e);
+    } catch (IllegalArgumentException e) {
+      logger.error("자동 수집 요청 처리 오류 (잘못된 인자): {}", getErrorMessage(e), e);
       response.put("success", false);
-      response.put("message", "자동 수집 처리 중 오류가 발생했습니다.");
+      response.put("message", "잘못된 요청입니다: " + getErrorMessage(e));
       return response;
+    } catch (IllegalStateException e) {
+      logger.error("자동 수집 요청 처리 오류 (상태 오류): {}", getErrorMessage(e), e);
+      response.put("success", false);
+      response.put("message", "시스템 상태 오류: " + getErrorMessage(e));
+      return response;
+    } catch (SecurityException e) {
+      logger.error("자동 수집 요청 처리 오류 (보안 오류): {}", getErrorMessage(e), e);
+      response.put("success", false);
+      response.put("message", "보안 오류가 발생했습니다: " + getErrorMessage(e));
+      return response;
+    } catch (Exception e) {
+      logger.error("자동 수집 요청 처리 오류 (일반 오류): {}", getErrorMessage(e), e);
+      response.put("success", false);
+      response.put("message", "자동 수집 처리 중 오류가 발생했습니다: " + getErrorMessage(e));
+      return response;
+    }
+  }
+
+  /**
+   * 내보내기 설정 검증
+   *
+   * @param exportConfig 내보내기 설정
+   * @return 검증 오류 메시지 (null이면 검증 통과)
+   */
+  private String validateExportConfig(JSONObject exportConfig) {
+    if (exportConfig == null) {
+      return "내보내기 설정이 없습니다.";
+    }
+
+    Integer autoSaveEnabled =
+        exportConfig.get("auto_save_enabled") != null
+            ? Integer.parseInt(exportConfig.get("auto_save_enabled").toString())
+            : 0;
+    Integer saveToJinieboxCfg = null;
+    if (exportConfig.get("save_to_jiniebox") != null) {
+      saveToJinieboxCfg = Integer.parseInt(exportConfig.get("save_to_jiniebox").toString());
+    } else if (exportConfig.get("save_to_ftp") != null) {
+      saveToJinieboxCfg = Integer.parseInt(exportConfig.get("save_to_ftp").toString());
+    }
+    int saveToJinieboxVal = (saveToJinieboxCfg != null) ? saveToJinieboxCfg : 0;
+
+    boolean shouldAutoSave = (autoSaveEnabled == 1);
+    boolean shouldUploadToFtp = (saveToJinieboxVal == 1);
+
+    if (shouldAutoSave || shouldUploadToFtp) {
+      String savePath =
+          exportConfig.get("save_path") != null ? exportConfig.get("save_path").toString() : "";
+      if (savePath == null || savePath.trim().isEmpty()) {
+        return "파일 저장 경로가 설정되지 않았습니다.";
+      }
+    }
+
+    if (shouldUploadToFtp) {
+      String ftpAddress =
+          exportConfig.get("ftp_address") != null
+              ? exportConfig.get("ftp_address").toString()
+              : "";
+      String ftpId =
+          exportConfig.get("ftp_id") != null ? exportConfig.get("ftp_id").toString() : "";
+
+      if (ftpAddress == null || ftpAddress.trim().isEmpty()) {
+        return "FTP 서버 주소가 설정되지 않았습니다.";
+      }
+      if (ftpId == null || ftpId.trim().isEmpty()) {
+        return "FTP 사용자 ID가 설정되지 않았습니다.";
+      }
+    }
+
+    return null; // 검증 통과
+  }
+
+  /**
+   * 예외에서 사용자 친화적인 오류 메시지 추출
+   *
+   * @param e 예외
+   * @return 오류 메시지
+   */
+  private String getErrorMessage(Exception e) {
+    if (e == null) {
+      return "알 수 없는 오류";
+    }
+    String message = e.getMessage();
+    if (message == null || message.trim().isEmpty()) {
+      return e.getClass().getSimpleName();
+    }
+    return message;
+  }
+
+  /**
+   * 임시 파일 안전 삭제 (재시도 로직 포함)
+   *
+   * @param filePath 삭제할 파일 경로
+   * @param fileDescription 파일 설명 (로깅용)
+   * @param maxRetries 최대 재시도 횟수
+   */
+  private void deleteTempFileSafely(String filePath, String fileDescription, int maxRetries) {
+    if (filePath == null || filePath.isEmpty()) {
+      return;
+    }
+
+    java.io.File file = new java.io.File(filePath);
+    if (!file.exists()) {
+      return;
+    }
+
+    for (int attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        if (file.delete()) {
+          logger.debug("{} 삭제 완료: {}", fileDescription, filePath);
+          return;
+        } else {
+          if (attempt < maxRetries) {
+            logger.debug("{} 삭제 실패 (시도 {}/{}), 재시도 중...", fileDescription, attempt, maxRetries);
+            try {
+              Thread.sleep(100 * attempt); // 백오프: 100ms, 200ms, 300ms
+            } catch (InterruptedException e) {
+              Thread.currentThread().interrupt();
+              return;
+            }
+          } else {
+            logger.warn("{} 삭제 실패 (최대 재시도 횟수 초과): {}", fileDescription, filePath);
+          }
+        }
+      } catch (Exception e) {
+        if (attempt < maxRetries) {
+          logger.debug("{} 삭제 중 오류 (시도 {}/{}): {}", fileDescription, attempt, maxRetries, e.getMessage());
+          try {
+            Thread.sleep(100 * attempt);
+          } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            return;
+          }
+        } else {
+          logger.warn("{} 삭제 중 오류 (최대 재시도 횟수 초과): {}", fileDescription, e.getMessage());
+        }
+      }
     }
   }
 

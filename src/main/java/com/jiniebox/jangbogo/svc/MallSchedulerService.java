@@ -5,6 +5,7 @@ import com.jiniebox.jangbogo.dto.MallAccount;
 import com.jiniebox.jangbogo.util.JinieboxUtil;
 import com.jiniebox.jangbogo.util.StringEncrypter;
 import jakarta.annotation.PreDestroy;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -33,6 +34,8 @@ public class MallSchedulerService {
   @Autowired private JangBoGoManager jangBoGoManager;
 
   @Autowired private MallAccountYmlService mallAccountYmlService;
+
+  @Autowired private ExportService exportService;
 
   // 쇼핑몰별 스케줄 관리 맵 (seq -> ScheduledFuture)
   private final Map<String, ScheduledFuture<?>> scheduledTasks = new ConcurrentHashMap<>();
@@ -238,12 +241,288 @@ public class MallSchedulerService {
         return;
       }
 
-      // 수집 실행 (updateItems 내부에서 중복 실행 체크함)
+      // 수집 실행 (동기 실행하여 신규 주문 seq 수집)
       logger.info("쇼핑몰 seq={} 구매내역 수집 시작", seq);
-      jangBoGoManager.updateItems(seq, usrid, usrpw);
+      List<Integer> newOrderSeqs = jangBoGoManager.updateItemsAndGetNewSeqs(seq, usrid, usrpw);
+
+      // 파일 저장 및 FTP 업로드 처리
+      if (!newOrderSeqs.isEmpty() || shouldProcessFileExport(seq)) {
+        processFileExport(seq, newOrderSeqs);
+      }
 
     } catch (Exception e) {
       logger.error("쇼핑몰 seq={} 수집 실행 중 오류: {}", seq, e.getMessage(), e);
+    }
+  }
+
+  /**
+   * 파일 저장/FTP 업로드가 필요한지 확인
+   *
+   * @param seq 쇼핑몰 시퀀스
+   * @return 파일 저장/FTP 업로드 필요 여부
+   */
+  private boolean shouldProcessFileExport(String seq) {
+    try {
+      com.jiniebox.jangbogo.dao.JbgExportConfigDataAccessObject exportConfigDao =
+          new com.jiniebox.jangbogo.dao.JbgExportConfigDataAccessObject();
+      org.json.simple.JSONObject exportConfig = exportConfigDao.getConfig();
+
+      Integer autoSaveEnabled =
+          exportConfig.get("auto_save_enabled") != null
+              ? Integer.parseInt(exportConfig.get("auto_save_enabled").toString())
+              : 0;
+
+      Integer saveToJinieboxCfg = null;
+      if (exportConfig.get("save_to_jiniebox") != null) {
+        saveToJinieboxCfg = Integer.parseInt(exportConfig.get("save_to_jiniebox").toString());
+      } else if (exportConfig.get("save_to_ftp") != null) {
+        saveToJinieboxCfg = Integer.parseInt(exportConfig.get("save_to_ftp").toString());
+      }
+      int saveToJinieboxVal = (saveToJinieboxCfg != null) ? saveToJinieboxCfg : 0;
+
+      return (autoSaveEnabled == 1) || (saveToJinieboxVal == 1);
+    } catch (Exception e) {
+      logger.warn("파일 저장 설정 확인 중 오류: {}", e.getMessage());
+      return false;
+    }
+  }
+
+  /**
+   * 파일 저장 및 FTP 업로드 처리
+   *
+   * @param seq 쇼핑몰 시퀀스
+   * @param newOrderSeqs 신규 주문 seq 목록
+   */
+  private void processFileExport(String seq, List<Integer> newOrderSeqs) {
+    try {
+      com.jiniebox.jangbogo.dao.JbgExportConfigDataAccessObject exportConfigDao =
+          new com.jiniebox.jangbogo.dao.JbgExportConfigDataAccessObject();
+      org.json.simple.JSONObject exportConfig = exportConfigDao.getConfig();
+
+      Integer autoSaveEnabled =
+          exportConfig.get("auto_save_enabled") != null
+              ? Integer.parseInt(exportConfig.get("auto_save_enabled").toString())
+              : 0;
+
+      Integer saveToJinieboxCfg = null;
+      if (exportConfig.get("save_to_jiniebox") != null) {
+        saveToJinieboxCfg = Integer.parseInt(exportConfig.get("save_to_jiniebox").toString());
+      } else if (exportConfig.get("save_to_ftp") != null) {
+        saveToJinieboxCfg = Integer.parseInt(exportConfig.get("save_to_ftp").toString());
+      }
+      int saveToJinieboxVal = (saveToJinieboxCfg != null) ? saveToJinieboxCfg : 0;
+
+      boolean shouldAutoSave = (autoSaveEnabled == 1);
+      boolean shouldUploadToFtp = (saveToJinieboxVal == 1);
+
+      String savePath =
+          exportConfig.get("save_path") != null ? exportConfig.get("save_path").toString() : "";
+      String format =
+          exportConfig.get("save_format") != null
+              ? exportConfig.get("save_format").toString()
+              : "json";
+
+      if (savePath.isEmpty()) {
+        if (shouldAutoSave || shouldUploadToFtp) {
+          logger.warn("쇼핑몰 seq={} 파일 저장 경로가 설정되지 않아 파일 저장을 건너뜁니다.", seq);
+        }
+        return;
+      }
+
+      // 신규 주문이 있는 경우 파일 저장
+      if (!newOrderSeqs.isEmpty()) {
+        try {
+          String exportedFile = exportService.exportOrdersBySeqList(savePath, format, newOrderSeqs);
+          if (shouldAutoSave) {
+            logger.info(
+                "쇼핑몰 seq={} 스케줄 수집 후 파일 자동저장 완료: {}, 주문: {}개",
+                seq,
+                exportedFile,
+                newOrderSeqs.size());
+          }
+
+          // FTP 업로드 처리
+          if (shouldUploadToFtp) {
+            processFtpUpload(seq, exportConfig, exportConfigDao, savePath, newOrderSeqs);
+          }
+        } catch (Exception exportEx) {
+          logger.error("쇼핑몰 seq={} 파일 저장 실패: {}", seq, exportEx.getMessage(), exportEx);
+        }
+      } else if (shouldUploadToFtp) {
+        // 신규 주문이 없어도 FTP 업로드 설정이 있으면 상태 파일 생성
+        try {
+          String statusFile = exportService.createEmptyStatusFile(savePath);
+          logger.info("쇼핑몰 seq={} 신규 주문 없음, 상태 파일 생성: {}", seq, statusFile);
+          processFtpUpload(seq, exportConfig, exportConfigDao, savePath, new java.util.ArrayList<>());
+        } catch (Exception statusEx) {
+          logger.warn("쇼핑몰 seq={} 상태 파일 생성 실패: {}", seq, statusEx.getMessage());
+        }
+      }
+    } catch (Exception e) {
+      logger.error("쇼핑몰 seq={} 파일 저장/FTP 처리 중 오류: {}", seq, e.getMessage(), e);
+    }
+  }
+
+  /**
+   * FTP 업로드 처리
+   *
+   * @param seq 쇼핑몰 시퀀스
+   * @param exportConfig 내보내기 설정
+   * @param exportConfigDao 내보내기 설정 DAO
+   * @param savePath 저장 경로
+   * @param newOrderSeqs 신규 주문 seq 목록
+   */
+  private void processFtpUpload(
+      String seq,
+      org.json.simple.JSONObject exportConfig,
+      com.jiniebox.jangbogo.dao.JbgExportConfigDataAccessObject exportConfigDao,
+      String savePath,
+      List<Integer> newOrderSeqs) {
+    try {
+      String ftpReadyFile = null;
+      boolean ftpReadyFileGenerated = false;
+
+      if (!newOrderSeqs.isEmpty()) {
+        ftpReadyFile = exportService.exportToJinieboxFileBySeqList(savePath, newOrderSeqs);
+        ftpReadyFileGenerated = true;
+        logger.info("쇼핑몰 seq={} FTP 업로드용 jiniebox JSON 생성: {}", seq, ftpReadyFile);
+      } else {
+        // 신규 주문이 없으면 상태 파일 사용
+        ftpReadyFile = exportService.createEmptyStatusFile(savePath);
+        ftpReadyFileGenerated = true;
+        logger.info("쇼핑몰 seq={} FTP 업로드용 상태 파일 생성: {}", seq, ftpReadyFile);
+      }
+
+      if (ftpReadyFile != null) {
+        String ftpAddress =
+            exportConfig.get("ftp_address") != null
+                ? exportConfig.get("ftp_address").toString()
+                : "";
+        String ftpId =
+            exportConfig.get("ftp_id") != null ? exportConfig.get("ftp_id").toString() : "";
+        String ftpPass = "";
+        try {
+          ftpPass = exportConfigDao.getDecryptedFtpPassword();
+        } catch (Exception e) {
+          logger.error("쇼핑몰 seq={} FTP 비밀번호 복호화 실패", seq, e);
+        }
+
+        int ftpEncryptEnabledVal = 1;
+        if (exportConfig.get("ftp_encrypt_enabled") != null) {
+          try {
+            ftpEncryptEnabledVal =
+                Integer.parseInt(exportConfig.get("ftp_encrypt_enabled").toString());
+          } catch (NumberFormatException ignore) {
+          }
+        }
+        boolean ftpEncryptEnabled = (ftpEncryptEnabledVal == 1);
+
+        String publicKey =
+            exportConfig.get("public_key") != null
+                ? exportConfig.get("public_key").toString()
+                : "";
+
+        if (!ftpAddress.isEmpty() && !ftpId.isEmpty() && !ftpPass.isEmpty()) {
+          String fileToUpload = ftpReadyFile;
+          boolean fileEncrypted = false;
+
+          try {
+            if (ftpEncryptEnabled && !publicKey.isEmpty()) {
+              String encryptedFilePath = ftpReadyFile + ".encrypted";
+              logger.info("쇼핑몰 seq={} FTP 업로드용 파일 암호화 시작", seq);
+
+              boolean encryptSuccess =
+                  com.jiniebox.jangbogo.util.security.RsaFileEncryption.encryptFile(
+                      ftpReadyFile, encryptedFilePath, publicKey);
+
+              if (encryptSuccess) {
+                fileToUpload = encryptedFilePath;
+                fileEncrypted = true;
+                logger.info("쇼핑몰 seq={} FTP 업로드용 암호화 완료: {}", seq, encryptedFilePath);
+              } else {
+                logger.warn("쇼핑몰 seq={} FTP 업로드용 파일 암호화 실패 - 평문 업로드 진행", seq);
+              }
+            }
+
+            boolean uploadSuccess =
+                com.jiniebox.jangbogo.util.FtpUploadUtil.uploadFile(
+                    ftpAddress, ftpId, ftpPass, fileToUpload);
+
+            if (uploadSuccess) {
+              logger.info(
+                  "쇼핑몰 seq={} 스케줄 수집 후 FTP 업로드 완료 - 서버: {}, 암호화: {}", seq, ftpAddress, fileEncrypted);
+            } else {
+              logger.warn("쇼핑몰 seq={} 스케줄 수집 후 FTP 업로드 실패 - 서버: {}", seq, ftpAddress);
+            }
+          } catch (Exception ftpUploadEx) {
+            logger.error("쇼핑몰 seq={} FTP 업로드 중 오류: {}", seq, ftpUploadEx.getMessage(), ftpUploadEx);
+          } finally {
+            // 임시 파일 삭제 (재시도 로직 포함)
+            deleteTempFileSafely(fileToUpload, "암호화 임시 파일", 3);
+            if (ftpReadyFileGenerated && ftpReadyFile != null && !ftpReadyFile.equals(fileToUpload)) {
+              deleteTempFileSafely(ftpReadyFile, "FTP 업로드용 임시 JSON 파일", 3);
+            }
+          }
+        } else {
+          logger.warn("쇼핑몰 seq={} FTP 업로드 정보가 불완전합니다. (주소/아이디/비밀번호 확인)", seq);
+          if (ftpReadyFileGenerated && ftpReadyFile != null) {
+            deleteTempFileSafely(ftpReadyFile, "FTP 업로드용 임시 파일", 3);
+          }
+        }
+      }
+    } catch (Exception e) {
+      logger.error("쇼핑몰 seq={} FTP 업로드 처리 중 오류: {}", seq, e.getMessage(), e);
+    }
+  }
+
+  /**
+   * 임시 파일 안전 삭제 (재시도 로직 포함)
+   *
+   * @param filePath 삭제할 파일 경로
+   * @param fileDescription 파일 설명 (로깅용)
+   * @param maxRetries 최대 재시도 횟수
+   */
+  private void deleteTempFileSafely(String filePath, String fileDescription, int maxRetries) {
+    if (filePath == null || filePath.isEmpty()) {
+      return;
+    }
+
+    java.io.File file = new java.io.File(filePath);
+    if (!file.exists()) {
+      return;
+    }
+
+    for (int attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        if (file.delete()) {
+          logger.debug("{} 삭제 완료: {}", fileDescription, filePath);
+          return;
+        } else {
+          if (attempt < maxRetries) {
+            logger.debug("{} 삭제 실패 (시도 {}/{}), 재시도 중...", fileDescription, attempt, maxRetries);
+            try {
+              Thread.sleep(100 * attempt); // 백오프: 100ms, 200ms, 300ms
+            } catch (InterruptedException e) {
+              Thread.currentThread().interrupt();
+              return;
+            }
+          } else {
+            logger.warn("{} 삭제 실패 (최대 재시도 횟수 초과): {}", fileDescription, filePath);
+          }
+        }
+      } catch (Exception e) {
+        if (attempt < maxRetries) {
+          logger.debug("{} 삭제 중 오류 (시도 {}/{}): {}", fileDescription, attempt, maxRetries, e.getMessage());
+          try {
+            Thread.sleep(100 * attempt);
+          } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            return;
+          }
+        } else {
+          logger.warn("{} 삭제 중 오류 (최대 재시도 횟수 초과): {}", fileDescription, e.getMessage());
+        }
+      }
     }
   }
 

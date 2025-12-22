@@ -45,7 +45,7 @@ echo 종료하려면 Ctrl+C를 누르세요.
 echo ========================================
 echo.
 
-"%JAVA_CMD%" -Xms256m -Xmx1024m -jar jangbogo-0.5.3.jar
+"%JAVA_CMD%" -Xms256m -Xmx1024m -jar jangbogo-0.5.4.jar
 
 if %ERRORLEVEL% NEQ 0 (
     echo.

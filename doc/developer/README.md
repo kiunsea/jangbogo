@@ -86,9 +86,30 @@ Jangbogo 개발자 및 유지보수 담당자를 위한 기술 문서입니다.
 
 ---
 
+### 6. [Eclipse IDE 설정 가이드](ECLIPSE_SETUP_GUIDE.md)
+**대상:** 모든 개발자 (Eclipse 사용자)
+
+**내용:**
+- Eclipse에서 Gradle 프로젝트 import 방법
+- Buildship 플러그인 설치
+- JUnit 테스트 실행 방법
+- Spring Boot 애플리케이션 실행 및 디버깅
+- 문제 해결 가이드
+
+**주요 기능:**
+- 프로젝트 import 및 설정
+- 테스트 실행 (JUnit 5)
+- 애플리케이션 실행 모드 설정
+- 디버깅 방법
+
+---
+
 ## 🎯 학습 경로
 
 ### 초급 개발자 (새로 합류)
+
+**0주차: 개발 환경 설정** (Eclipse 사용자)
+1. [Eclipse IDE 설정 가이드](ECLIPSE_SETUP_GUIDE.md) (30분)
 
 **1주차: 프로젝트 이해**
 1. [설정 가이드](JBG_CONFIG_GUIDE.md) (1시간)
@@ -133,6 +154,7 @@ Jangbogo 개발자 및 유지보수 담당자를 위한 기술 문서입니다.
 
 | 우선순위 | 문서 | 필수 여부 | 소요 시간 |
 |---------|------|-----------|-----------|
+| ⭐⭐⭐ | Eclipse IDE 설정 가이드 | 필수 (Eclipse 사용자) | 30분 |
 | ⭐⭐⭐ | 설정 가이드 | 필수 | 1시간 |
 | ⭐⭐⭐ | 로그인 시스템 가이드 | 필수 | 2시간 |
 | ⭐⭐⭐ | DAO 통합 가이드 | 필수 | 2시간 |
@@ -156,6 +178,9 @@ Jangbogo 개발자 및 유지보수 담당자를 위한 기술 문서입니다.
 ### 배포 관련
 → [배포 구현 요약](DISTRIBUTION_IMPLEMENTATION_SUMMARY.md)  
 → [빌드 가이드](../user/BUILD_GUIDE.md)
+
+### 개발 환경 설정
+→ [Eclipse IDE 설정 가이드](ECLIPSE_SETUP_GUIDE.md)
 
 ---
 
