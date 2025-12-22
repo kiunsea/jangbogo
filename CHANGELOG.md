@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.5.5] - 2025-12-22
+
+### Fixed
+
+- **이마트 구매내역 수집 오류 수정**: 영수증 목록이 비어있을 때 `IndexOutOfBoundsException`이 발생하던 문제를 해결했습니다. 빈 리스트 체크를 추가하여 안전하게 처리하도록 개선했습니다.
+
+---
+
 ## [0.5.4] - 2025-12-21
 
 ### Changed
@@ -200,10 +208,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+[0.5.5]: https://github.com/kiunsea/jangbogo/releases/tag/v0.5.5
 [0.5.4]: https://github.com/kiunsea/jangbogo/releases/tag/v0.5.4
 [0.5.3]: https://github.com/kiunsea/jangbogo/releases/tag/v0.5.3
 [0.5.2]: https://github.com/kiunsea/jangbogo/releases/tag/v0.5.2
 [0.5.1]: https://github.com/kiunsea/jangbogo/releases/tag/v0.5.1
 [0.5.0]: https://github.com/kiunsea/jangbogo/releases/tag/v0.5.0
-[Unreleased]: https://github.com/kiunsea/jangbogo/compare/v0.5.4...HEAD
+[Unreleased]: https://github.com/kiunsea/jangbogo/compare/v0.5.5...HEAD
 

@@ -5,7 +5,7 @@
 ![Java](https://img.shields.io/badge/backend-Spring%20Boot%20(Java%2021)-orange)
 ![UI](https://img.shields.io/badge/client-Bootstrap%205-7952B3)
 ![Platform](https://img.shields.io/badge/platform-Windows-blue)
-![Status](https://img.shields.io/badge/status-v0.5.4-orange)
+![Status](https://img.shields.io/badge/status-v0.5.5-orange)
 
 **JANGBOGO**는 여러 온라인 쇼핑몰의 **구매내역을 자동으로 수집**하여 **로컬 DB 및 파일(JSON/YAML/CSV)**로 저장하는 프로그램입니다.  
 웹 기반 관리자 화면에서 쇼핑몰 계정 연결, 자동 수집 스케줄 설정, 파일 내보내기 등을 간편하게 관리할 수 있습니다.
@@ -110,7 +110,7 @@ Java 설치 없이 실행 가능한 배포 패키지 빌드:
 
 **ZIP 파일 내용:**
 - `Jangbogo.bat` - 실행 스크립트
-- `jangbogo-0.5.4.jar` - 애플리케이션
+- `jangbogo-0.5.5.jar` - 애플리케이션
 - `jre/` - Java 21 런타임 번들 (JRE 설치 불필요)
 - `service/` - Windows 서비스 설정 파일
 - `사용설명서.txt` - 설치 및 설정 가이드
