@@ -47,7 +47,7 @@ build\distributions\Jangbogo-distribution.zip
 ```
 Jangbogo-distribution/
 ├─ Jangbogo.bat                      # 실행 스크립트
-├─ jangbogo-0.5.0.jar                # Spring Boot 애플리케이션
+├─ jangbogo-0.6.0.jar                # Spring Boot 애플리케이션
 ├─ jre/                              # Custom Java 21 런타임 (번들)
 │  ├─ bin/
 │  │  ├─ java.exe
@@ -95,7 +95,7 @@ cd C:\Jangbogo
 
 압축 해제 후 다음 파일들이 있는지 확인:
 - ✅ `Jangbogo.bat`
-- ✅ `jangbogo-0.5.0.jar`
+- ✅ `jangbogo-0.6.0.jar`
 - ✅ `jre\bin\java.exe`
 
 ### 3. 자동 생성 폴더
@@ -280,7 +280,7 @@ jangbogo-service.exe uninstall
   <name>Jangbogo Service</name>
   <description>장보고 구매내역 수집 서비스</description>
   <executable>%BASE%\..\jre\bin\java.exe</executable>
-  <arguments>-Xms256m -Xmx1024m -jar "%BASE%\..\jangbogo-0.5.0.jar"</arguments>
+  <arguments>-Xms256m -Xmx1024m -jar "%BASE%\..\jangbogo-0.6.0.jar"</arguments>
   ...
 </service>
 ```
@@ -428,14 +428,14 @@ jangbogo-service.exe uninstall
 
 `Jangbogo.bat` 파일에서 메모리 설정 변경:
 ```cmd
-"%JAVA_CMD%" -Xms512m -Xmx2048m -jar jangbogo-0.5.0.jar
+"%JAVA_CMD%" -Xms512m -Xmx2048m -jar jangbogo-0.6.0.jar
 ```
 
 **방법 2: 서비스 설정 파일 수정**
 
 `service\jangbogo-service.xml`:
 ```xml
-<arguments>-Xms512m -Xmx2048m -jar "%BASE%\..\jangbogo-0.5.0.jar"</arguments>
+<arguments>-Xms512m -Xmx2048m -jar "%BASE%\..\jangbogo-0.6.0.jar"</arguments>
 ```
 
 ### 9. 웹 드라이버 오류
@@ -476,12 +476,12 @@ jangbogo-service.exe uninstall
 
 **방법 1: 배너 비활성화**
 ```cmd
-"%JAVA_CMD%" -Dspring.main.banner-mode=off -jar jangbogo-0.5.0.jar
+"%JAVA_CMD%" -Dspring.main.banner-mode=off -jar jangbogo-0.6.0.jar
 ```
 
 **방법 2: 커스텀 배너 파일 사용**
 ```cmd
-"%JAVA_CMD%" -Dspring.banner.location=classpath:custom-banner.txt -jar jangbogo-0.5.0.jar
+"%JAVA_CMD%" -Dspring.banner.location=classpath:custom-banner.txt -jar jangbogo-0.6.0.jar
 ```
 
 **방법 3: 배너 내용 확인**
@@ -496,7 +496,7 @@ jangbogo-service.exe uninstall
 
 `Jangbogo.bat` 수정:
 ```cmd
-"%JAVA_CMD%" -Dserver.port=9999 -Xms256m -Xmx1024m -jar jangbogo-0.5.0.jar
+"%JAVA_CMD%" -Dserver.port=9999 -Xms256m -Xmx1024m -jar jangbogo-0.6.0.jar
 ```
 
 **방법 2: application.yml 사용**
@@ -579,6 +579,6 @@ Jangbogo.bat
 
 ---
 
-**버전**: 0.5.0  
-**최종 수정일**: 2025-11-07  
+**버전**: 0.6.0
+**최종 수정일**: 2026-01-28
 **라이선스**: AGPL-3.0-or-later

@@ -343,7 +343,7 @@ Pull Request를 제출함으로써 다음에 동의하는 것으로 간주됩니
 - **Discussions** 활용 (활성화된 경우)
 - 관련 문서 참조:
   - [개발자 문서](doc/README.md)
-  - [빌드 가이드](doc/BUILD_GUIDE.md)
+  - [빌드 가이드](doc/user/BUILD_GUIDE.md)
 
 ---
 

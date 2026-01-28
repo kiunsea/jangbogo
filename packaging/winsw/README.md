@@ -88,7 +88,7 @@ jangbogo-service.exe uninstall
   
   <!-- JVM 메모리 설정 변경 가능 -->
   <executable>%BASE%\..\jre\bin\java.exe</executable>
-  <arguments>-Xms256m -Xmx1024m -jar "%BASE%\..\jangbogo-0.5.0.jar"</arguments>
+  <arguments>-Xms256m -Xmx1024m -jar "%BASE%\..\jangbogo-0.6.0.jar"</arguments>
 </service>
 ```
 
@@ -97,7 +97,7 @@ jangbogo-service.exe uninstall
 더 많은 메모리가 필요한 경우:
 
 ```xml
-  <arguments>-Xms512m -Xmx2048m -jar "%BASE%\..\jangbogo-0.5.0.jar"</arguments>
+  <arguments>-Xms512m -Xmx2048m -jar "%BASE%\..\jangbogo-0.6.0.jar"</arguments>
 ```
 
 ---
@@ -133,7 +133,7 @@ type logs\jangbogo-service.log
 
 **확인 사항:**
 1. Java 런타임 확인: `..\jre\bin\java.exe` 파일이 있는지
-2. JAR 파일 확인: `..\jangbogo-0.5.0.jar` 파일이 있는지
+2. JAR 파일 확인: `..\jangbogo-0.6.0.jar` 파일이 있는지
 3. 서비스 로그 확인: `logs\jangbogo-service.log`
 
 ### 포트 충돌

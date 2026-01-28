@@ -5,7 +5,7 @@
 ![Java](https://img.shields.io/badge/backend-Spring%20Boot%20(Java%2021)-orange)
 ![UI](https://img.shields.io/badge/client-Bootstrap%205-7952B3)
 ![Platform](https://img.shields.io/badge/platform-Windows-blue)
-![Status](https://img.shields.io/badge/status-v0.5.5-orange)
+![Status](https://img.shields.io/badge/status-v0.6.0-orange)
 
 **JANGBOGO**는 여러 온라인 쇼핑몰의 **구매내역을 자동으로 수집**하여 **로컬 DB 및 파일(JSON/YAML/CSV)**로 저장하는 프로그램입니다.  
 웹 기반 관리자 화면에서 쇼핑몰 계정 연결, 자동 수집 스케줄 설정, 파일 내보내기 등을 간편하게 관리할 수 있습니다.
@@ -18,7 +18,7 @@
 - **[빌드 가이드](doc/user/BUILD_GUIDE.md)** - 배포 패키지 빌드 방법
 - **[배포 가이드](doc/user/DEPLOYMENT_GUIDE.md)** - 설치, 실행, Windows 서비스 등록
 - **[사용자 매뉴얼](doc/user/USER_GUIDE.md)** - 쇼핑몰 연결, 구매내역 수집, 파일 내보내기
-- **[릴리스 노트](doc/user/RELEASE_NOTES_v0.5.0.md)** - v0.5.0 변경사항
+- **[변경 이력](CHANGELOG.md)** - 버전별 변경사항
 
 ### 개발자 문서
 - **[배포 구현 요약](doc/developer/DISTRIBUTION_IMPLEMENTATION_SUMMARY.md)** - Custom JRE 번들링
@@ -110,7 +110,7 @@ Java 설치 없이 실행 가능한 배포 패키지 빌드:
 
 **ZIP 파일 내용:**
 - `Jangbogo.bat` - 실행 스크립트
-- `jangbogo-0.5.5.jar` - 애플리케이션
+- `jangbogo-0.6.0.jar` - 애플리케이션
 - `jre/` - Java 21 런타임 번들 (JRE 설치 불필요)
 - `service/` - Windows 서비스 설정 파일
 - `사용설명서.txt` - 설치 및 설정 가이드
@@ -163,7 +163,7 @@ bat\clean_build.bat
 2. **외부 설정 파일** - `config/admin.properties`
 3. **프로필별 설정** - `application-{profile}.yml`
 
-자세한 설정 방법은 [배포 가이드](doc/DEPLOYMENT_GUIDE.md) 및 [설정 가이드](doc/JBG_CONFIG_GUIDE.md)를 참조하세요.
+자세한 설정 방법은 [배포 가이드](doc/user/DEPLOYMENT_GUIDE.md) 및 [설정 가이드](doc/developer/JBG_CONFIG_GUIDE.md)를 참조하세요.
 
 ### 보안 권장사항
 

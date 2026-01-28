@@ -14,9 +14,9 @@ assignees: ''
 다음 문서를 확인하셨나요?
 
 - [ ] [README.md](../../README.md)
-- [ ] [사용자 가이드](../../doc/USER_GUIDE.md)
-- [ ] [배포 가이드](../../doc/DEPLOYMENT_GUIDE.md)
-- [ ] [FAQ](../../doc/USER_GUIDE.md#faq)
+- [ ] [사용자 가이드](../../doc/user/USER_GUIDE.md)
+- [ ] [배포 가이드](../../doc/user/DEPLOYMENT_GUIDE.md)
+- [ ] [FAQ](../../doc/user/USER_GUIDE.md#faq)
 
 ## 🔍 시도한 방법
 문제를 해결하기 위해 시도한 방법이 있다면 설명해주세요.

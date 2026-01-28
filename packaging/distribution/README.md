@@ -1,4 +1,4 @@
-# JANGBOGO (장보고) v0.5.2 🛒
+# JANGBOGO (장보고) v0.6.0 🛒
 
 **온라인 쇼핑몰 구매내역 자동 수집·관리 프로그램**
 
@@ -101,7 +101,7 @@ Jangbogo.bat
 ```
 Jangbogo/
 ├─ Jangbogo.bat          # 실행 파일
-├─ jangbogo-0.5.2.jar    # 애플리케이션
+├─ jangbogo-0.6.0.jar    # 애플리케이션
 ├─ jre/                  # Java 런타임
 ├─ service/              # Windows 서비스
 ├─ db/                   # 데이터베이스 (자동 생성)
@@ -158,8 +158,8 @@ taskkill /F /PID [PID번호]
 
 ## 📋 버전 정보
 
-- **버전**: 0.5.2
-- **릴리스 날짜**: 2025-11-15
+- **버전**: 0.6.0
+- **릴리스 날짜**: 2026-01-28
 - **라이선스**: AGPL-3.0-or-later
 
 ---
