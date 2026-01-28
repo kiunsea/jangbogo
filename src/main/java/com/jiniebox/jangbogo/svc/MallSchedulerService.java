@@ -353,7 +353,8 @@ public class MallSchedulerService {
         try {
           String statusFile = exportService.createEmptyStatusFile(savePath);
           logger.info("쇼핑몰 seq={} 신규 주문 없음, 상태 파일 생성: {}", seq, statusFile);
-          processFtpUpload(seq, exportConfig, exportConfigDao, savePath, new java.util.ArrayList<>());
+          processFtpUpload(
+              seq, exportConfig, exportConfigDao, savePath, new java.util.ArrayList<>());
         } catch (Exception statusEx) {
           logger.warn("쇼핑몰 seq={} 상태 파일 생성 실패: {}", seq, statusEx.getMessage());
         }
@@ -418,9 +419,7 @@ public class MallSchedulerService {
         boolean ftpEncryptEnabled = (ftpEncryptEnabledVal == 1);
 
         String publicKey =
-            exportConfig.get("public_key") != null
-                ? exportConfig.get("public_key").toString()
-                : "";
+            exportConfig.get("public_key") != null ? exportConfig.get("public_key").toString() : "";
 
         if (!ftpAddress.isEmpty() && !ftpId.isEmpty() && !ftpPass.isEmpty()) {
           String fileToUpload = ftpReadyFile;
@@ -450,7 +449,10 @@ public class MallSchedulerService {
 
             if (uploadSuccess) {
               logger.info(
-                  "쇼핑몰 seq={} 스케줄 수집 후 FTP 업로드 완료 - 서버: {}, 암호화: {}", seq, ftpAddress, fileEncrypted);
+                  "쇼핑몰 seq={} 스케줄 수집 후 FTP 업로드 완료 - 서버: {}, 암호화: {}",
+                  seq,
+                  ftpAddress,
+                  fileEncrypted);
             } else {
               logger.warn("쇼핑몰 seq={} 스케줄 수집 후 FTP 업로드 실패 - 서버: {}", seq, ftpAddress);
             }
@@ -459,7 +461,9 @@ public class MallSchedulerService {
           } finally {
             // 임시 파일 삭제 (재시도 로직 포함)
             deleteTempFileSafely(fileToUpload, "암호화 임시 파일", 3);
-            if (ftpReadyFileGenerated && ftpReadyFile != null && !ftpReadyFile.equals(fileToUpload)) {
+            if (ftpReadyFileGenerated
+                && ftpReadyFile != null
+                && !ftpReadyFile.equals(fileToUpload)) {
               deleteTempFileSafely(ftpReadyFile, "FTP 업로드용 임시 JSON 파일", 3);
             }
           }
@@ -512,7 +516,8 @@ public class MallSchedulerService {
         }
       } catch (Exception e) {
         if (attempt < maxRetries) {
-          logger.debug("{} 삭제 중 오류 (시도 {}/{}): {}", fileDescription, attempt, maxRetries, e.getMessage());
+          logger.debug(
+              "{} 삭제 중 오류 (시도 {}/{}): {}", fileDescription, attempt, maxRetries, e.getMessage());
           try {
             Thread.sleep(100 * attempt);
           } catch (InterruptedException ie) {

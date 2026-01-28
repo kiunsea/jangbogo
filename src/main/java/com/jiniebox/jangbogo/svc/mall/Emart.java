@@ -187,7 +187,7 @@ public class Emart extends MallSession implements ReceiptCollector {
     for (int i = 0; i < 3; i++) {
       ul_elem = driver.findElement(By.id("receipt_list"));
       li_elems = ul_elem.findElements(By.tagName("li"));
-      
+
       // 영수증 목록이 비어있는 경우 처리
       if (li_elems == null || li_elems.isEmpty()) {
         logger.debug("영수증 목록이 비어있습니다. 다음 페이지로 이동합니다.");
@@ -201,7 +201,7 @@ public class Emart extends MallSession implements ReceiptCollector {
         }
         continue;
       }
-      
+
       liTxt = li_elems.get(0).getText();
 
       if (liTxt.indexOf("영수증 내역이 없습니다") < 0) {

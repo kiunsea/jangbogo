@@ -15,20 +15,16 @@ import org.yaml.snakeyaml.Yaml;
 /**
  * 하나로마트(nonghyupmall.com) 크롤링 테스트 클래스
  *
- * 사이트 메뉴 : 마이페이지 > 하나로마트 > 마트구매영수증 보기
+ * <p>사이트 메뉴 : 마이페이지 > 하나로마트 > 마트구매영수증 보기
  *
- * Step by step으로 서비스 페이지를 크롤링하고 페이지를 이동해가며 코드를 완성하기 위한 테스트 클래스입니다.
- * main 함수로 실행 가능하며, 각 테스트 메서드를 개별적으로 호출하여 단계별 테스트가 가능합니다.
+ * <p>Step by step으로 서비스 페이지를 크롤링하고 페이지를 이동해가며 코드를 완성하기 위한 테스트 클래스입니다. main 함수로 실행 가능하며, 각 테스트 메서드를
+ * 개별적으로 호출하여 단계별 테스트가 가능합니다.
  *
- * 테스트 순서:
- * 1. testWebDriverSetup() - WebDriver 셋업 테스트
- * 2. testSignin() - 로그인 테스트
- * 3. testNavigateToPurchased() - 구매 내역 페이지 이동 테스트
- * 4. testParsePurchased() - 구매 내역 파싱 테스트
+ * <p>테스트 순서: 1. testWebDriverSetup() - WebDriver 셋업 테스트 2. testSignin() - 로그인 테스트 3.
+ * testNavigateToPurchased() - 구매 내역 페이지 이동 테스트 4. testParsePurchased() - 구매 내역 파싱 테스트
  *
- * 계정 정보:
- * - src/test/resources/test_mall_account.yml 파일에서 로드
- * - 파일이 없는 경우 test_mall_account.yml.example 파일을 복사하여 사용
+ * <p>계정 정보: - src/test/resources/test_mall_account.yml 파일에서 로드 - 파일이 없는 경우
+ * test_mall_account.yml.example 파일을 복사하여 사용
  *
  * @author KIUNSEA
  */
@@ -42,20 +38,18 @@ public class HanaroTest {
     loadTestCredentials();
   }
 
-  /**
-   * test_mall_account.yml 파일에서 테스트용 계정 정보를 로드한다.
-   */
+  /** test_mall_account.yml 파일에서 테스트용 계정 정보를 로드한다. */
   @SuppressWarnings("unchecked")
   private static void loadTestCredentials() {
     try {
       Yaml yaml = new Yaml();
-      InputStream inputStream = HanaroTest.class.getClassLoader()
-          .getResourceAsStream("test_mall_account.yml");
+      InputStream inputStream =
+          HanaroTest.class.getClassLoader().getResourceAsStream("test_mall_account.yml");
 
       if (inputStream == null) {
         throw new RuntimeException(
-            "test_mall_account.yml 파일을 찾을 수 없습니다. " +
-            "test_mall_account.yml.example 파일을 복사하여 test_mall_account.yml로 생성하세요.");
+            "test_mall_account.yml 파일을 찾을 수 없습니다. "
+                + "test_mall_account.yml.example 파일을 복사하여 test_mall_account.yml로 생성하세요.");
       }
 
       Map<String, Object> config = yaml.load(inputStream);
@@ -66,11 +60,12 @@ public class HanaroTest {
         TEST_USER_PASS = hanaroConfig.get("user_pw");
       }
 
-      if (TEST_USER_ID == null || TEST_USER_ID.isEmpty() ||
-          TEST_USER_PASS == null || TEST_USER_PASS.isEmpty()) {
+      if (TEST_USER_ID == null
+          || TEST_USER_ID.isEmpty()
+          || TEST_USER_PASS == null
+          || TEST_USER_PASS.isEmpty()) {
         throw new RuntimeException(
-            "test_mall_account.yml 파일에 hanaro 계정 정보가 없습니다. " +
-            "user_id와 user_pw를 설정하세요.");
+            "test_mall_account.yml 파일에 hanaro 계정 정보가 없습니다. " + "user_id와 user_pw를 설정하세요.");
       }
 
       System.out.println("테스트 계정 로드 완료: " + TEST_USER_ID);
@@ -86,7 +81,8 @@ public class HanaroTest {
   private static final String LOGIN_URL = "https://www.nonghyupmall.com/BC41000R/loginViewPage.nh";
 
   // TODO: 구매 내역 페이지 URL을 탐색하여 업데이트
-  private static final String PURCHASE_HISTORY_URL = "https://www.nonghyupmall.com/BCI1020M/eltRctwList.nh";
+  private static final String PURCHASE_HISTORY_URL =
+      "https://www.nonghyupmall.com/BCI1020M/eltRctwList.nh";
 
   private WebDriver driver;
   private JavascriptExecutor js;
@@ -120,9 +116,7 @@ public class HanaroTest {
     }
   }
 
-  /**
-   * Step 1: WebDriver 셋업 테스트
-   */
+  /** Step 1: WebDriver 셋업 테스트 */
   public void testWebDriverSetup() {
     System.out.println("\n[Step 1] WebDriver 셋업 테스트");
     System.out.println("-".repeat(50));
@@ -139,9 +133,7 @@ public class HanaroTest {
     }
   }
 
-  /**
-   * Step 2: 로그인 테스트
-   */
+  /** Step 2: 로그인 테스트 */
   public void testSignin() {
     System.out.println("\n[Step 2] 로그인 테스트");
     System.out.println("-".repeat(50));
@@ -164,8 +156,10 @@ public class HanaroTest {
     try {
       WebElement userIdField = driver.findElement(By.id("userID"));
       WebElement passwordField = driver.findElement(By.id("password"));
-      WebElement loginButton = driver.findElement(
-          By.cssSelector("#loginForm > div.inner > div > div.login-box > div.login-form > button"));
+      WebElement loginButton =
+          driver.findElement(
+              By.cssSelector(
+                  "#loginForm > div.inner > div > div.login-box > div.login-form > button"));
 
       System.out.println("로그인 폼 요소 확인:");
       System.out.println("  - 아이디 입력 필드: " + (userIdField != null ? "찾음" : "없음"));
@@ -205,9 +199,8 @@ public class HanaroTest {
   /**
    * Step 3: 구매 내역 페이지 이동 테스트
    *
-   * 페이지 구조:
-   * - 영수증 목록 컨테이너: //*[@id="content"] > table > tbody > tr
-   * - 상세보기 버튼: //*[@id="eltRctwDtlView"]
+   * <p>페이지 구조: - 영수증 목록 컨테이너: //*[@id="content"] > table > tbody > tr - 상세보기 버튼:
+   * //*[@id="eltRctwDtlView"]
    */
   public void testNavigateToPurchased() {
     System.out.println("\n[Step 3] 구매 내역 페이지 이동 테스트");
@@ -228,7 +221,7 @@ public class HanaroTest {
   /**
    * 영수증 목록 테이블 분석
    *
-   * 구조: //*[@id="content"] > table > tbody > tr
+   * <p>구조: //*[@id="content"] > table > tbody > tr
    */
   private void analyzeReceiptTable() {
     System.out.println("\n[영수증 목록 테이블 분석]");
@@ -239,7 +232,8 @@ public class HanaroTest {
       System.out.println("content 요소 찾음: " + (contentElem != null));
 
       // tbody 내의 tr 목록 조회
-      List<WebElement> trList = driver.findElements(By.xpath("//*[@id=\"content\"]//table//tbody//tr"));
+      List<WebElement> trList =
+          driver.findElements(By.xpath("//*[@id=\"content\"]//table//tbody//tr"));
       System.out.println("영수증 목록 (tr) 개수: " + trList.size());
 
       // 각 tr의 정보 출력
@@ -276,7 +270,7 @@ public class HanaroTest {
   /**
    * 영수증 상세 페이지 이동 테스트
    *
-   * 첫 번째 영수증의 상세보기 버튼을 클릭하여 상세 페이지로 이동
+   * <p>첫 번째 영수증의 상세보기 버튼을 클릭하여 상세 페이지로 이동
    */
   public void testNavigateToDetail() {
     System.out.println("\n[영수증 상세 페이지 이동 테스트]");
@@ -304,9 +298,7 @@ public class HanaroTest {
     }
   }
 
-  /**
-   * 영수증 상세 페이지 구조 분석
-   */
+  /** 영수증 상세 페이지 구조 분석 */
   private void analyzeDetailPage() {
     System.out.println("\n[상세 페이지 구조 분석]");
 
@@ -318,8 +310,13 @@ public class HanaroTest {
 
       for (int i = 0; i < tables.size(); i++) {
         WebElement table = tables.get(i);
-        System.out.println("  [" + i + "] class: " + table.getAttribute("class") +
-                          ", id: " + table.getAttribute("id"));
+        System.out.println(
+            "  ["
+                + i
+                + "] class: "
+                + table.getAttribute("class")
+                + ", id: "
+                + table.getAttribute("id"));
 
         // 테이블 내용 미리보기
         String tableText = table.getText();
@@ -345,9 +342,7 @@ public class HanaroTest {
     }
   }
 
-  /**
-   * 현재 페이지 구조 분석 헬퍼 메서드 (일반용)
-   */
+  /** 현재 페이지 구조 분석 헬퍼 메서드 (일반용) */
   private void analyzePageStructure() {
     System.out.println("\n[페이지 구조 분석]");
 
@@ -358,8 +353,13 @@ public class HanaroTest {
 
       for (int i = 0; i < tables.size(); i++) {
         WebElement table = tables.get(i);
-        System.out.println("  [" + i + "] class: " + table.getAttribute("class") +
-                          ", id: " + table.getAttribute("id"));
+        System.out.println(
+            "  ["
+                + i
+                + "] class: "
+                + table.getAttribute("class")
+                + ", id: "
+                + table.getAttribute("id"));
       }
     } catch (Exception e) {
       System.out.println("테이블 요소 탐색 실패: " + e.getMessage());
@@ -374,8 +374,12 @@ public class HanaroTest {
         String href = link.getAttribute("href");
         String text = link.getText().trim();
 
-        if (href != null && (href.contains("mypage") || href.contains("order") ||
-            href.contains("purchase") || href.contains("history") || href.contains("Rctw"))) {
+        if (href != null
+            && (href.contains("mypage")
+                || href.contains("order")
+                || href.contains("purchase")
+                || href.contains("history")
+                || href.contains("Rctw"))) {
           System.out.println("  - [" + text + "] -> " + href);
         }
       }
@@ -387,10 +391,8 @@ public class HanaroTest {
   /**
    * Step 4: 상세 페이지 영수증 파싱 테스트
    *
-   * 상세 페이지 구조 (eltRctwDtlList.nh):
-   * - table[0]: 구매 요약 정보 (구매일자, 구매처, 구매금액)
-   * - table[1]: 품목 목록 (품목 / 수량 / 금액)
-   * - table[2~10]: 비어있는 테이블
+   * <p>상세 페이지 구조 (eltRctwDtlList.nh): - table[0]: 구매 요약 정보 (구매일자, 구매처, 구매금액) - table[1]: 품목 목록 (품목
+   * / 수량 / 금액) - table[2~10]: 비어있는 테이블
    */
   @SuppressWarnings("unchecked")
   public void testParsePurchased() {
@@ -478,12 +480,9 @@ public class HanaroTest {
   /**
    * 통합 테스트: 목록 → 상세 → 파싱 전체 흐름
    *
-   * Hanaro.navigatePurchased() 구현에 활용할 수 있는 전체 흐름 테스트.
-   * 흐름:
-   * 1. 마트구매영수증 목록 페이지(eltRctwList.nh) 이동
-   * 2. 상세보기 버튼(eltRctwDtlView) 클릭 → 상세 페이지(eltRctwDtlList.nh) 이동
-   * 3. 상세 페이지에서 table[0](요약), table[1](품목) 파싱
-   * 4. 목록 페이지로 복귀
+   * <p>Hanaro.navigatePurchased() 구현에 활용할 수 있는 전체 흐름 테스트. 흐름: 1. 마트구매영수증 목록 페이지(eltRctwList.nh) 이동
+   * 2. 상세보기 버튼(eltRctwDtlView) 클릭 → 상세 페이지(eltRctwDtlList.nh) 이동 3. 상세 페이지에서 table[0](요약),
+   * table[1](품목) 파싱 4. 목록 페이지로 복귀
    */
   @SuppressWarnings("unchecked")
   public void testFullFlow() {
@@ -576,9 +575,7 @@ public class HanaroTest {
     System.out.println("  " + resArr.toJSONString());
   }
 
-  /**
-   * 로그아웃 테스트
-   */
+  /** 로그아웃 테스트 */
   public void testSignout() {
     System.out.println("\n[로그아웃 테스트]");
     System.out.println("-".repeat(50));
@@ -593,9 +590,7 @@ public class HanaroTest {
     }
   }
 
-  /**
-   * 지연 시간 적용
-   */
+  /** 지연 시간 적용 */
   private void delayTime(long millisecond) {
     try {
       Thread.sleep(millisecond);
@@ -604,9 +599,7 @@ public class HanaroTest {
     }
   }
 
-  /**
-   * 리소스 정리
-   */
+  /** 리소스 정리 */
   public void cleanup() {
     if (driver != null) {
       driver.quit();
@@ -618,18 +611,14 @@ public class HanaroTest {
   // 유틸리티 메서드들 (개발 중 페이지 분석용)
   // ========================================
 
-  /**
-   * 현재 페이지의 HTML 소스 일부 출력 (디버깅용)
-   */
+  /** 현재 페이지의 HTML 소스 일부 출력 (디버깅용) */
   public void printPageSource(int maxLength) {
     String source = driver.getPageSource();
     System.out.println("\n[페이지 소스 (처음 " + maxLength + "자)]");
     System.out.println(source.substring(0, Math.min(source.length(), maxLength)));
   }
 
-  /**
-   * 특정 CSS 셀렉터로 요소 탐색 (디버깅용)
-   */
+  /** 특정 CSS 셀렉터로 요소 탐색 (디버깅용) */
   public void findElementsByCss(String cssSelector) {
     System.out.println("\n[CSS 셀렉터 탐색: " + cssSelector + "]");
     try {
@@ -647,9 +636,7 @@ public class HanaroTest {
     }
   }
 
-  /**
-   * 특정 XPath로 요소 탐색 (디버깅용)
-   */
+  /** 특정 XPath로 요소 탐색 (디버깅용) */
   public void findElementsByXpath(String xpath) {
     System.out.println("\n[XPath 탐색: " + xpath + "]");
     try {
@@ -667,9 +654,7 @@ public class HanaroTest {
     }
   }
 
-  /**
-   * JavaScript 실행 (디버깅용)
-   */
+  /** JavaScript 실행 (디버깅용) */
   public Object executeScript(String script) {
     System.out.println("\n[JavaScript 실행]");
     System.out.println("Script: " + script);
@@ -683,9 +668,7 @@ public class HanaroTest {
     }
   }
 
-  /**
-   * 현재 URL로 이동 (디버깅용)
-   */
+  /** 현재 URL로 이동 (디버깅용) */
   public void navigateTo(String url) {
     System.out.println("\n[페이지 이동: " + url + "]");
     driver.navigate().to(url);
@@ -694,10 +677,7 @@ public class HanaroTest {
     System.out.println("페이지 타이틀: " + driver.getTitle());
   }
 
-  /**
-   * 스크린샷 정보 출력 (디버깅용)
-   * 현재 페이지의 윈도우 핸들 및 크기 정보 출력
-   */
+  /** 스크린샷 정보 출력 (디버깅용) 현재 페이지의 윈도우 핸들 및 크기 정보 출력 */
   public void printWindowInfo() {
     System.out.println("\n[윈도우 정보]");
     System.out.println("현재 핸들: " + driver.getWindowHandle());

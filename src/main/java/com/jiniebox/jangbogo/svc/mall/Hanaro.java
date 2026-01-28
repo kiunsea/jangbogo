@@ -15,8 +15,8 @@ import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.WebElement;
 
 /**
- * https://www.nonghyupmall.com 을 조회하는 클래스이다. (하나로마트 오프라인 매장 구매 내역)
- * 사이트 메뉴 : 마이페이지 > 하나로마트 > 마트구매영수증 보기
+ * https://www.nonghyupmall.com 을 조회하는 클래스이다. (하나로마트 오프라인 매장 구매 내역) 사이트 메뉴 : 마이페이지 > 하나로마트 > 마트구매영수증
+ * 보기
  *
  * @author KIUNSEA
  */
@@ -112,8 +112,7 @@ public class Hanaro extends MallSession implements PurchasedCollector {
   }
 
   /**
-   * 마트구매영수증 목록을 순회하며 구매 내역을 수집한다.
-   * DB에 저장된 serial 값을 확인하여 이미 수집된 영수증은 건너뛴다.
+   * 마트구매영수증 목록을 순회하며 구매 내역을 수집한다. DB에 저장된 serial 값을 확인하여 이미 수집된 영수증은 건너뛴다.
    *
    * @param driver WebDriver 인스턴스
    * @return 수집된 영수증 목록 (미수집 건만 포함)
@@ -161,8 +160,7 @@ public class Hanaro extends MallSession implements PurchasedCollector {
         if (idx > 0) {
           driver.navigate().to(PURCHASE_HISTORY_URL);
           this.delayTime(2000);
-          receiptRows =
-              driver.findElements(By.xpath("//*[@id='content']//table//tbody//tr"));
+          receiptRows = driver.findElements(By.xpath("//*[@id='content']//table//tbody//tr"));
           if (idx >= receiptRows.size()) break;
         }
 

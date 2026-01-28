@@ -819,7 +819,8 @@ public class AdminController {
                 // 파일 저장 실패 시 FTP 업로드도 명시적으로 건너뛰기
                 if (shouldUploadToFtp) {
                   response.put("autoFtpUploaded", false);
-                  response.put("autoFtpError", "파일 생성 실패로 인해 FTP 업로드를 건너뜁니다: " + getErrorMessage(exportEx));
+                  response.put(
+                      "autoFtpError", "파일 생성 실패로 인해 FTP 업로드를 건너뜁니다: " + getErrorMessage(exportEx));
                   logger.warn("파일 저장 실패로 인해 FTP 업로드를 건너뜁니다.");
                 }
               }
@@ -870,7 +871,8 @@ public class AdminController {
                 } catch (Exception ftpJsonEx) {
                   logger.error("FTP 업로드용 JSON 생성 실패", ftpJsonEx);
                   response.put("autoFtpUploaded", false);
-                  response.put("autoFtpError", "FTP 업로드용 JSON 생성 실패: " + getErrorMessage(ftpJsonEx));
+                  response.put(
+                      "autoFtpError", "FTP 업로드용 JSON 생성 실패: " + getErrorMessage(ftpJsonEx));
                   ftpReadyFile = null;
                 }
               }
@@ -955,7 +957,9 @@ public class AdminController {
                     if (fileEncrypted) {
                       deleteTempFileSafely(fileToUpload, "암호화 임시 파일", 3);
                     }
-                    if (ftpReadyFileGenerated && ftpReadyFile != null && !ftpReadyFile.equals(fileToUpload)) {
+                    if (ftpReadyFileGenerated
+                        && ftpReadyFile != null
+                        && !ftpReadyFile.equals(fileToUpload)) {
                       deleteTempFileSafely(ftpReadyFile, "FTP 업로드용 임시 JSON 파일", 3);
                     }
                   }
@@ -1041,9 +1045,7 @@ public class AdminController {
 
     if (shouldUploadToFtp) {
       String ftpAddress =
-          exportConfig.get("ftp_address") != null
-              ? exportConfig.get("ftp_address").toString()
-              : "";
+          exportConfig.get("ftp_address") != null ? exportConfig.get("ftp_address").toString() : "";
       String ftpId =
           exportConfig.get("ftp_id") != null ? exportConfig.get("ftp_id").toString() : "";
 
@@ -1112,7 +1114,8 @@ public class AdminController {
         }
       } catch (Exception e) {
         if (attempt < maxRetries) {
-          logger.debug("{} 삭제 중 오류 (시도 {}/{}): {}", fileDescription, attempt, maxRetries, e.getMessage());
+          logger.debug(
+              "{} 삭제 중 오류 (시도 {}/{}): {}", fileDescription, attempt, maxRetries, e.getMessage());
           try {
             Thread.sleep(100 * attempt);
           } catch (InterruptedException ie) {

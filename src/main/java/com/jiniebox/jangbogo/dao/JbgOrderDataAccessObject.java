@@ -132,7 +132,13 @@ public class JbgOrderDataAccessObject extends CommonDataAccessObject {
 
     log.debug(
         "LOCALDB-QUERY------------------------------------------------------------------------------");
-    log.debug("{} [serialNum={}, dateTime={}, mallName={}, seqMall={}]", query, serialNum, dateTime, mallName, seqMall);
+    log.debug(
+        "{} [serialNum={}, dateTime={}, mallName={}, seqMall={}]",
+        query,
+        serialNum,
+        dateTime,
+        mallName,
+        seqMall);
 
     log.info(
         "주문 등록 시도 (트랜잭션 내) - serial: {}, datetime: {}, mallName: {}, seqMall: {}",

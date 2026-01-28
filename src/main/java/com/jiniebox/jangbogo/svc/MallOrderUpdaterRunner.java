@@ -125,7 +125,8 @@ public class MallOrderUpdaterRunner implements Runnable {
                   throw new NumberFormatException("날짜 형식이 너무 짧습니다: " + datetime);
                 }
               } catch (NumberFormatException e) {
-                logger.warn("datetime 형식 오류: {}, serial: {}, 오류: {}", datetime, serial, e.getMessage());
+                logger.warn(
+                    "datetime 형식 오류: {}, serial: {}, 오류: {}", datetime, serial, e.getMessage());
                 skippedOrders++;
                 continue;
               }
@@ -174,7 +175,11 @@ public class MallOrderUpdaterRunner implements Runnable {
                         itemCount++;
 
                         if (qty != null && !qty.isEmpty()) {
-                          logger.debug("아이템 저장 완료 (트랜잭션 내): {}, qty: {}, seq_order: {}", itemName, qty, seqOrder);
+                          logger.debug(
+                              "아이템 저장 완료 (트랜잭션 내): {}, qty: {}, seq_order: {}",
+                              itemName,
+                              qty,
+                              seqOrder);
                         } else {
                           logger.debug("아이템 저장 완료 (트랜잭션 내): {}, seq_order: {}", itemName, seqOrder);
                         }
@@ -196,7 +201,8 @@ public class MallOrderUpdaterRunner implements Runnable {
                 if (conn != null) {
                   try {
                     conn.txRollBack();
-                    logger.warn("주문 및 아이템 저장 트랜잭션 롤백 - serial: {}, 오류: {}", serial, txEx.getMessage());
+                    logger.warn(
+                        "주문 및 아이템 저장 트랜잭션 롤백 - serial: {}, 오류: {}", serial, txEx.getMessage());
                   } catch (Exception rollbackEx) {
                     logger.error("트랜잭션 롤백 실패", rollbackEx);
                   }
