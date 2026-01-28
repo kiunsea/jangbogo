@@ -1,3 +1,16 @@
+# Shell scripts - LF for Linux/Mac compatibility
 /gradlew text eol=lf
+*.sh text eol=lf
+
+# Windows batch files - CRLF
 *.bat text eol=crlf
+
+# YAML files - LF for consistency
+*.yml text eol=lf
+*.yaml text eol=lf
+
+# Properties files - LF for consistency
+*.properties text eol=lf
+
+# Binary files
 *.jar binary

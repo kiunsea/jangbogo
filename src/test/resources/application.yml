@@ -3,7 +3,7 @@ spring:
     name: jangbogo-test
 
   datasource:
-    url: jdbc:sqlite::memory:
+    url: "jdbc:sqlite::memory:"
     driver-class-name: org.sqlite.JDBC
     hikari:
       maximum-pool-size: 5
