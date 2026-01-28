@@ -45,6 +45,8 @@ src/main/resources/application-prod.yml
 # 테스트용 민감 정보 (FTP 서버 정보 등)
 src/test/resources/ftp-test.properties
 **/ftp-test.properties
+# 테스트용 쇼핑몰 계정 정보
+src/test/resources/test_mall_account.yml
 
 ### Mall Account Files ###
 # 쇼핑몰 계정 정보 파일 (민감 정보 포함)

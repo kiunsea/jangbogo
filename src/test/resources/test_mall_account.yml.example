@@ -1,0 +1,18 @@
+# 테스트용 쇼핑몰 계정 정보 (예시 파일)
+# 이 파일을 test_mall_account.yml로 복사한 후 실제 계정 정보를 입력하세요.
+# test_mall_account.yml 파일은 .gitignore에 등록되어 있어 Git에 커밋되지 않습니다.
+
+# 하나로마트 (nonghyupmall.com)
+hanaro:
+  user_id: "your_user_id"
+  user_pw: "your_password"
+
+# SSG/이마트
+ssg:
+  user_id: "your_user_id"
+  user_pw: "your_password"
+
+# 오아시스
+oasis:
+  user_id: "your_user_id"
+  user_pw: "your_password"

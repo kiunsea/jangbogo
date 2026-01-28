@@ -1,18 +1,21 @@
 package com.jiniebox.jangbogo.mall;
 
 import com.jiniebox.jangbogo.svc.util.WebDriverManager;
+import java.io.InputStream;
 import java.util.List;
+import java.util.Map;
 import org.json.simple.JSONArray;
 import org.json.simple.JSONObject;
 import org.openqa.selenium.By;
 import org.openqa.selenium.JavascriptExecutor;
 import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.WebElement;
+import org.yaml.snakeyaml.Yaml;
 
 /**
  * 하나로마트(nonghyupmall.com) 크롤링 테스트 클래스
  *
- * 사이트 메뉴 : 마이페이지 > 하나로마트 > 마트구매영수증 보기 
+ * 사이트 메뉴 : 마이페이지 > 하나로마트 > 마트구매영수증 보기
  *
  * Step by step으로 서비스 페이지를 크롤링하고 페이지를 이동해가며 코드를 완성하기 위한 테스트 클래스입니다.
  * main 함수로 실행 가능하며, 각 테스트 메서드를 개별적으로 호출하여 단계별 테스트가 가능합니다.
@@ -23,13 +26,60 @@ import org.openqa.selenium.WebElement;
  * 3. testNavigateToPurchased() - 구매 내역 페이지 이동 테스트
  * 4. testParsePurchased() - 구매 내역 파싱 테스트
  *
+ * 계정 정보:
+ * - src/test/resources/test_mall_account.yml 파일에서 로드
+ * - 파일이 없는 경우 test_mall_account.yml.example 파일을 복사하여 사용
+ *
  * @author KIUNSEA
  */
 public class HanaroTest {
 
-  // 테스트용 로그인 정보 (실제 값으로 변경 필요)
-  private static final String TEST_USER_ID = "otonapoi";
-  private static final String TEST_USER_PASS = "Wtbtsaas7625@";
+  // 테스트용 로그인 정보 (test_mall_account.yml 에서 로드)
+  private static String TEST_USER_ID;
+  private static String TEST_USER_PASS;
+
+  static {
+    loadTestCredentials();
+  }
+
+  /**
+   * test_mall_account.yml 파일에서 테스트용 계정 정보를 로드한다.
+   */
+  @SuppressWarnings("unchecked")
+  private static void loadTestCredentials() {
+    try {
+      Yaml yaml = new Yaml();
+      InputStream inputStream = HanaroTest.class.getClassLoader()
+          .getResourceAsStream("test_mall_account.yml");
+
+      if (inputStream == null) {
+        throw new RuntimeException(
+            "test_mall_account.yml 파일을 찾을 수 없습니다. " +
+            "test_mall_account.yml.example 파일을 복사하여 test_mall_account.yml로 생성하세요.");
+      }
+
+      Map<String, Object> config = yaml.load(inputStream);
+      Map<String, String> hanaroConfig = (Map<String, String>) config.get("hanaro");
+
+      if (hanaroConfig != null) {
+        TEST_USER_ID = hanaroConfig.get("user_id");
+        TEST_USER_PASS = hanaroConfig.get("user_pw");
+      }
+
+      if (TEST_USER_ID == null || TEST_USER_ID.isEmpty() ||
+          TEST_USER_PASS == null || TEST_USER_PASS.isEmpty()) {
+        throw new RuntimeException(
+            "test_mall_account.yml 파일에 hanaro 계정 정보가 없습니다. " +
+            "user_id와 user_pw를 설정하세요.");
+      }
+
+      System.out.println("테스트 계정 로드 완료: " + TEST_USER_ID);
+
+    } catch (Exception e) {
+      System.err.println("테스트 계정 로드 실패: " + e.getMessage());
+      throw new RuntimeException(e);
+    }
+  }
 
   // 하나로마트 URL
   private static final String BASE_URL = "https://www.nonghyupmall.com";
