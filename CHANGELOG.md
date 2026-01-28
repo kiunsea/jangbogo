@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.6.0] - 2026-01-28
+
+### Added
+
+- **하나로마트(Hanaro) 쇼핑몰 완전 통합**: nonghyupmall.com의 마트구매영수증 수집 기능을 완성했습니다. 오프라인 하나로마트 매장에서의 구매 내역을 자동으로 수집할 수 있습니다.
+- **HanaroTest 테스트 클래스**: step-by-step 크롤링 개발 및 검증을 위한 테스트 클래스를 추가했습니다.
+- **관리 화면 HANARO 카드**: 관리 화면에 하나로마트 계정 연결 및 자동 수집 설정 UI를 추가했습니다.
+
+### Changed
+
+- **Serial 형식 개선**: 하나로마트 영수증의 serial을 `구매일자_구매금액` 조합으로 생성하여 동일 날짜 복수 구매도 구분할 수 있도록 개선했습니다.
+- **중복 수집 방지 강화**: 크롤링 단계에서 DB의 serial 값을 확인하여 이미 수집된 영수증은 건너뛰도록 개선했습니다. 불필요한 크롤링을 방지하여 효율성이 향상되었습니다.
+- **여러 영수증 순회 지원**: 하나로마트 영수증 목록에 여러 건이 있을 경우 모든 영수증을 순회하며 수집합니다.
+
+### Fixed
+
+- **ExportService mall_id 누락 수정**: 파일 저장 시 하나로마트의 mall_id가 null로 출력되던 문제를 수정했습니다. `getMallIdFromSeq()` 메서드에 case 3 ("hanaro") 매핑을 추가했습니다.
+
+---
+
 ## [0.5.5] - 2025-12-22
 
 ### Fixed
@@ -208,11 +228,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+[0.6.0]: https://github.com/kiunsea/jangbogo/releases/tag/v0.6.0
 [0.5.5]: https://github.com/kiunsea/jangbogo/releases/tag/v0.5.5
 [0.5.4]: https://github.com/kiunsea/jangbogo/releases/tag/v0.5.4
 [0.5.3]: https://github.com/kiunsea/jangbogo/releases/tag/v0.5.3
 [0.5.2]: https://github.com/kiunsea/jangbogo/releases/tag/v0.5.2
 [0.5.1]: https://github.com/kiunsea/jangbogo/releases/tag/v0.5.1
 [0.5.0]: https://github.com/kiunsea/jangbogo/releases/tag/v0.5.0
-[Unreleased]: https://github.com/kiunsea/jangbogo/compare/v0.5.5...HEAD
+[Unreleased]: https://github.com/kiunsea/jangbogo/compare/v0.6.0...HEAD
 

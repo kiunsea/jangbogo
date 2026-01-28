@@ -10,6 +10,81 @@
 
 ## 주요 변경사항
 
+### 2026-01-28 - 하나로마트(Hanaro) 쇼핑몰 통합
+
+#### 새로운 기능
+
+**1. HanaroTest 클래스 생성** (`src/test/java/com/jiniebox/jangbogo/mall/HanaroTest.java`)
+- nonghyupmall.com 크롤링을 위한 step-by-step 테스트 클래스 작성
+- WebDriver 셋업, 로그인, 페이지 이동, 파싱을 단계별로 검증
+- `testFullFlow()` 메서드로 통합 테스트 수행
+- 실제 사이트 구조 분석 및 파싱 로직 검증 완료 (26개 품목 파싱 확인)
+
+**2. Hanaro 클래스 완성** (`src/main/java/com/jiniebox/jangbogo/svc/mall/Hanaro.java`)
+- `signin()`: nonghyupmall.com 로그인 처리
+- `signout()`: `a_id_logout` 버튼 클릭으로 로그아웃
+- `navigatePurchased()`: 마트구매영수증 목록 순회 및 수집
+  - 목록 페이지(`eltRctwList.nh`) 이동
+  - 영수증 행 순회 (여러 건 지원)
+  - 각 행 클릭 → 상세보기 버튼(`eltRctwDtlView`) 클릭 → 상세 페이지 파싱
+  - DB serial 조회로 이미 수집된 영수증 건너뛰기
+- `parseDetailPage()`: 상세 페이지 파싱 로직 분리
+  - table[0]: 요약 정보 (구매일자, 구매처, 구매금액)
+  - table[1]: 품목 목록 (품목명, 수량, 금액)
+- `isAlreadyCollected()`: DB에서 serial+datetime으로 중복 확인
+
+**3. 시스템 통합**
+- `JangBoGoManager.getMallSession()`: seq=3 → `new Hanaro()` 매핑 추가
+- `MallOrderUpdater.collectItems()`: seq=3 분기 추가로 Hanaro 수집 지원
+- `ExportService.getMallIdFromSeq()`: case 3 → "hanaro" 반환 추가
+
+**4. 관리 화면 UI 추가** (`src/main/resources/templates/index.html`)
+- HANARO 카드 블록 추가 (연한 초록색 배경 `#e8f8e8`)
+- 계정 연결 버튼 (`btn_signin_hanaro`, seq=3)
+- 자동 수집 주기 설정 (`data-seq="3"`)
+- `openSigninMallForm()` 함수에 seq=3 분기 추가: "하나로마트 계정연결"
+
+#### 변경사항
+
+**1. Serial 형식 개선**
+- 기존: 구매일자만 사용
+- 변경: `구매일자_구매금액` 조합으로 unique 식별자 생성
+- 예시: `20260125_35400` (2026년 1월 25일, 35,400원)
+
+**2. 중복 수집 방지 로직**
+- `navigatePurchased()` 단계에서 DB 조회로 이미 수집된 영수증 건너뛰기
+- `JbgOrderDataAccessObject.getOrder(serial, datetime, null)` 활용
+- 불필요한 크롤링 방지로 효율성 향상
+
+#### 기술적 세부사항
+
+**크롤링 흐름**:
+1. nonghyupmall.com 메인 → 로그인 페이지 이동
+2. `#userID`, `#password` 필드에 계정 정보 입력
+3. 로그인 버튼 클릭 → `a_id_logout` 버튼 존재 확인으로 성공 여부 판단
+4. 마트구매영수증 목록 페이지(`BCI1020M/eltRctwList.nh`) 이동
+5. 영수증 목록 행 순회 (`//*[@id='content']//table//tbody//tr`)
+6. 각 행 클릭 → `eltRctwDtlView` 버튼 클릭 → 상세 페이지
+7. 상세 페이지에서 table[0](요약), table[1](품목) 파싱
+8. serial 생성 후 DB 중복 체크 → 미수집 건만 결과에 추가
+
+**파싱 구조**:
+- 요약 테이블: `th`/`td` 쌍으로 key-value 추출
+- 품목 테이블: `tbody//tr` 순회, 각 행의 `td` 3개 (품목/수량/금액)
+- 헤더 행 건너뛰기: `"품목".equals(name)` 체크
+
+#### 파일 변경 목록
+
+| 파일 | 변경 유형 | 설명 |
+|------|----------|------|
+| `HanaroTest.java` | 신규 | 크롤링 테스트 클래스 |
+| `Hanaro.java` | 수정 | navigatePurchased, signout, parseDetailPage, isAlreadyCollected 구현 |
+| `JangBoGoManager.java` | 수정 | seq=3 Hanaro 매핑 추가 |
+| `MallOrderUpdater.java` | 수정 | seq=3 수집 분기 추가 |
+| `ExportService.java` | 수정 | getMallIdFromSeq case 3 추가 |
+| `index.html` | 수정 | HANARO 카드 및 모달 지원 추가 |
+| `data.sql` | 기존 | seq=3, id='hanaro' 이미 등록됨 |
+
 ---
 
 ## 테스트

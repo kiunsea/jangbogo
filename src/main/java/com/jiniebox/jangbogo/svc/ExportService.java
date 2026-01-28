@@ -508,6 +508,8 @@ public class ExportService {
         return "emart"; // 이마트/SSG 그룹
       case 2:
         return "oasis"; // 오아시스
+      case 3:
+        return "hanaro"; // 하나로마트
       default:
         logger.warn("알 수 없는 쇼핑몰 seq: {}", seqMall);
         return "unknown";

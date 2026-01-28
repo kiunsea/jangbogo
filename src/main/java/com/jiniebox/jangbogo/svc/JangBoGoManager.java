@@ -4,6 +4,7 @@ import com.jiniebox.jangbogo.dao.JbgMallDataAccessObject;
 import com.jiniebox.jangbogo.dto.JangbogoConfig;
 import com.jiniebox.jangbogo.svc.ifc.MallSession;
 import com.jiniebox.jangbogo.svc.mall.Emart;
+import com.jiniebox.jangbogo.svc.mall.Hanaro;
 import com.jiniebox.jangbogo.svc.mall.Oasis;
 import com.jiniebox.jangbogo.svc.util.WebDriverManager;
 import com.jiniebox.jangbogo.sys.UserSession;
@@ -244,6 +245,8 @@ public class JangBoGoManager {
         mallMgn = new Emart(usrid, usrpw);
       } else if (seqMallInt == 2) {
         mallMgn = new Oasis(usrid, usrpw);
+      } else if (seqMallInt == 3) {
+        mallMgn = new Hanaro(usrid, usrpw);
       }
       return mallMgn;
     }

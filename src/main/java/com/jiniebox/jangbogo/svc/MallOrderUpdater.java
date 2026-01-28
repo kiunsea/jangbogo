@@ -2,6 +2,7 @@ package com.jiniebox.jangbogo.svc;
 
 import com.jiniebox.jangbogo.dao.JbgMallDataAccessObject;
 import com.jiniebox.jangbogo.svc.mall.Emart;
+import com.jiniebox.jangbogo.svc.mall.Hanaro;
 import com.jiniebox.jangbogo.svc.mall.Oasis;
 import com.jiniebox.jangbogo.svc.mall.Ssg;
 import org.apache.logging.log4j.LogManager;
@@ -48,6 +49,11 @@ public class MallOrderUpdater {
       JSONArray oasisItems = new Oasis(mallId, mallPw).getItems();
       logger.info("Oasis 수집 완료 - {} 건", oasisItems != null ? oasisItems.size() : 0);
       if (oasisItems != null) itemArr.addAll(oasisItems);
+    } else if (seqMallInt == 3) {
+      logger.info("Hanaro 구매 내역 수집 시작");
+      JSONArray hanaroItems = new Hanaro(mallId, mallPw).getItems();
+      logger.info("Hanaro 수집 완료 - {} 건", hanaroItems != null ? hanaroItems.size() : 0);
+      if (hanaroItems != null) itemArr.addAll(hanaroItems);
     }
 
     logger.info("전체 수집 완료 - 총 {} 건", itemArr.size());
