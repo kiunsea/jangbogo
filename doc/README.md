@@ -1,6 +1,6 @@
 # Jangbogo 프로젝트 문서
 
-Jangbogo v0.6.0 프로젝트의 모든 문서가 이 폴더에 정리되어 있습니다.
+Jangbogo v0.6.1 프로젝트의 모든 문서가 이 폴더에 정리되어 있습니다.
 
 ---
 
@@ -22,7 +22,8 @@ doc/
    ├─ DAO_INTEGRATION_GUIDE.md            데이터베이스 접근 계층
    ├─ JBG_CONFIG_GUIDE.md                 설정 파일 관리
    ├─ LOGIN_GUIDE.md                      인증 및 세션 관리
-   └─ SESSION_IMPROVEMENT_GUIDE.md        세션 처리 개선 내역
+   ├─ SESSION_IMPROVEMENT_GUIDE.md        세션 처리 개선 내역
+   └─ DEVLOG.md                           개발 로그 (상세 작업 내역)
 ```
 
 **총 문서 수:** 11개 (메인 README 1개 + 사용자 4개 + 개발자 6개)
@@ -48,9 +49,9 @@ doc/
 ## 📋 버전 정보
 
 - **프로젝트**: Jangbogo (장보고)
-- **버전**: 0.6.0
+- **버전**: 0.6.1
 - **라이선스**: AGPL-3.0-or-later
-- **최종 업데이트**: 2026-01-28
+- **최종 업데이트**: 2026-02-15
 
 ---
 

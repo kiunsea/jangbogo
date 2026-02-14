@@ -21,12 +21,56 @@ public class StartupTasks {
   @EventListener(ApplicationReadyEvent.class)
   public void onApplicationReady() {
     try {
-      logger.info("장보고 애플리케이션 시작 - 개별 쇼핑몰 스케줄 복원 중");
+      logger.info("장보고 애플리케이션 시작 - 초기화 작업 시작");
 
-      // 개별 쇼핑몰 스케줄링 복원 (사용자가 설정한 주기대로 동작)
+      // 1. 스케줄링 대상 쇼핑몰에 대해 1회 수집 실행
+      runInitialCollection();
+
+      // 2. 개별 쇼핑몰 스케줄링 복원 (사용자가 설정한 주기대로 동작)
       restoreIndividualSchedules();
     } catch (Exception e) {
-      logger.error("시작 시 개별 스케줄 복원 실패", e);
+      logger.error("시작 시 초기화 작업 실패", e);
+    }
+  }
+
+  /**
+   * 애플리케이션 시작 시 스케줄링 대상 쇼핑몰에 대해 1회 수집 실행
+   * (스케줄링 복원 전에 호출됨)
+   */
+  private void runInitialCollection() {
+    try {
+      logger.info("장보고 애플리케이션 시작 - 1회 수집 실행 중");
+
+      JbgMallDataAccessObject jaDao = new JbgMallDataAccessObject();
+      List<JSONObject> malls = jaDao.getAllMalls(false);
+
+      int collectedCount = 0;
+      for (JSONObject mall : malls) {
+        try {
+          Integer autoCollect = asInt(mall.get("auto_collect"));
+          Integer intervalMinutes = asInt(mall.get("collect_interval_minutes"));
+          String seq = str(mall.get("seq"));
+
+          // auto_collect=1이고 주기가 설정된 쇼핑몰만 1회 수집
+          if (autoCollect != null
+              && autoCollect == 1
+              && intervalMinutes != null
+              && intervalMinutes > 0) {
+            mallSchedulerService.runOneTimeCollection(seq);
+            collectedCount++;
+          }
+        } catch (Exception ex) {
+          logger.warn("쇼핑몰 seq={} 1회 수집 실패: {}", str(mall.get("seq")), ex.getMessage());
+        }
+      }
+
+      if (collectedCount > 0) {
+        logger.info("쇼핑몰 1회 수집 완료 (대상: {}개)", collectedCount);
+      } else {
+        logger.info("1회 수집 대상 쇼핑몰 없음");
+      }
+    } catch (Exception e) {
+      logger.error("1회 수집 실행 실패", e);
     }
   }
 

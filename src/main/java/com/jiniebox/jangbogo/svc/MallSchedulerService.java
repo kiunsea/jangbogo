@@ -184,6 +184,19 @@ public class MallSchedulerService {
   }
 
   /**
+   * 특정 쇼핑몰에 대해 1회성 수집 실행 (애플리케이션 시작 시 초기 수집용)
+   *
+   * @param seq 쇼핑몰 시퀀스
+   */
+  public void runOneTimeCollection(String seq) {
+    try {
+      runCollectForMall(seq);
+    } catch (Exception e) {
+      logger.error("쇼핑몰 seq={} 1회 수집 오류: {}", seq, e.getMessage(), e);
+    }
+  }
+
+  /**
    * 특정 쇼핑몰 수집 실행
    *
    * @param seq 쇼핑몰 시퀀스
