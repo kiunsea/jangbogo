@@ -58,35 +58,22 @@ public class TrayApplication {
   private static PopupMenu createPopupMenu() {
     PopupMenu popup = new PopupMenu();
 
-    // 관리 화면 열기
-    MenuItem openBrowserItem = new MenuItem("관리 화면 열기");
-    openBrowserItem.addActionListener(createBrowserLaunchAction());
-    popup.add(openBrowserItem);
+    // 대시보드 (브라우저 열기)
+    MenuItem dashboardItem = new MenuItem("대시보드");
+    dashboardItem.addActionListener(createBrowserLaunchAction());
+    popup.add(dashboardItem);
 
     popup.addSeparator();
 
-    // 서비스 시작
-    MenuItem startServiceItem = new MenuItem("서비스 시작");
-    startServiceItem.addActionListener(createServiceStartAction());
-    popup.add(startServiceItem);
+    // 서비스 재시작
+    MenuItem restartServiceItem = new MenuItem("서비스 재시작");
+    restartServiceItem.addActionListener(createServiceRestartAction());
+    popup.add(restartServiceItem);
 
-    // 서비스 중지
-    MenuItem stopServiceItem = new MenuItem("서비스 중지");
+    // 서비스 종료
+    MenuItem stopServiceItem = new MenuItem("서비스 종료");
     stopServiceItem.addActionListener(createServiceStopAction());
     popup.add(stopServiceItem);
-
-    popup.addSeparator();
-
-    // 정보
-    MenuItem infoItem = new MenuItem("정보");
-    infoItem.addActionListener(
-        e -> {
-          trayIcon.displayMessage(
-              "Jangbogo v1.0.0",
-              "구매내역 수집 서비스\n접속: http://127.0.0.1:8282",
-              TrayIcon.MessageType.INFO);
-        });
-    popup.add(infoItem);
 
     popup.addSeparator();
 
@@ -106,35 +93,35 @@ public class TrayApplication {
     };
   }
 
-  /** 서비스 시작 액션을 생성합니다. */
-  private static ActionListener createServiceStartAction() {
+  /** 서비스 재시작 액션을 생성합니다. */
+  private static ActionListener createServiceRestartAction() {
     return e -> {
       try {
-        logger.info("서비스 시작 시도");
+        logger.info("서비스 재시작 시도");
 
-        // WinSW를 통해 서비스 시작
+        // WinSW를 통해 서비스 재시작
         String installDir = System.getProperty("user.dir");
         ProcessBuilder pb =
             new ProcessBuilder(
                 "cmd.exe",
                 "/c",
-                "cd /d \"" + installDir + "\\winsw\" && jangbogo-service.exe start");
+                "cd /d \"" + installDir + "\\service\" && jangbogo-service.exe restart");
 
         Process process = pb.start();
         int exitCode = process.waitFor();
 
         if (exitCode == 0) {
           isServiceRunning = true;
-          trayIcon.displayMessage("서비스 시작", "Jangbogo 서비스가 시작되었습니다.", TrayIcon.MessageType.INFO);
-          logger.info("서비스 시작 완료");
+          trayIcon.displayMessage("서비스 재시작", "Jangbogo 서비스가 재시작되었습니다.", TrayIcon.MessageType.INFO);
+          logger.info("서비스 재시작 완료");
         } else {
           trayIcon.displayMessage(
-              "서비스 시작 실패", "서비스 시작에 실패했습니다. (코드: " + exitCode + ")", TrayIcon.MessageType.ERROR);
-          logger.error("서비스 시작 실패: exit code {}", exitCode);
+              "서비스 재시작 실패", "서비스 재시작에 실패했습니다. (코드: " + exitCode + ")", TrayIcon.MessageType.ERROR);
+          logger.error("서비스 재시작 실패: exit code {}", exitCode);
         }
       } catch (Exception ex) {
-        logger.error("서비스 시작 중 오류", ex);
-        trayIcon.displayMessage("오류", "서비스 시작 중 오류가 발생했습니다.", TrayIcon.MessageType.ERROR);
+        logger.error("서비스 재시작 중 오류", ex);
+        trayIcon.displayMessage("오류", "서비스 재시작 중 오류가 발생했습니다.", TrayIcon.MessageType.ERROR);
       }
     };
   }
@@ -151,7 +138,7 @@ public class TrayApplication {
             new ProcessBuilder(
                 "cmd.exe",
                 "/c",
-                "cd /d \"" + installDir + "\\winsw\" && jangbogo-service.exe stop");
+                "cd /d \"" + installDir + "\\service\" && jangbogo-service.exe stop");
 
         Process process = pb.start();
         int exitCode = process.waitFor();

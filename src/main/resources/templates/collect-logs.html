@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org"
+      xmlns:layout="http://www.ultraq.net.nz/thymeleaf/layout"
+      layout:decorate="~{layout}">
+<head>
+    <title layout:title-pattern="$DECORATOR_TITLE - $CONTENT_TITLE">오류 로그</title>
+    <style>
+        .log-table {
+            font-size: 0.88rem;
+        }
+        .log-table th {
+            background: #f8f9fa;
+            position: sticky;
+            top: 0;
+            z-index: 1;
+        }
+        .log-table td {
+            vertical-align: middle;
+        }
+        .badge-success {
+            background-color: #198754;
+            color: white;
+        }
+        .badge-fail {
+            background-color: #dc3545;
+            color: white;
+        }
+        .error-detail-cell {
+            max-width: 400px;
+            word-break: break-all;
+        }
+        .error-detail-toggle {
+            cursor: pointer;
+            color: #0d6efd;
+            font-size: 0.8rem;
+        }
+        .error-detail-content {
+            display: none;
+            background: #f8f9fa;
+            padding: 8px 12px;
+            border-radius: 4px;
+            margin-top: 4px;
+            font-size: 0.78rem;
+            max-height: 200px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+            border: 1px solid #dee2e6;
+        }
+        .filter-bar {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+        .summary-mini {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+        .summary-mini .badge {
+            font-size: 0.9rem;
+            padding: 6px 14px;
+        }
+    </style>
+</head>
+<body>
+    <div layout:fragment="content">
+        <div class="d-flex justify-content-between align-items-center mt-3 mb-3">
+            <h3 class="mb-0 text-primary">
+                <i class="bi bi-exclamation-triangle"></i> 수집 실행 로그
+            </h3>
+            <a href="/" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-arrow-left"></i> 대시보드로 돌아가기
+            </a>
+        </div>
+
+        <hr class="mb-3" style="border-top: 1px dotted gray;">
+
+        <!-- 요약 배지 -->
+        <div class="summary-mini">
+            <span class="badge bg-primary" id="logSummaryTotal">전체: -</span>
+            <span class="badge bg-success" id="logSummarySuccess">성공: -</span>
+            <span class="badge bg-danger" id="logSummaryFail">실패: -</span>
+        </div>
+
+        <!-- 필터 바 -->
+        <div class="filter-bar">
+            <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" id="showOnlyFails" checked>
+                <label class="form-check-label" for="showOnlyFails">실패 로그만 보기</label>
+            </div>
+            <button class="btn btn-outline-primary btn-sm" onclick="loadLogs()">
+                <i class="bi bi-arrow-clockwise"></i> 새로고침
+            </button>
+        </div>
+
+        <!-- 로그 테이블 -->
+        <div class="card" style="border: 2px solid #495057; border-radius: 8px;">
+            <div class="card-body p-0">
+                <div style="max-height: 600px; overflow-y: auto;">
+                    <table class="table table-hover log-table mb-0">
+                        <thead>
+                            <tr>
+                                <th style="width: 50px;">#</th>
+                                <th style="width: 140px;">실행 시간</th>
+                                <th style="width: 100px;">쇼핑몰</th>
+                                <th style="width: 70px;">상태</th>
+                                <th style="width: 70px;">주문</th>
+                                <th style="width: 70px;">아이템</th>
+                                <th>오류 메시지</th>
+                            </tr>
+                        </thead>
+                        <tbody id="logTableBody">
+                            <tr>
+                                <td colspan="7" class="text-center text-muted py-4">
+                                    <i class="bi bi-hourglass-split"></i> 로그를 불러오는 중...
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <script>
+        function formatTimestamp(ms) {
+            if (!ms || ms === 0) return '-';
+            var d = new Date(ms);
+            var yyyy = d.getFullYear();
+            var MM = String(d.getMonth() + 1).padStart(2, '0');
+            var dd = String(d.getDate()).padStart(2, '0');
+            var hh = String(d.getHours()).padStart(2, '0');
+            var mm = String(d.getMinutes()).padStart(2, '0');
+            var ss = String(d.getSeconds()).padStart(2, '0');
+            return yyyy + '-' + MM + '-' + dd + ' ' + hh + ':' + mm + ':' + ss;
+        }
+
+        function escapeHtml(text) {
+            if (!text) return '';
+            var div = document.createElement('div');
+            div.appendChild(document.createTextNode(text));
+            return div.innerHTML;
+        }
+
+        function toggleDetail(seq) {
+            var el = document.getElementById('detail_' + seq);
+            if (el) {
+                el.style.display = el.style.display === 'none' ? 'block' : 'none';
+            }
+        }
+
+        function loadLogs() {
+            var showOnlyFails = document.getElementById('showOnlyFails').checked;
+            var url = showOnlyFails ? '/api/collect-logs/failures?limit=100' : '/api/collect-logs?limit=100';
+
+            var xhr = new XMLHttpRequest();
+            xhr.onreadystatechange = function() {
+                if (xhr.readyState === 4 && xhr.status === 200) {
+                    try {
+                        var data = JSON.parse(xhr.responseText);
+                        if (data.success && data.logs) {
+                            renderLogs(data.logs);
+                        } else {
+                            renderEmpty('로그 조회에 실패했습니다.');
+                        }
+                    } catch(e) {
+                        renderEmpty('데이터 파싱 오류');
+                    }
+                }
+            };
+            xhr.open('GET', url, true);
+            xhr.send();
+
+            // 요약도 함께 로드
+            loadSummary();
+        }
+
+        function loadSummary() {
+            var xhr = new XMLHttpRequest();
+            xhr.onreadystatechange = function() {
+                if (xhr.readyState === 4 && xhr.status === 200) {
+                    try {
+                        var data = JSON.parse(xhr.responseText);
+                        if (data.success) {
+                            document.getElementById('logSummaryTotal').textContent = '전체: ' + data.total;
+                            document.getElementById('logSummarySuccess').textContent = '성공: ' + data.successCount;
+                            document.getElementById('logSummaryFail').textContent = '실패: ' + data.failCount;
+                        }
+                    } catch(e) {}
+                }
+            };
+            xhr.open('GET', '/api/collect-logs/summary', true);
+            xhr.send();
+        }
+
+        function renderLogs(logs) {
+            var tbody = document.getElementById('logTableBody');
+            if (!logs || logs.length === 0) {
+                renderEmpty('기록된 로그가 없습니다.');
+                return;
+            }
+
+            var html = '';
+            for (var i = 0; i < logs.length; i++) {
+                var log = logs[i];
+                var statusBadge = log.status === 'SUCCESS'
+                    ? '<span class="badge badge-success">성공</span>'
+                    : '<span class="badge badge-fail">실패</span>';
+
+                var errorCol = '';
+                if (log.error_message) {
+                    errorCol = '<div>' + escapeHtml(log.error_message) + '</div>';
+                    if (log.error_detail) {
+                        errorCol += '<span class="error-detail-toggle" onclick="toggleDetail(' + log.seq + ')">'
+                            + '<i class="bi bi-chevron-down"></i> 상세 보기</span>'
+                            + '<div id="detail_' + log.seq + '" class="error-detail-content">'
+                            + escapeHtml(log.error_detail) + '</div>';
+                    }
+                } else {
+                    errorCol = '<span class="text-muted">-</span>';
+                }
+
+                html += '<tr>'
+                    + '<td>' + log.seq + '</td>'
+                    + '<td>' + formatTimestamp(log.started_at) + '</td>'
+                    + '<td>' + escapeHtml(log.mall_name || '-') + '</td>'
+                    + '<td>' + statusBadge + '</td>'
+                    + '<td>' + (log.order_count || 0) + '</td>'
+                    + '<td>' + (log.item_count || 0) + '</td>'
+                    + '<td class="error-detail-cell">' + errorCol + '</td>'
+                    + '</tr>';
+            }
+            tbody.innerHTML = html;
+        }
+
+        function renderEmpty(message) {
+            var tbody = document.getElementById('logTableBody');
+            tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-4">'
+                + '<i class="bi bi-inbox"></i> ' + escapeHtml(message)
+                + '</td></tr>';
+        }
+
+        // 필터 변경 시 재로드
+        document.getElementById('showOnlyFails').addEventListener('change', function() {
+            loadLogs();
+        });
+
+        // 페이지 로드 시 실행
+        document.addEventListener('DOMContentLoaded', function() {
+            loadLogs();
+        });
+        </script>
+    </div>
+</body>
+</html>

@@ -18,7 +18,7 @@ Jangbogo는 **Custom JRE 번들 + ZIP 배포** 방식을 사용합니다:
 - Custom JRE (jlink로 생성)
 - Jangbogo.bat 실행 스크립트
 - Windows 서비스 설정 파일 (WinSW)
-- 사용설명서 및 사용자 매뉴얼
+- 사용설명서, 설치가이드, 고급가이드 및 사용자 매뉴얼
 
 ---
 
@@ -109,7 +109,8 @@ Jangbogo-distribution/
 │  └─ README.md                      # 서비스 등록 가이드
 ├─ README.md                         # 프로젝트 소개
 ├─ 사용설명서.txt                    # 설치 및 설정 가이드
-└─ 설치가이드.txt                    # 상세 설치 방법
+├─ 설치가이드.txt                    # 상세 설치 방법
+└─ 고급가이드.txt                    # config 폴더 시스템 설정 가이드 (고급 사용자용)
 ```
 
 ---

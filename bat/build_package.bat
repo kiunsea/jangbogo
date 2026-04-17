@@ -35,8 +35,8 @@ echo 예상 소요 시간: 1-2분
 echo ========================================================
 echo.
 
-REM 배포 패키지 빌드
-call gradlew.bat clean bootJar createJre packageDist
+REM 배포 패키지 빌드 (--no-daemon: 데몬 통신 오류 방지)
+call gradlew.bat clean bootJar createJre packageDist --no-daemon
 
 if %ERRORLEVEL% NEQ 0 (
     echo.

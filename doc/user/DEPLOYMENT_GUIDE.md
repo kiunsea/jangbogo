@@ -62,7 +62,8 @@ Jangbogo-distribution/
 │  └─ README.md
 ├─ README.md                         # 프로젝트 소개
 ├─ 사용설명서.txt                    # 설치 및 설정 가이드
-└─ 설치가이드.txt                    # 상세 설치 방법
+├─ 설치가이드.txt                    # 상세 설치 방법
+└─ 고급가이드.txt                    # config 폴더 시스템 설정 가이드 (고급 사용자용)
 ```
 
 **총 용량 (압축 해제 후)**: 약 150-200MB
@@ -200,7 +201,7 @@ taskkill /F /PID [PID번호]
 
 ### 계정 변경 방법
 
-자세한 내용은 압축 해제 폴더의 **`사용설명서.txt`**를 참조하세요.
+자세한 내용은 압축 해제 폴더의 **`사용설명서.txt`** 또는 **`설치가이드.txt`**를 참조하세요. config 폴더 설정은 **`고급가이드.txt`**를 참조하세요.
 
 **방법 1: 환경 변수 사용 (권장)**
 ```powershell
@@ -462,6 +463,8 @@ jangbogo-service.exe uninstall
 - **Spring Boot 설정**: JAR 내장 (`application.yml`)
 - **서비스 설정**: `service/jangbogo-service.xml`
 - **커스텀 배너**: JAR 내장 (`banner.txt`) - JangBoGo ASCII 아트
+
+config 폴더의 각 설정 파일(admin.properties, jbg_config.yml, mall_account.yml, application.yml)에 대한 상세 설명은 압축 해제 폴더의 **`고급가이드.txt`**를 참조하세요.
 
 ### 저장 위치
 

@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.7.0] - 2026-04-17
+
+### Added
+
+- **수집 실행 오류 로그 기능**: `jbg_collect_log` 테이블을 추가해 자동 수집 실행 결과(성공/실패, 오류 메시지)를 기록합니다. 대시보드에 "실행 결과 요약" 카드를 추가하고 별도 "오류 로그" 페이지(`/collect-logs`)에서 실패 내역을 조회할 수 있습니다. `GET /api/collect-logs/summary`, `GET /api/collect-logs/failures`, `GET /api/collect-logs` 엔드포인트를 추가했습니다.
+- **Windows 서비스 통합 설치/제거 스크립트**: `install.bat`, `uninstall.bat`을 신규 추가해 관리자 권한 확인, WinSW 서비스 설치/시작/제거, 바탕화면/시작메뉴 단축아이콘 생성, 트레이 기동까지 원스톱으로 처리합니다.
+- **PowerShell 기반 시스템 트레이**: `Jangbogo-Tray.ps1`을 추가해 대시보드 열기, 서비스 상태 조회, 시작/중지/재시작, 트레이 종료 메뉴를 제공합니다. Spring Boot 미기동 상태에서도 독립 실행됩니다.
+- **JRE 자동 다운로드**: `download-jre.ps1`로 Temurin JRE 21을 자동 다운로드해 번들 JRE가 누락된 환경에서도 실행 가능합니다.
+- **단축아이콘 자동 생성**: `create-shortcuts.ps1`이 바탕화면과 시작 메뉴에 트레이 앱과 대시보드 URL 단축아이콘을 생성합니다.
+- **CLAUDE.md 프로젝트 가이드**: Release/Push 워크플로우, DAO 패턴, 실행 모드, DB 스키마, API 목록 등 프로젝트 운영 가이드를 신규 추가했습니다.
+
+### Changed
+
+- **install.bat / uninstall.bat 전면 영문화**: 배치 파일 텍스트를 영문 기반으로 재작성해 CP949/UTF-8 코드페이지 혼재 시 발생하던 문자 깨짐/파싱 오류를 원천 차단했습니다.
+- **Jangbogo.bat 강화**: JAR 자동 탐지, 시스템 Java 버전 검증(≥21), JRE 자동 다운로드 fallback, 포트 점유 시 다른 포트 입력 프롬프트를 추가했습니다.
+- **install.bat 견고성 강화**: 서비스 `sc query RUNNING` 폴링(최대 20초), 실패 시 `service\logs` 및 `logs\jangbogo.log` 자동 tail, 대시보드 HTTP ready polling(최대 45초), 포트 충돌 사전 감지, JAR 파일명에 맞춘 WinSW XML 자동 동기화 기능을 추가했습니다.
+- **Gradle 빌드 스크립트**: `build_package.bat`에 `--no-daemon` 옵션을 추가해 Gradle 데몬 통신 오류를 방지합니다.
+- **packageDist 태스크 확장**: 새로 추가된 PowerShell 스크립트들을 배포 ZIP에 포함하도록 `build.gradle`의 `packageDist` 태스크를 갱신했습니다.
+- **트레이 메뉴 개편**: `TrayApplication`의 메뉴 구성을 대시보드 / 서비스 재시작 / 서비스 종료 / 종료로 정비했습니다.
+
+### Fixed
+
+- **배치 파일 인코딩 문제**: `install.bat`/`uninstall.bat`이 UTF-8로 저장되어 cmd.exe의 CP949 파싱과 충돌해 `'cho'은(는) 내부 또는 외부 명령...` 형태의 오류를 발생시키던 문제를 해결했습니다.
+
+---
+
 ## [0.6.1] - 2026-02-15
 
 ### Added

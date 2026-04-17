@@ -2,6 +2,7 @@ package com.jiniebox.jangbogo.svc;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jiniebox.jangbogo.dao.JbgCollectLogDataAccessObject;
 import com.jiniebox.jangbogo.dao.JbgItemDataAccessObject;
 import com.jiniebox.jangbogo.dao.JbgMallDataAccessObject;
 import com.jiniebox.jangbogo.dao.JbgOrderDataAccessObject;
@@ -39,12 +40,14 @@ public class MallOrderUpdaterRunner implements Runnable {
 
     // 1. 각 쇼핑몰에서의 주문 내역들을 수집한다.
     // 2. 지니박스 데이터베이스에 저장한다.
+    long startedAt = System.currentTimeMillis();
+    String mallName = null;
     try {
       MallOrderUpdater mou = new MallOrderUpdater();
       JSONArray itemArr = mou.collectItems(this.seqMall, this.mallId, this.mallPw);
 
       JbgMallDataAccessObject jmDao = new JbgMallDataAccessObject();
-      String mallName = jmDao.getName(this.seqMall);
+      mallName = jmDao.getName(this.seqMall);
 
       logger.info("===========================================================================");
       logger.info("쇼핑몰: {} (seq={})", mallName, this.seqMall);
@@ -53,6 +56,9 @@ public class MallOrderUpdaterRunner implements Runnable {
 
       if (itemArr == null || itemArr.isEmpty()) {
         logger.warn("수집된 주문 데이터가 없습니다. 쇼핑몰 seq={}", this.seqMall);
+        // 수집된 데이터가 없어도 성공으로 기록
+        saveCollectLog(
+            Integer.parseInt(this.seqMall), mallName, "SUCCESS", 0, 0, null, null, startedAt);
         return;
       }
 
@@ -236,12 +242,87 @@ public class MallOrderUpdaterRunner implements Runnable {
         logger.info("기존 주문(중복): {}개, 스킵된 주문: {}개", existingOrderCount, skippedOrders);
         logger.info("신규 주문 seq 목록: {}", newOrderSeqs);
         logger.info("===========================================================================");
+
+        // 수집 결과 로그 저장
+        String logStatus = (skippedOrders > 0 && orderCount == 0) ? "FAIL" : "SUCCESS";
+        String logErrorMsg = (skippedOrders > 0) ? "스킵된 주문: " + skippedOrders + "개" : null;
+        saveCollectLog(
+            Integer.parseInt(this.seqMall),
+            mallName,
+            logStatus,
+            orderCount,
+            itemCount,
+            logErrorMsg,
+            null,
+            startedAt);
+
       } catch (Exception e) {
         logger.error("아이템 저장 처리 중 오류 발생: {}", ExceptionUtil.getExceptionInfo(e));
+        saveCollectLog(
+            Integer.parseInt(this.seqMall),
+            mallName,
+            "FAIL",
+            0,
+            0,
+            e.getMessage(),
+            ExceptionUtil.getExceptionInfo(e),
+            startedAt);
       }
 
     } catch (Exception e) {
       logger.error("쇼핑몰 수집 실행 중 오류 발생: {}", ExceptionUtil.getExceptionInfo(e));
+      int seqMallInt = 0;
+      try {
+        seqMallInt = Integer.parseInt(this.seqMall);
+      } catch (NumberFormatException ignore) {
+      }
+      saveCollectLog(
+          seqMallInt,
+          mallName,
+          "FAIL",
+          0,
+          0,
+          e.getMessage(),
+          ExceptionUtil.getExceptionInfo(e),
+          startedAt);
+    }
+  }
+
+  /**
+   * 수집 실행 로그를 DB에 저장
+   *
+   * @param seqMall 쇼핑몰 seq
+   * @param mallName 쇼핑몰 이름
+   * @param status SUCCESS / FAIL
+   * @param orderCount 수집된 주문 수
+   * @param itemCount 수집된 아이템 수
+   * @param errorMessage 오류 메시지
+   * @param errorDetail 상세 오류
+   * @param startedAt 실행 시작 시간
+   */
+  private void saveCollectLog(
+      int seqMall,
+      String mallName,
+      String status,
+      int orderCount,
+      int itemCount,
+      String errorMessage,
+      String errorDetail,
+      long startedAt) {
+    try {
+      JbgCollectLogDataAccessObject logDao = new JbgCollectLogDataAccessObject();
+      logDao.addLog(
+          seqMall,
+          mallName,
+          status,
+          orderCount,
+          itemCount,
+          errorMessage,
+          errorDetail,
+          startedAt,
+          System.currentTimeMillis());
+    } catch (Exception e) {
+      logger.warn("수집 로그 저장 중 오류: {}", e.getMessage());
     }
   }
 

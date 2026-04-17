@@ -49,3 +49,20 @@ CREATE TABLE IF NOT EXISTS jbg_export_config (
   updated_time INTEGER, -- 마지막 업데이트 시간 (millisecond)
   last_export_time INTEGER -- 마지막 파일 저장 시간 (millisecond)
 );
+
+--------------------------------------------------------
+-- 테이블 jbg_collect_log 구조 (수집 실행 로그)
+--------------------------------------------------------
+CREATE TABLE IF NOT EXISTS jbg_collect_log (
+  seq INTEGER PRIMARY KEY AUTOINCREMENT,
+  seq_mall INTEGER NOT NULL,                    -- 쇼핑몰 seq
+  mall_name TEXT,                               -- 쇼핑몰 이름
+  status TEXT NOT NULL DEFAULT 'SUCCESS',       -- SUCCESS / FAIL
+  order_count INTEGER DEFAULT 0,                -- 수집된 주문 수
+  item_count INTEGER DEFAULT 0,                 -- 수집된 아이템 수
+  error_message TEXT,                           -- 오류 메시지 (실패 시)
+  error_detail TEXT,                            -- 상세 오류 (스택트레이스)
+  started_at INTEGER,                           -- 실행 시작 시간 (millisecond)
+  finished_at INTEGER,                          -- 실행 종료 시간 (millisecond)
+  insert_time INTEGER                           -- 등록 시간 (millisecond)
+);

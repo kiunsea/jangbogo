@@ -3,6 +3,7 @@ package com.jiniebox.jangbogo.ctrl;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.jiniebox.jangbogo.dao.JbgCollectLogDataAccessObject;
 import com.jiniebox.jangbogo.dao.JbgMallDataAccessObject;
 import com.jiniebox.jangbogo.dto.JangbogoConfig;
 import com.jiniebox.jangbogo.svc.JangBoGoManager;
@@ -1527,6 +1528,70 @@ public class AdminController {
       logger.error("파일 저장 설정 업데이트 오류", e);
     }
 
+    return response;
+  }
+
+  // ========================================================================
+  // 수집 실행 로그 API
+  // ========================================================================
+
+  /** 수집 실행 결과 요약 조회 GET /api/collect-logs/summary */
+  @GetMapping("/api/collect-logs/summary")
+  @ResponseBody
+  public JsonNode getCollectLogSummary() {
+    ObjectMapper objectMapper = new ObjectMapper();
+    ObjectNode response = objectMapper.createObjectNode();
+    try {
+      JbgCollectLogDataAccessObject logDao = new JbgCollectLogDataAccessObject();
+      org.json.simple.JSONObject summary = logDao.getSummary();
+      response.put("success", true);
+      response.put("total", ((Number) summary.get("total")).intValue());
+      response.put("successCount", ((Number) summary.get("success")).intValue());
+      response.put("failCount", ((Number) summary.get("fail")).intValue());
+    } catch (Exception e) {
+      response.put("success", false);
+      response.put("message", "요약 조회 실패: " + e.getMessage());
+      logger.error("수집 로그 요약 조회 오류", e);
+    }
+    return response;
+  }
+
+  /** 실패 로그 목록 조회 GET /api/collect-logs/failures */
+  @GetMapping("/api/collect-logs/failures")
+  @ResponseBody
+  public JsonNode getCollectLogFailures(
+      @RequestParam(value = "limit", defaultValue = "100") int limit) {
+    ObjectMapper objectMapper = new ObjectMapper();
+    ObjectNode response = objectMapper.createObjectNode();
+    try {
+      JbgCollectLogDataAccessObject logDao = new JbgCollectLogDataAccessObject();
+      org.json.simple.JSONArray logs = logDao.getFailLogs(limit);
+      response.put("success", true);
+      response.set("logs", objectMapper.readTree(logs.toJSONString()));
+    } catch (Exception e) {
+      response.put("success", false);
+      response.put("message", "실패 로그 조회 실패: " + e.getMessage());
+      logger.error("실패 로그 조회 오류", e);
+    }
+    return response;
+  }
+
+  /** 전체 로그 목록 조회 GET /api/collect-logs */
+  @GetMapping("/api/collect-logs")
+  @ResponseBody
+  public JsonNode getCollectLogs(@RequestParam(value = "limit", defaultValue = "100") int limit) {
+    ObjectMapper objectMapper = new ObjectMapper();
+    ObjectNode response = objectMapper.createObjectNode();
+    try {
+      JbgCollectLogDataAccessObject logDao = new JbgCollectLogDataAccessObject();
+      org.json.simple.JSONArray logs = logDao.getAllLogs(limit);
+      response.put("success", true);
+      response.set("logs", objectMapper.readTree(logs.toJSONString()));
+    } catch (Exception e) {
+      response.put("success", false);
+      response.put("message", "로그 조회 실패: " + e.getMessage());
+      logger.error("수집 로그 조회 오류", e);
+    }
     return response;
   }
 

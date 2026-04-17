@@ -33,10 +33,7 @@ public class StartupTasks {
     }
   }
 
-  /**
-   * 애플리케이션 시작 시 스케줄링 대상 쇼핑몰에 대해 1회 수집 실행
-   * (스케줄링 복원 전에 호출됨)
-   */
+  /** 애플리케이션 시작 시 스케줄링 대상 쇼핑몰에 대해 1회 수집 실행 (스케줄링 복원 전에 호출됨) */
   private void runInitialCollection() {
     try {
       logger.info("장보고 애플리케이션 시작 - 1회 수집 실행 중");

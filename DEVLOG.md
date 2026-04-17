@@ -10,6 +10,66 @@
 
 ## 주요 변경사항
 
+### [2026-04-17 14:00] v0.7.0 - 수집 오류 로그 + Windows 서비스 관리 + muse-agent 패턴 이식
+
+#### 작업 개요
+
+v0.6.1 이후 누적된 세 덩어리의 미커밋 변경을 v0.7.0으로 묶어 릴리스합니다.
+1) 자동 수집 실행 결과를 DB에 기록하고 UI에서 조회 가능하게 하는 오류 로그 기능
+2) Windows 서비스 설치/제거를 원스톱으로 처리하는 `install.bat`/`uninstall.bat` 추가
+3) `if-only/muse-agent` 프로젝트의 성공 패턴을 참고해 배포 패키지 구조를 전면 재정렬
+
+#### 배경 및 요구사항
+
+- 자동 수집 실패 원인을 사용자가 대시보드에서 바로 확인할 수 있어야 함
+- Windows 서비스 등록/해제를 수동 CLI 없이 원클릭 처리 필요
+- 기존 `install.bat`이 UTF-8로 저장되어 cmd.exe의 CP949 파싱과 충돌해 `'cho'은(는) 내부 또는 외부 명령...` 같은 오류로 실행 불가 상태 → 인코딩 문제를 근본적으로 제거해야 함
+- 배포 패키지의 견고성/자동화 수준을 muse-agent 수준으로 끌어올려 릴리스 신뢰도를 확보
+
+#### 상세 내용
+
+**1) 수집 실행 오류 로그 기능**
+
+- DB: `schema.sql`에 `jbg_collect_log` 테이블 추가
+- DAO: `JbgCollectLogDataAccessObject` 신규 — `addLog`, `getAllLogs`, `getFailLogs`, `getSummary`
+- 서비스 계층:
+  - `MallOrderUpdaterRunner.run()` — 수집 완료/실패 시 `saveCollectLog()` 호출
+  - `MallSchedulerService.runCollectForMall()` — 검증 실패/예외 시 `saveFailLog()` 호출
+- API: `GET /api/collect-logs/summary`, `/failures`, 전체 조회 3개 엔드포인트
+- UI: `collect-logs.html` 신규 페이지, 대시보드 "실행 결과 요약" 카드, 헤더 "오류 로그" 메뉴
+- `HomeController`에 `/collect-logs` 라우트 추가
+
+**2) Windows 서비스 통합 관리 (muse-agent 패턴 풀 이식)**
+
+- `install.bat` (신규, 영문): 관리자 권한 + JAR 자동 탐지 + Unblock + JRE 자동 다운로드 + XML 자동 동기화 + 기존 프로세스 정리 옵션 + 포트 점유 체크 + 서비스 RUNNING 폴링(20초) + 실패 시 로그 자동 tail + 대시보드 ready polling(45초) + 단축아이콘 생성 + 트레이 기동 + 브라우저 오픈
+- `uninstall.bat` (신규, 100% ASCII): 관리자 권한 + 서비스 stop/uninstall + 프로세스 kill + 단축아이콘 삭제
+- `Jangbogo-Tray.ps1` (신규): `NotifyIcon` 기반, 메뉴(Open Dashboard / Status / Start / Stop / Restart / Exit), 쇼핑카트 아이콘 on-the-fly 생성
+- `create-shortcuts.ps1` (신규): 바탕화면 `Jangbogo Tray.lnk` + `Jangbogo Dashboard.url`, 시작 메뉴 `Jangbogo Tray.lnk`
+- `download-jre.ps1` (신규): Temurin JRE 21 Windows x64 자동 다운로드
+- `Jangbogo.bat` (전면 재작성, 영문): JAR 자동 탐지, 시스템 Java ≥21 검증, JRE fallback, 포트 충돌 시 대체 포트 프롬프트
+
+**3) 빌드 / WinSW XML**
+
+- `build.gradle`: version 0.6.1 → 0.7.0, `packageDist`에 PS1 3종 include 추가
+- `packaging/winsw/jangbogo-service.xml`: JAR 참조 0.6.1 → 0.7.0, `--service` 인자 포함
+- `bat/build_package.bat`: `--no-daemon` 옵션 추가
+
+**4) CLAUDE.md 프로젝트 가이드**
+
+- Release/Push 워크플로우 정의 (자동 버전 bump 기본, 애매할 때만 승인)
+- DAO 패턴, 실행 모드, DB 스키마, API 목록 명문화
+
+**5) .gitignore**
+
+- `.claude/` 추가
+
+#### 검증
+
+- `./gradlew packageDist --no-daemon` 빌드 성공
+- 배포 ZIP 내부 구성 확인: 신규 PS1 3종 + 영문 bat 3종 + JAR + JRE + WinSW XML 포함
+
+---
+
 ### [2026-02-15] 애플리케이션 시작 시 1회 수집 기능 추가
 
 #### 작업 개요

@@ -39,6 +39,45 @@
             transform: translateY(-2px);
             box-shadow: 0 4px 8px rgba(220, 53, 69, 0.3);
         }
+        /* 대시보드 섹션 카드 경계 강화 */
+        .dashboard-section {
+            border: 2px solid #495057;
+            border-radius: 8px;
+            margin-bottom: 1.2rem;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+        .dashboard-section > .card-body:first-child {
+            border-bottom: 2px solid #dee2e6;
+        }
+        .dashboard-section .section-header {
+            background: #f8f9fa;
+            border-bottom: 2px solid #dee2e6;
+            padding: 1rem 1.25rem;
+            border-radius: 6px 6px 0 0;
+        }
+        .dashboard-section .section-header h5 {
+            margin-bottom: 0;
+            font-weight: 700;
+            color: #212529;
+        }
+        /* 실행 결과 요약 카드 */
+        .summary-badge {
+            font-size: 1.5rem;
+            font-weight: 700;
+            display: block;
+            margin-bottom: 0.25rem;
+        }
+        .summary-label {
+            font-size: 0.85rem;
+            color: #6c757d;
+        }
+        .summary-card {
+            text-align: center;
+            padding: 1rem;
+            border-radius: 8px;
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+        }
     </style>
 </head>
 <body>
@@ -62,17 +101,15 @@
         </div>
         
         <hr class="mb-3" style="border-top: 1px dotted gray;">
-        
-        <div id="card" class="card">
-            <div class="card-body">
-                <h5 id="card-title" class="card-title">쇼핑 데이터 수집(자동화)</h5>
-                <p class="card-text">
+
+        <div id="card" class="card dashboard-section">
+            <div class="section-header">
+                <h5 id="card-title">쇼핑 데이터 수집(자동화)</h5>
+                <p class="card-text mb-0 mt-2" style="font-size: 0.9rem; color: #6c757d;">
                     온라인/오프라인 쇼핑몰에서 구매한 상품들을 자동으로 수집하여 저장합니다.<br/>
                     쇼핑몰 계정 정보는 암호화되어 현재 시스템에 저장됩니다.
                 </p>
             </div>
-            
-            <hr class="mb-3" style="border-top: 1px dotted gray;">
 
             <div id="automall_div" class="card-body">
                 <div class="d-flex align-items-center justify-content-between">
@@ -1355,10 +1392,13 @@
                 </script>
             </div>
 
-            <hr class="mb-3" style="border-top: 1px dotted gray;">
+        </div>
 
+        <div id="autosave_card" class="card dashboard-section">
+            <div class="section-header">
+                <h5>구매정보 저장 옵션</h5>
+            </div>
             <div id="autosave_options_div" class="card-body">
-                <h5 class="card-title mb-3">구매정보 저장 옵션</h5>
                 <div class="mb-3">
                     <div class="d-flex align-items-center justify-content-between">
                         <div>
@@ -1541,9 +1581,69 @@
                     </div>
                 </div>
             </div>
-            
         </div>
-        
+
+        <!-- 실행 결과 요약 -->
+        <div id="collect_summary_card" class="card dashboard-section">
+            <div class="section-header">
+                <h5><i class="bi bi-clipboard-data"></i> 실행 결과 요약</h5>
+            </div>
+            <div class="card-body">
+                <div class="row g-3 mb-3">
+                    <div class="col-4">
+                        <div class="summary-card">
+                            <span id="summary_total" class="summary-badge text-primary">-</span>
+                            <span class="summary-label">전체 실행</span>
+                        </div>
+                    </div>
+                    <div class="col-4">
+                        <div class="summary-card" style="background: #e8f5e9;">
+                            <span id="summary_success" class="summary-badge text-success">-</span>
+                            <span class="summary-label">성공</span>
+                        </div>
+                    </div>
+                    <div class="col-4">
+                        <div class="summary-card" style="background: #fce4ec;">
+                            <span id="summary_fail" class="summary-badge text-danger">-</span>
+                            <span class="summary-label">실패</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="d-grid">
+                    <a href="/collect-logs" class="btn btn-outline-danger">
+                        <i class="bi bi-exclamation-triangle"></i> 실행 실패 오류 조회
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <script>
+        // 실행 결과 요약 로드
+        function loadCollectSummary() {
+            var xhr = new XMLHttpRequest();
+            xhr.onreadystatechange = function() {
+                if (xhr.readyState === 4 && xhr.status === 200) {
+                    try {
+                        var data = JSON.parse(xhr.responseText);
+                        if (data.success) {
+                            document.getElementById('summary_total').textContent = data.total;
+                            document.getElementById('summary_success').textContent = data.successCount;
+                            document.getElementById('summary_fail').textContent = data.failCount;
+                        }
+                    } catch(e) {
+                        console.error('요약 데이터 파싱 오류', e);
+                    }
+                }
+            };
+            xhr.open('GET', '/api/collect-logs/summary', true);
+            xhr.send();
+        }
+        // 페이지 로드 시 요약 데이터 호출
+        document.addEventListener('DOMContentLoaded', function() {
+            loadCollectSummary();
+        });
+        </script>
+
     </div>
 </body>
 </html>

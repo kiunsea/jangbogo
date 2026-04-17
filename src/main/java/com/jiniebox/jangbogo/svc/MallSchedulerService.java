@@ -1,7 +1,9 @@
 package com.jiniebox.jangbogo.svc;
 
+import com.jiniebox.jangbogo.dao.JbgCollectLogDataAccessObject;
 import com.jiniebox.jangbogo.dao.JbgMallDataAccessObject;
 import com.jiniebox.jangbogo.dto.MallAccount;
+import com.jiniebox.jangbogo.util.ExceptionUtil;
 import com.jiniebox.jangbogo.util.JinieboxUtil;
 import com.jiniebox.jangbogo.util.StringEncrypter;
 import jakarta.annotation.PreDestroy;
@@ -202,14 +204,25 @@ public class MallSchedulerService {
    * @param seq 쇼핑몰 시퀀스
    */
   private void runCollectForMall(String seq) {
+    long startedAt = System.currentTimeMillis();
+    String mallName = null;
+    int seqInt = 0;
+    try {
+      seqInt = Integer.parseInt(seq);
+    } catch (NumberFormatException ignore) {
+    }
+
     try {
       JbgMallDataAccessObject jaDao = new JbgMallDataAccessObject();
       JSONObject mall = jaDao.getMall(seq);
 
       if (mall == null) {
         logger.warn("쇼핑몰 seq={} DB에서 찾을 수 없음", seq);
+        saveFailLog(seqInt, null, "DB에서 쇼핑몰을 찾을 수 없음 (seq=" + seq + ")", null, startedAt);
         return;
       }
+
+      mallName = str(mall.get("name"));
 
       Integer accountStatus = asInt(mall.get("account_status"));
       if (accountStatus == null || accountStatus != 1) {
@@ -222,12 +235,14 @@ public class MallSchedulerService {
 
       if (JinieboxUtil.isEmpty(encKeyBase64) || JinieboxUtil.isEmpty(encIvBase64)) {
         logger.warn("쇼핑몰 seq={} 암호화 키/IV 누락", seq);
+        saveFailLog(seqInt, mallName, "암호화 키/IV 누락", null, startedAt);
         return;
       }
 
       Optional<MallAccount> accOpt = mallAccountYmlService.getAccountBySeq(seq);
       if (accOpt.isEmpty()) {
         logger.warn("쇼핑몰 seq={} mall_account.yml에 계정 정보 없음", seq);
+        saveFailLog(seqInt, mallName, "mall_account.yml에 계정 정보 없음", null, startedAt);
         return;
       }
 
@@ -236,6 +251,7 @@ public class MallSchedulerService {
 
       if (JinieboxUtil.isEmpty(cipherId) || JinieboxUtil.isEmpty(cipherPw)) {
         logger.warn("쇼핑몰 seq={} mall_account.yml에 아이디/비밀번호 비어있음", seq);
+        saveFailLog(seqInt, mallName, "mall_account.yml에 아이디/비밀번호 비어있음", null, startedAt);
         return;
       }
 
@@ -251,6 +267,7 @@ public class MallSchedulerService {
 
       if (usrid == null || usrpw == null) {
         logger.warn("쇼핑몰 seq={} 계정 복호화 실패", seq);
+        saveFailLog(seqInt, mallName, "계정 복호화 실패", null, startedAt);
         return;
       }
 
@@ -265,6 +282,35 @@ public class MallSchedulerService {
 
     } catch (Exception e) {
       logger.error("쇼핑몰 seq={} 수집 실행 중 오류: {}", seq, e.getMessage(), e);
+      saveFailLog(seqInt, mallName, e.getMessage(), ExceptionUtil.getExceptionInfo(e), startedAt);
+    }
+  }
+
+  /**
+   * 실패 로그를 DB에 저장
+   *
+   * @param seqMall 쇼핑몰 seq
+   * @param mallName 쇼핑몰 이름
+   * @param errorMessage 오류 메시지
+   * @param errorDetail 상세 오류
+   * @param startedAt 실행 시작 시간
+   */
+  private void saveFailLog(
+      int seqMall, String mallName, String errorMessage, String errorDetail, long startedAt) {
+    try {
+      JbgCollectLogDataAccessObject logDao = new JbgCollectLogDataAccessObject();
+      logDao.addLog(
+          seqMall,
+          mallName,
+          "FAIL",
+          0,
+          0,
+          errorMessage,
+          errorDetail,
+          startedAt,
+          System.currentTimeMillis());
+    } catch (Exception e) {
+      logger.warn("실패 로그 저장 중 오류: {}", e.getMessage());
     }
   }
 
