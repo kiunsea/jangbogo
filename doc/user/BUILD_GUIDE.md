@@ -1,4 +1,4 @@
-# Jangbogo 배포 패키지 빌드 가이드
+﻿# Jangbogo 배포 패키지 빌드 가이드
 
 이 문서는 Jangbogo를 **Java 설치 없이 실행 가능한 배포 패키지**로 빌드하는 방법을 설명합니다.
 
@@ -94,7 +94,7 @@ ZIP 파일 내부 구조:
 ```
 Jangbogo-distribution/
 ├─ Jangbogo.bat                      # 실행 스크립트
-├─ jangbogo-0.6.0.jar                # Spring Boot 애플리케이션
+├─ jangbogo-0.8.1.jar                # Spring Boot 애플리케이션
 ├─ jre/                              # Custom Java 21 런타임 (약 50-70MB)
 │  ├─ bin/
 │  │  ├─ java.exe                    # Java 실행 파일

@@ -1,4 +1,23 @@
-# 장보고 배포 가이드
+﻿# 장보고 배포 가이드
+
+## 🚀 원스톱 설치 (v0.7.0+ 권장)
+
+압축 해제한 배포 ZIP 폴더에서 **관리자 권한으로 `install.bat` 실행** 한 번이면:
+
+1. ✅ WinSW 기반 Windows 서비스 등록 + 시작
+2. ✅ 번들 JRE 확인 (없으면 `download-jre.ps1` 로 Temurin JRE 21 자동 다운로드)
+3. ✅ 서비스 XML에 실제 JAR 파일명 자동 동기화 (버전 하드코딩 불필요)
+4. ✅ 포트 8282 점유 사전 감지
+5. ✅ 서비스 `RUNNING` 상태까지 폴링 확인 (실패 시 `service/logs`, `logs/jangbogo.log` 자동 tail)
+6. ✅ 대시보드 http://localhost:8282 ready polling 후 브라우저 자동 오픈
+7. ✅ 바탕화면·시작메뉴에 `Jangbogo Tray`, `Jangbogo Dashboard` 단축아이콘 생성
+8. ✅ PowerShell 기반 트레이 앱 실행 (대시보드 / 서비스 상태·시작·중지·재시작 메뉴)
+
+제거: **관리자 권한으로 `uninstall.bat` 실행** — 서비스 제거 + 단축아이콘 삭제 + 트레이/앱 프로세스 종료. 데이터(`db/`, `logs/`, `exports/`)는 보존.
+
+자세한 수동 빌드/등록 절차는 아래 섹션 참조.
+
+---
 
 ## 목차
 1. [빌드 방법](#빌드-방법)
@@ -47,7 +66,7 @@ build\distributions\Jangbogo-distribution.zip
 ```
 Jangbogo-distribution/
 ├─ Jangbogo.bat                      # 실행 스크립트
-├─ jangbogo-0.6.0.jar                # Spring Boot 애플리케이션
+├─ jangbogo-0.8.1.jar                # Spring Boot 애플리케이션
 ├─ jre/                              # Custom Java 21 런타임 (번들)
 │  ├─ bin/
 │  │  ├─ java.exe
@@ -96,7 +115,7 @@ cd C:\Jangbogo
 
 압축 해제 후 다음 파일들이 있는지 확인:
 - ✅ `Jangbogo.bat`
-- ✅ `jangbogo-0.6.0.jar`
+- ✅ `jangbogo-0.8.1.jar`
 - ✅ `jre\bin\java.exe`
 
 ### 3. 자동 생성 폴더
@@ -281,7 +300,7 @@ jangbogo-service.exe uninstall
   <name>Jangbogo Service</name>
   <description>장보고 구매내역 수집 서비스</description>
   <executable>%BASE%\..\jre\bin\java.exe</executable>
-  <arguments>-Xms256m -Xmx1024m -jar "%BASE%\..\jangbogo-0.6.0.jar"</arguments>
+  <arguments>-Xms256m -Xmx1024m -jar "%BASE%\..\jangbogo-0.8.1.jar"</arguments>
   ...
 </service>
 ```
@@ -429,14 +448,14 @@ jangbogo-service.exe uninstall
 
 `Jangbogo.bat` 파일에서 메모리 설정 변경:
 ```cmd
-"%JAVA_CMD%" -Xms512m -Xmx2048m -jar jangbogo-0.6.0.jar
+"%JAVA_CMD%" -Xms512m -Xmx2048m -jar jangbogo-0.8.1.jar
 ```
 
 **방법 2: 서비스 설정 파일 수정**
 
 `service\jangbogo-service.xml`:
 ```xml
-<arguments>-Xms512m -Xmx2048m -jar "%BASE%\..\jangbogo-0.6.0.jar"</arguments>
+<arguments>-Xms512m -Xmx2048m -jar "%BASE%\..\jangbogo-0.8.1.jar"</arguments>
 ```
 
 ### 9. 웹 드라이버 오류
@@ -479,12 +498,12 @@ config 폴더의 각 설정 파일(admin.properties, jbg_config.yml, mall_accoun
 
 **방법 1: 배너 비활성화**
 ```cmd
-"%JAVA_CMD%" -Dspring.main.banner-mode=off -jar jangbogo-0.6.0.jar
+"%JAVA_CMD%" -Dspring.main.banner-mode=off -jar jangbogo-0.8.1.jar
 ```
 
 **방법 2: 커스텀 배너 파일 사용**
 ```cmd
-"%JAVA_CMD%" -Dspring.banner.location=classpath:custom-banner.txt -jar jangbogo-0.6.0.jar
+"%JAVA_CMD%" -Dspring.banner.location=classpath:custom-banner.txt -jar jangbogo-0.8.1.jar
 ```
 
 **방법 3: 배너 내용 확인**
@@ -499,7 +518,7 @@ config 폴더의 각 설정 파일(admin.properties, jbg_config.yml, mall_accoun
 
 `Jangbogo.bat` 수정:
 ```cmd
-"%JAVA_CMD%" -Dserver.port=9999 -Xms256m -Xmx1024m -jar jangbogo-0.6.0.jar
+"%JAVA_CMD%" -Dserver.port=9999 -Xms256m -Xmx1024m -jar jangbogo-0.8.1.jar
 ```
 
 **방법 2: application.yml 사용**

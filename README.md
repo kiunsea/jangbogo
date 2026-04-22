@@ -1,11 +1,11 @@
-# JANGBOGO (장보고) 🧾🛍️
+﻿# JANGBOGO (장보고) 🧾🛍️
 **온라인 쇼핑몰 구매내역 자동 수집·관리 프로그램**
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 ![Java](https://img.shields.io/badge/backend-Spring%20Boot%20(Java%2021)-orange)
 ![UI](https://img.shields.io/badge/client-Bootstrap%205-7952B3)
 ![Platform](https://img.shields.io/badge/platform-Windows-blue)
-![Status](https://img.shields.io/badge/status-v0.6.1-orange)
+![Status](https://img.shields.io/badge/status-v0.8.1-orange)
 
 **JANGBOGO**는 여러 온라인 쇼핑몰의 **구매내역을 자동으로 수집**하여 **로컬 DB 및 파일(JSON/YAML/CSV)**로 저장하는 프로그램입니다.  
 웹 기반 관리자 화면에서 쇼핑몰 계정 연결, 자동 수집 스케줄 설정, 파일 내보내기 등을 간편하게 관리할 수 있습니다.
@@ -31,12 +31,14 @@
 
 ## ✨ 핵심 기능
 
-- **다중 쇼핑몰 지원**: SSG, 오아시스, 하나로마트 등
+- **다중 쇼핑몰 지원**: SSG, 오아시스, 하나로마트, 이마트 등
 - **자동 수집**: 설정한 주기마다 자동으로 구매내역 수집
-- **다양한 저장 형식**: JSON, CSV, Excel로 내보내기
+- **다양한 저장 형식**: JSON, YAML, CSV로 내보내기
 - **로컬 저장**: 모든 데이터는 사용자 PC에 안전하게 보관
 - **웹 기반 UI**: Bootstrap 5 기반 브라우저 관리 화면
-- **Windows 서비스**: 시스템 시작 시 자동 실행 가능
+- **Windows 서비스**: 시스템 시작 시 자동 실행 가능 (WinSW 기반)
+- **원스톱 설치**(v0.7.0): `install.bat` 한 번으로 서비스 등록 + 트레이 + 단축아이콘 + 대시보드 자동 오픈
+- **수집 실패 상세 진단**(v0.8.0): Selenium 크롤링 실패 시 실패 단계명, 현재 URL, 페이지 타이틀, 타겟 셀렉터, 스크린샷을 자동 기록. `/collect-logs` 페이지의 모달에서 실패 원인을 한 번에 확인 가능
 
 > **중요**: 각 쇼핑몰 **이용약관/robots.txt/개인정보** 관련 규정을 준수하세요. 공식 API가 있을 경우 API 사용을 우선 검토하십시오.
 
@@ -109,12 +111,23 @@ Java 설치 없이 실행 가능한 배포 패키지 빌드:
 빌드 결과물: `build/distributions/Jangbogo-distribution.zip`
 
 **ZIP 파일 내용:**
-- `Jangbogo.bat` - 실행 스크립트
-- `jangbogo-0.6.0.jar` - 애플리케이션
+- `install.bat` / `uninstall.bat` - **Windows 서비스 통합 설치/제거** (관리자 권한 필요, 추천)
+- `Jangbogo.bat` - 단독 실행 스크립트 (서비스 등록 없이 포어그라운드)
+- `Jangbogo-Tray.ps1` - 시스템 트레이 (PowerShell 기반, 대시보드/서비스 상태/시작/중지/재시작)
+- `create-shortcuts.ps1` - 바탕화면/시작메뉴 단축아이콘 생성
+- `download-jre.ps1` - 번들 JRE가 없을 때 Temurin JRE 21 자동 다운로드
+- `jangbogo-0.8.1.jar` - 애플리케이션
 - `jre/` - Java 21 런타임 번들 (JRE 설치 불필요)
-- `service/` - Windows 서비스 설정 파일
-- `사용설명서.txt` - 설치 및 설정 가이드
-- `설치가이드.txt` - 상세 설치 방법
+- `service/` - WinSW 서비스 실행 파일 및 설정
+- `사용설명서.txt` / `설치가이드.txt` / `고급가이드.txt` - 한글 사용자 가이드
+
+### 4) 설치 방법 (배포 ZIP 기준)
+
+1. `Jangbogo-distribution.zip` 압축 해제
+2. **관리자 권한으로 `install.bat` 실행** → 서비스 등록 + 대시보드 자동 오픈
+3. 바탕화면의 `Jangbogo Tray`, `Jangbogo Dashboard` 단축아이콘으로 접근
+
+제거: **관리자 권한으로 `uninstall.bat` 실행** (데이터 `db/`, `logs/`, `exports/` 는 보존)
 
 > 상세한 내용: [배포 가이드](doc/user/DEPLOYMENT_GUIDE.md), [사용자 매뉴얼](doc/user/USER_GUIDE.md)
 

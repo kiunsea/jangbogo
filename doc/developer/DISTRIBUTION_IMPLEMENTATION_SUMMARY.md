@@ -1,4 +1,4 @@
-# Jangbogo 배포 패키지 구현 완료 요약
+﻿# Jangbogo 배포 패키지 구현 완료 요약
 
 ## 구현 개요
 
@@ -231,7 +231,7 @@ jdk.net, jdk.security.auth, jdk.unsupported, jdk.zipfs
    └─ db/, logs/, exports/ 폴더 자동 생성 (실행 시)
 
 3. Spring Boot 실행
-   └─ java -Xms256m -Xmx1024m -jar jangbogo-0.5.0.jar
+   └─ java -Xms256m -Xmx1024m -jar jangbogo-0.8.1.jar
 
 4. JangbogoLauncher.main()
    ├─ 커스텀 배너 표시 (banner.txt)

@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.8.1] - 2026-04-22
+
+### Docs
+
+- **루트 README**: "핵심 기능"에 v0.7.0 원스톱 설치, v0.8.0 수집 실패 상세 진단 항목 추가. 배포 ZIP 내용에 install.bat/uninstall.bat/Jangbogo-Tray.ps1/create-shortcuts.ps1/download-jre.ps1 등 신규 파일 반영. "설치 방법" 섹션 신규 추가 (관리자 권한 install.bat 기본 경로 안내).
+- **사용자/개발자 가이드 버전 문자열 일괄 정정**: README.md, BUILD_GUIDE.md, DEPLOYMENT_GUIDE.md, USER_GUIDE.md, doc/user/README.md, doc/developer/DISTRIBUTION_IMPLEMENTATION_SUMMARY.md 의 `jangbogo-0.5.x.jar` / `0.6.0.jar` / `0.6.1.jar` 참조 및 "v0.5.0", "v0.6.0", "v0.6.1" 서술을 **v0.8.1 / jangbogo-0.8.1.jar 로 통일**.
+- **한글 가이드 정합성**: `packaging/distribution/설치가이드.txt` / `사용설명서.txt` / `고급가이드.txt` / `packaging/distribution/README.md` 의 JAR 파일명과 버전 서술 갱신.
+- **WinSW 설정 동기화**: `packaging/winsw/jangbogo-service.xml` 의 `<arguments>` 내 JAR 파일명을 0.8.0 → 0.8.1 로 갱신. (install.bat 이 실제 JAR 파일명을 감지해 XML을 런타임에 재작성하지만, 소스 정합성 유지 차원)
+
+### Notes
+
+- 기능/API/스키마 변경 없음. v0.8.0 의 동작과 완전히 동일.
+- 배포 산출물 재생성만 필요한 **문서 정합성 patch**.
+
+---
+
 ## [0.8.0] - 2026-04-18
 
 ### Added
