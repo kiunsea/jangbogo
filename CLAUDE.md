@@ -125,49 +125,35 @@ src/main/java/com/jiniebox/jangbogo/
 - `GET /api/collect-logs/failures` - 실패 로그 목록
 - `GET /api/collect-logs` - 전체 로그 목록
 
-## 최근 작업 내역 (v0.6.1 이후 진행 중)
+## 버전 히스토리 요약 (v0.7.0 이후)
 
-### 수집 실행 오류 로그 기능 (구현 완료, 미커밋)
-1. **DB**: `jbg_collect_log` 테이블 추가 (`schema.sql`)
-2. **DAO**: `JbgCollectLogDataAccessObject` 신규 생성 - addLog, getAllLogs, getFailLogs, getSummary
-3. **서비스 계층 로그 기록**:
-   - `MallOrderUpdaterRunner.run()` - 수집 완료/실패 시 `saveCollectLog()` 호출
-   - `MallSchedulerService.runCollectForMall()` - 검증 실패/예외 시 `saveFailLog()` 호출
-4. **API**: AdminController에 3개 엔드포인트 추가 (summary, failures, 전체)
-5. **UI**:
-   - `index.html` - 대시보드 블럭 경계 강화 (`.dashboard-section` CSS), "실행 결과 요약" 카드 추가
-   - `collect-logs.html` - 오류 로그 조회 페이지 신규 생성
-   - `header.html` - "오류 로그" 네비게이션 메뉴 추가
-6. **HomeController**: `/collect-logs` 라우트 추가
+### v0.8.1 (2026-04-22) — docs patch, 태그 없음
+문서 정합성 patch. 기능/API/스키마 변경 없음.
+- 루트 README: v0.7.0 원스톱 설치 + v0.8.0 수집 실패 상세 진단 기능 요약 반영
+- DEPLOYMENT_GUIDE 최상단에 "🚀 원스톱 설치" 섹션 추가
+- 문서 전반의 구 버전 참조(0.5.x/0.6.x) → 0.8.1 일괄 정정
+- `packaging/winsw/jangbogo-service.xml` JAR 파일명 동기화
 
-### Windows 서비스 관리 (구현 완료, 미커밋)
-1. **install.bat / uninstall.bat**: `packaging/distribution/` 에 신규 생성
-   - 관리자 권한 체크, WinSW 서비스 설치/시작/제거
-   - 설치 후 `--install-complete` 모드로 트레이 앱 실행
-2. **TrayApplication 메뉴 변경**: 대시보드, 서비스 재시작(restart), 서비스 종료(stop), 종료
-   - WinSW 경로: `winsw/` → `service/` 로 변경
-3. **jangbogo-service.xml**: JAR 버전 0.5.5 → 0.6.1, `--service` 인자 추가
-4. **build.gradle**: packageDist에 install.bat, uninstall.bat 포함
+### v0.8.0 (2026-04-18) — 수집 실패 상세 진단
+Selenium 크롤링 실패 시 단계명·URL·페이지 타이틀·셀렉터·스크린샷 자동 기록.
+- 신규 클래스:
+  - `svc/CollectException.java` — 실패 컨텍스트 포함 도메인 예외
+  - `svc/util/CollectStep.java` — Selenium 호출 감싸 예외 래핑
+  - `svc/util/ScreenshotUtil.java` — PNG 저장 + 30일 보관 정리
+- DB: `jbg_collect_log` 테이블에 5개 컬럼(step_name/current_url/page_title/target_selector/screenshot_path) 추가 + `StartupTasks.migrateCollectLogSchema()` 자동 ALTER
+- DAO: `JbgCollectLogDataAccessObject.addLog(...)` 확장 시그니처 + `getLog(seq)` 단일 조회
+- 5개 쇼핑몰 크롤러(Ssg/Oasis/Emart/Hanaro) `getItems()` swallow catch 제거 → `CollectStep.call` 로 교체
+- `MallOrderUpdaterRunner`/`MallSchedulerService` catch 블록에서 `CollectException` 언래핑 후 컨텍스트 추출
+- 신규 API: `GET /api/collect-logs/{seq}`, `GET /api/collect-logs/{seq}/screenshot` (경로 탐색 공격 차단)
+- `collect-logs.html` 상세 모달 UI + 쇼핑몰/단계 필터 드롭다운 + 스크린샷 확대 모달
 
-### 빌드 스크립트 수정 (구현 완료, 미커밋)
-- `bat/build_package.bat`: `--no-daemon` 옵션 추가 (Gradle 데몬 통신 오류 방지)
-
-### 변경된 파일 목록
-**수정:**
-- `src/main/resources/schema.sql`
-- `src/main/resources/templates/index.html`
-- `src/main/resources/templates/fragments/header.html`
-- `src/main/java/.../ctrl/AdminController.java`
-- `src/main/java/.../ctrl/HomeController.java`
-- `src/main/java/.../svc/MallOrderUpdaterRunner.java`
-- `src/main/java/.../svc/MallSchedulerService.java`
-- `src/main/java/.../sys/TrayApplication.java`
-- `packaging/winsw/jangbogo-service.xml`
-- `build.gradle`
-- `bat/build_package.bat`
-
-**신규:**
-- `src/main/java/.../dao/JbgCollectLogDataAccessObject.java`
-- `src/main/resources/templates/collect-logs.html`
-- `packaging/distribution/install.bat`
-- `packaging/distribution/uninstall.bat`
+### v0.7.0 (2026-04-17) — 수집 오류 로그 + Windows 서비스 관리 + muse-agent 패턴 이식
+- `jbg_collect_log` 테이블 신규 (수집 실행 이력)
+- `JbgCollectLogDataAccessObject`, AdminController 3개 엔드포인트
+- `collect-logs.html` 페이지, 대시보드 "실행 결과 요약" 카드, 네비 메뉴
+- Windows 서비스 스크립트 세트 (muse-agent 패턴 풀 이식):
+  - `install.bat` — 관리자 권한 + WinSW 등록 + 포트 체크 + RUNNING 폴링 + 로그 tail + 대시보드 ready polling + 단축아이콘 + 트레이 기동
+  - `uninstall.bat` — 100% ASCII 영문
+  - `Jangbogo.bat` — 포트 충돌 프롬프트, JRE 자동 다운로드 fallback
+  - `Jangbogo-Tray.ps1`, `create-shortcuts.ps1`, `download-jre.ps1`
+- `release.yml` 에 `permissions: contents: write` 추가
