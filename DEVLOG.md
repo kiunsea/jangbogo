@@ -10,6 +10,62 @@
 
 ## 주요 변경사항
 
+### [2026-04-18 15:00] v0.8.0 - 수집 실패 상세 진단 기능
+
+#### 작업 개요
+
+쇼핑몰 크롤링이 사이트 구조 변경 등으로 실패할 때, 실패 시점의 컨텍스트(단계명, 현재 URL, 페이지 타이틀, 타겟 셀렉터, 스크린샷)를 자동으로 포착해 DB에 기록하고 UI에서 모달로 상세 확인할 수 있도록 기능을 강화했습니다.
+
+#### 배경
+
+- v0.7.0에 `jbg_collect_log` 테이블과 `/collect-logs` 페이지를 추가했으나, 각 쇼핑몰 크롤러(Ssg/Oasis/Emart/Hanaro)의 `getItems()` 메서드가 내부 try/catch에서 예외를 `log.error`로만 기록하고 빈 배열을 반환하는 패턴이었습니다.
+- 이 때문에 상위 `MallOrderUpdaterRunner`는 "성공(0건 수집)"으로 인식하여 FAIL 로그조차 남기지 않았습니다.
+- 사용자가 "자꾸 실패하는 사이트가 있는 것 같은데 이력이 없다"고 보고한 원인이 바로 이것이었습니다.
+- 또한 설령 FAIL이 기록되어도 스택트레이스만 있어 "어느 단계에서", "어떤 URL에서", "어떤 셀렉터를 찾다가" 실패했는지 알 수 없었습니다.
+
+#### 상세 내용
+
+**1. 신규 유틸 클래스 (`svc/`)**
+- `CollectException`: stepName/currentUrl/pageTitle/targetSelector/screenshotPath + cause를 담는 도메인 예외.
+- `CollectStep`: `CollectStep.call(driver, mallName, "signin", () -> ...)` 형태로 Selenium 작업을 래핑. 예외 발생 시 WebDriver에서 URL/타이틀을 자동 추출하고 스크린샷을 찍어 `CollectException`으로 변환.
+- `ScreenshotUtil`: `logs/screenshots/yyyyMMdd/{mall}-{HHmmss}-{nano}.png` 저장, 30일 이전 폴더 자동 정리.
+
+**2. DB 스키마 마이그레이션**
+- `schema.sql`에 5개 컬럼 추가: step_name, current_url, page_title, target_selector, screenshot_path (모두 TEXT)
+- `StartupTasks.migrateCollectLogSchema()`: 애플리케이션 시작 시 `PRAGMA table_info`로 기존 컬럼 확인 후 없는 것만 `ALTER TABLE ADD COLUMN`. 기존 사용자 데이터 100% 보존.
+
+**3. DAO 확장 (`JbgCollectLogDataAccessObject`)**
+- 확장 시그니처 `addLog(..., stepName, currentUrl, pageTitle, targetSelector, screenshotPath, ...)` 추가.
+- 기존 9파라미터 시그니처는 delegation으로 하위호환.
+- `getLog(seq)` 단일 조회 메서드 추가.
+- `mapRow()`에 `safeGetString()`으로 신규 컬럼이 없어도 안전하게 동작.
+
+**4. 쇼핑몰 크롤러 리팩토링 (Ssg/Oasis/Emart/Hanaro)**
+- `getItems()`의 swallow catch 패턴 제거 → `CollectStep.call/wrap`으로 교체.
+- 로그인 실패(`signin()` false 반환) 시 "로그인 실패 — 자격증명 또는 사이트 구조 변경 가능성" 메시지와 함께 `CollectException` throw.
+- driver.quit()는 여전히 finally에서 수행.
+
+**5. 상위 레이어 수정**
+- `MallOrderUpdaterRunner.run()`: catch 블록에서 `unwrapCollectException()`으로 예외 체인을 거슬러 올라가 `CollectException` 추출 후 컨텍스트 필드를 DAO에 전달.
+- `MallSchedulerService.runCollectForMall()`: 동일 패턴 적용. `saveFailLog()`에는 step="scheduler-precheck" 지정.
+
+**6. API 확장 (`AdminController`)**
+- `GET /api/collect-logs/{seq}`: 단일 로그 상세 조회.
+- `GET /api/collect-logs/{seq}/screenshot`: PNG 스트리밍. `logs/screenshots` 경로 외부 접근 차단(보안).
+
+**7. UI 확장 (`collect-logs.html`)**
+- 테이블에 "실패 단계" 컬럼 추가 (회색 배지로 step_name 표시).
+- 테이블에 "상세" 컬럼 추가 — "보기" 버튼 클릭 시 Bootstrap 모달 오픈.
+- 상세 모달 내용: 실행 시간, 쇼핑몰, 상태, 실패 단계, 현재 URL(클릭 시 새 탭 오픈), 페이지 타이틀, 타겟 셀렉터(코드 스타일), 오류 메시지, 스크린샷 썸네일(클릭 시 확대 모달), 스택트레이스(pre).
+- 필터 바에 쇼핑몰/실패 단계 드롭다운 추가 (클라이언트 사이드 필터링).
+- 스크린샷 확대용 별도 모달(modal-xl).
+
+#### 기대 효과
+
+- 사이트 구조 변경으로 인한 실패를 즉시 인지 가능. 어느 셀렉터를 찾다가 실패했는지 바로 확인.
+- 스크린샷으로 시각적 증거 확보. 로그인 페이지가 바뀐 건지, 중간 페이지가 바뀐 건지 한눈에 파악.
+- 쇼핑몰별/단계별 실패 분포 집계 가능 (예: "하나로마트는 navigatePurchased 단계에서 반복 실패").
+
 ### [2026-04-17 14:00] v0.7.0 - 수집 오류 로그 + Windows 서비스 관리 + muse-agent 패턴 이식
 
 #### 작업 개요

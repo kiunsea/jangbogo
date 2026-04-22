@@ -26,6 +26,7 @@ import org.json.simple.JSONObject;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -1593,6 +1594,69 @@ public class AdminController {
       logger.error("수집 로그 조회 오류", e);
     }
     return response;
+  }
+
+  /** 단일 로그 상세 조회 GET /api/collect-logs/{seq} */
+  @GetMapping("/api/collect-logs/{seq}")
+  @ResponseBody
+  public JsonNode getCollectLogDetail(@PathVariable("seq") int seq) {
+    ObjectMapper objectMapper = new ObjectMapper();
+    ObjectNode response = objectMapper.createObjectNode();
+    try {
+      JbgCollectLogDataAccessObject logDao = new JbgCollectLogDataAccessObject();
+      org.json.simple.JSONObject log = logDao.getLog(seq);
+      if (log == null) {
+        response.put("success", false);
+        response.put("message", "해당 로그를 찾을 수 없습니다 (seq=" + seq + ")");
+        return response;
+      }
+      response.put("success", true);
+      response.set("log", objectMapper.readTree(log.toJSONString()));
+    } catch (Exception e) {
+      response.put("success", false);
+      response.put("message", "로그 상세 조회 실패: " + e.getMessage());
+      logger.error("로그 상세 조회 오류", e);
+    }
+    return response;
+  }
+
+  /** 스크린샷 파일 서빙 GET /api/collect-logs/{seq}/screenshot */
+  @GetMapping("/api/collect-logs/{seq}/screenshot")
+  @ResponseBody
+  public org.springframework.http.ResponseEntity<org.springframework.core.io.Resource>
+      getCollectLogScreenshot(@PathVariable("seq") int seq) {
+    try {
+      JbgCollectLogDataAccessObject logDao = new JbgCollectLogDataAccessObject();
+      org.json.simple.JSONObject log = logDao.getLog(seq);
+      if (log == null) {
+        return org.springframework.http.ResponseEntity.notFound().build();
+      }
+      Object pathObj = log.get("screenshot_path");
+      if (pathObj == null) {
+        return org.springframework.http.ResponseEntity.notFound().build();
+      }
+      String path = pathObj.toString();
+      java.nio.file.Path file = java.nio.file.Path.of(path);
+      // 보안: logs/screenshots 하위 경로만 허용
+      java.nio.file.Path baseAbs =
+          java.nio.file.Path.of("logs/screenshots").toAbsolutePath().normalize();
+      java.nio.file.Path fileAbs = file.toAbsolutePath().normalize();
+      if (!fileAbs.startsWith(baseAbs)) {
+        logger.warn("스크린샷 경로 위반 거부: {}", path);
+        return org.springframework.http.ResponseEntity.status(403).build();
+      }
+      if (!java.nio.file.Files.exists(fileAbs)) {
+        return org.springframework.http.ResponseEntity.notFound().build();
+      }
+      org.springframework.core.io.Resource resource =
+          new org.springframework.core.io.PathResource(fileAbs);
+      return org.springframework.http.ResponseEntity.ok()
+          .contentType(org.springframework.http.MediaType.IMAGE_PNG)
+          .body(resource);
+    } catch (Exception e) {
+      logger.error("스크린샷 조회 오류", e);
+      return org.springframework.http.ResponseEntity.internalServerError().build();
+    }
   }
 
   /** 파일 저장 요청 DTO */

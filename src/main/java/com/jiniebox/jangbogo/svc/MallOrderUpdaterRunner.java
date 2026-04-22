@@ -6,6 +6,7 @@ import com.jiniebox.jangbogo.dao.JbgCollectLogDataAccessObject;
 import com.jiniebox.jangbogo.dao.JbgItemDataAccessObject;
 import com.jiniebox.jangbogo.dao.JbgMallDataAccessObject;
 import com.jiniebox.jangbogo.dao.JbgOrderDataAccessObject;
+// CollectException import (svc 패키지 동일이라 불필요하지만 명시)
 import com.jiniebox.jangbogo.util.ExceptionUtil;
 import com.jiniebox.jangbogo.util.JSONUtil;
 import java.util.ArrayList;
@@ -276,7 +277,10 @@ public class MallOrderUpdaterRunner implements Runnable {
         seqMallInt = Integer.parseInt(this.seqMall);
       } catch (NumberFormatException ignore) {
       }
-      saveCollectLog(
+      // CollectException이면 컨텍스트 추출, 아니면 step="unknown"으로 기록
+      CollectException ce = unwrapCollectException(e);
+      JbgCollectLogDataAccessObject logDao = new JbgCollectLogDataAccessObject();
+      logDao.addLog(
           seqMallInt,
           mallName,
           "FAIL",
@@ -284,8 +288,27 @@ public class MallOrderUpdaterRunner implements Runnable {
           0,
           e.getMessage(),
           ExceptionUtil.getExceptionInfo(e),
-          startedAt);
+          ce != null ? ce.getStepName() : "unknown",
+          ce != null ? ce.getCurrentUrl() : null,
+          ce != null ? ce.getPageTitle() : null,
+          ce != null ? ce.getTargetSelector() : null,
+          ce != null ? ce.getScreenshotPath() : null,
+          startedAt,
+          System.currentTimeMillis());
     }
+  }
+
+  /** 예외 체인을 거슬러 올라가 첫 번째 CollectException을 찾는다. 없으면 null. */
+  private CollectException unwrapCollectException(Throwable t) {
+    Throwable cur = t;
+    int safety = 0;
+    while (cur != null && safety++ < 20) {
+      if (cur instanceof CollectException) {
+        return (CollectException) cur;
+      }
+      cur = cur.getCause();
+    }
+    return null;
   }
 
   /**

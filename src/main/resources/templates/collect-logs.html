@@ -25,33 +25,21 @@
             background-color: #dc3545;
             color: white;
         }
-        .error-detail-cell {
+        .badge-step {
+            background-color: #6c757d;
+            color: white;
+            font-size: 0.72rem;
+        }
+        .error-message-cell {
             max-width: 400px;
             word-break: break-all;
-        }
-        .error-detail-toggle {
-            cursor: pointer;
-            color: #0d6efd;
-            font-size: 0.8rem;
-        }
-        .error-detail-content {
-            display: none;
-            background: #f8f9fa;
-            padding: 8px 12px;
-            border-radius: 4px;
-            margin-top: 4px;
-            font-size: 0.78rem;
-            max-height: 200px;
-            overflow-y: auto;
-            white-space: pre-wrap;
-            word-break: break-all;
-            border: 1px solid #dee2e6;
         }
         .filter-bar {
             display: flex;
             gap: 10px;
             align-items: center;
             margin-bottom: 1rem;
+            flex-wrap: wrap;
         }
         .summary-mini {
             display: flex;
@@ -61,6 +49,53 @@
         .summary-mini .badge {
             font-size: 0.9rem;
             padding: 6px 14px;
+        }
+        .detail-row {
+            display: flex;
+            margin-bottom: 8px;
+        }
+        .detail-label {
+            min-width: 110px;
+            font-weight: 600;
+            color: #495057;
+        }
+        .detail-value {
+            flex: 1;
+            word-break: break-all;
+            color: #212529;
+        }
+        .detail-value.code {
+            font-family: 'Consolas', 'Courier New', monospace;
+            background: #f8f9fa;
+            padding: 4px 8px;
+            border-radius: 4px;
+            border: 1px solid #dee2e6;
+        }
+        pre.stack-trace {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 12px;
+            max-height: 400px;
+            overflow: auto;
+            font-size: 0.78rem;
+            white-space: pre-wrap;
+            word-break: break-all;
+            margin: 0;
+        }
+        .screenshot-thumb {
+            max-width: 100%;
+            max-height: 300px;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            cursor: pointer;
+            display: block;
+        }
+        .modal-screenshot-img {
+            max-width: 100%;
+            max-height: 80vh;
+            display: block;
+            margin: 0 auto;
         }
     </style>
 </head>
@@ -90,6 +125,18 @@
                 <input class="form-check-input" type="checkbox" id="showOnlyFails" checked>
                 <label class="form-check-label" for="showOnlyFails">실패 로그만 보기</label>
             </div>
+            <div>
+                <label for="filterMall" class="me-2 small text-muted">쇼핑몰:</label>
+                <select id="filterMall" class="form-select form-select-sm d-inline-block" style="width: auto;">
+                    <option value="">전체</option>
+                </select>
+            </div>
+            <div>
+                <label for="filterStep" class="me-2 small text-muted">실패 단계:</label>
+                <select id="filterStep" class="form-select form-select-sm d-inline-block" style="width: auto;">
+                    <option value="">전체</option>
+                </select>
+            </div>
             <button class="btn btn-outline-primary btn-sm" onclick="loadLogs()">
                 <i class="bi bi-arrow-clockwise"></i> 새로고침
             </button>
@@ -106,14 +153,16 @@
                                 <th style="width: 140px;">실행 시간</th>
                                 <th style="width: 100px;">쇼핑몰</th>
                                 <th style="width: 70px;">상태</th>
+                                <th style="width: 130px;">실패 단계</th>
                                 <th style="width: 70px;">주문</th>
                                 <th style="width: 70px;">아이템</th>
                                 <th>오류 메시지</th>
+                                <th style="width: 90px;">상세</th>
                             </tr>
                         </thead>
                         <tbody id="logTableBody">
                             <tr>
-                                <td colspan="7" class="text-center text-muted py-4">
+                                <td colspan="9" class="text-center text-muted py-4">
                                     <i class="bi bi-hourglass-split"></i> 로그를 불러오는 중...
                                 </td>
                             </tr>
@@ -123,7 +172,45 @@
             </div>
         </div>
 
+        <!-- 상세 모달 -->
+        <div class="modal fade" id="logDetailModal" tabindex="-1" aria-labelledby="logDetailModalLabel" aria-hidden="true">
+            <div class="modal-dialog modal-xl modal-dialog-scrollable">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="logDetailModalLabel">
+                            <i class="bi bi-bug"></i> 수집 실패 상세
+                        </h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body" id="logDetailBody">
+                        로딩 중...
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">닫기</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 스크린샷 확대 모달 -->
+        <div class="modal fade" id="screenshotModal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-xl modal-dialog-centered">
+                <div class="modal-content">
+                    <div class="modal-header py-2">
+                        <h6 class="modal-title">스크린샷</h6>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body text-center">
+                        <img id="screenshotFull" class="modal-screenshot-img" src="" alt="스크린샷">
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <script>
+        // 현재 로드된 로그 캐시 (모달 표시용)
+        var logsCache = [];
+
         function formatTimestamp(ms) {
             if (!ms || ms === 0) return '-';
             var d = new Date(ms);
@@ -137,22 +224,15 @@
         }
 
         function escapeHtml(text) {
-            if (!text) return '';
+            if (text === null || text === undefined) return '';
             var div = document.createElement('div');
-            div.appendChild(document.createTextNode(text));
+            div.appendChild(document.createTextNode(String(text)));
             return div.innerHTML;
-        }
-
-        function toggleDetail(seq) {
-            var el = document.getElementById('detail_' + seq);
-            if (el) {
-                el.style.display = el.style.display === 'none' ? 'block' : 'none';
-            }
         }
 
         function loadLogs() {
             var showOnlyFails = document.getElementById('showOnlyFails').checked;
-            var url = showOnlyFails ? '/api/collect-logs/failures?limit=100' : '/api/collect-logs?limit=100';
+            var url = showOnlyFails ? '/api/collect-logs/failures?limit=200' : '/api/collect-logs?limit=200';
 
             var xhr = new XMLHttpRequest();
             xhr.onreadystatechange = function() {
@@ -160,7 +240,9 @@
                     try {
                         var data = JSON.parse(xhr.responseText);
                         if (data.success && data.logs) {
-                            renderLogs(data.logs);
+                            logsCache = data.logs;
+                            populateFilterOptions(data.logs);
+                            renderLogs(applyClientFilters(data.logs));
                         } else {
                             renderEmpty('로그 조회에 실패했습니다.');
                         }
@@ -172,8 +254,41 @@
             xhr.open('GET', url, true);
             xhr.send();
 
-            // 요약도 함께 로드
             loadSummary();
+        }
+
+        function applyClientFilters(logs) {
+            var mallFilter = document.getElementById('filterMall').value;
+            var stepFilter = document.getElementById('filterStep').value;
+            return logs.filter(function(log) {
+                if (mallFilter && (log.mall_name || '') !== mallFilter) return false;
+                if (stepFilter && (log.step_name || '') !== stepFilter) return false;
+                return true;
+            });
+        }
+
+        function populateFilterOptions(logs) {
+            var mallSet = {};
+            var stepSet = {};
+            logs.forEach(function(log) {
+                if (log.mall_name) mallSet[log.mall_name] = true;
+                if (log.step_name) stepSet[log.step_name] = true;
+            });
+            populateSelect('filterMall', Object.keys(mallSet).sort());
+            populateSelect('filterStep', Object.keys(stepSet).sort());
+        }
+
+        function populateSelect(id, values) {
+            var sel = document.getElementById(id);
+            var current = sel.value;
+            sel.innerHTML = '<option value="">전체</option>';
+            values.forEach(function(v) {
+                var opt = document.createElement('option');
+                opt.value = v;
+                opt.textContent = v;
+                if (v === current) opt.selected = true;
+                sel.appendChild(opt);
+            });
         }
 
         function loadSummary() {
@@ -208,27 +323,31 @@
                     ? '<span class="badge badge-success">성공</span>'
                     : '<span class="badge badge-fail">실패</span>';
 
-                var errorCol = '';
-                if (log.error_message) {
-                    errorCol = '<div>' + escapeHtml(log.error_message) + '</div>';
-                    if (log.error_detail) {
-                        errorCol += '<span class="error-detail-toggle" onclick="toggleDetail(' + log.seq + ')">'
-                            + '<i class="bi bi-chevron-down"></i> 상세 보기</span>'
-                            + '<div id="detail_' + log.seq + '" class="error-detail-content">'
-                            + escapeHtml(log.error_detail) + '</div>';
-                    }
-                } else {
-                    errorCol = '<span class="text-muted">-</span>';
-                }
+                var stepCol = log.step_name
+                    ? '<span class="badge badge-step">' + escapeHtml(log.step_name) + '</span>'
+                    : '<span class="text-muted">-</span>';
+
+                var errorCol = log.error_message
+                    ? '<div>' + escapeHtml(log.error_message) + '</div>'
+                    : '<span class="text-muted">-</span>';
+
+                var hasDetail = log.error_detail || log.current_url || log.screenshot_path
+                    || log.target_selector || log.page_title;
+                var detailBtn = hasDetail
+                    ? '<button class="btn btn-outline-primary btn-sm" onclick="openDetail(' + log.seq + ')">'
+                        + '<i class="bi bi-search"></i> 보기</button>'
+                    : '<span class="text-muted small">-</span>';
 
                 html += '<tr>'
                     + '<td>' + log.seq + '</td>'
                     + '<td>' + formatTimestamp(log.started_at) + '</td>'
                     + '<td>' + escapeHtml(log.mall_name || '-') + '</td>'
                     + '<td>' + statusBadge + '</td>'
+                    + '<td>' + stepCol + '</td>'
                     + '<td>' + (log.order_count || 0) + '</td>'
                     + '<td>' + (log.item_count || 0) + '</td>'
-                    + '<td class="error-detail-cell">' + errorCol + '</td>'
+                    + '<td class="error-message-cell">' + errorCol + '</td>'
+                    + '<td>' + detailBtn + '</td>'
                     + '</tr>';
             }
             tbody.innerHTML = html;
@@ -236,20 +355,92 @@
 
         function renderEmpty(message) {
             var tbody = document.getElementById('logTableBody');
-            tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-4">'
+            tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-4">'
                 + '<i class="bi bi-inbox"></i> ' + escapeHtml(message)
                 + '</td></tr>';
         }
 
+        function openDetail(seq) {
+            var log = logsCache.find(function(l) { return l.seq === seq; });
+            if (!log) return;
+
+            var body = document.getElementById('logDetailBody');
+            var html = '';
+
+            html += renderDetailRow('실행 시간', formatTimestamp(log.started_at) + ' ~ ' + formatTimestamp(log.finished_at));
+            html += renderDetailRow('쇼핑몰', escapeHtml(log.mall_name || '-') + ' (seq=' + log.seq_mall + ')');
+            html += renderDetailRow('상태', log.status === 'SUCCESS'
+                ? '<span class="badge badge-success">성공</span>'
+                : '<span class="badge badge-fail">실패</span>');
+            html += renderDetailRow('실패 단계', log.step_name
+                ? '<span class="badge badge-step">' + escapeHtml(log.step_name) + '</span>'
+                : '-');
+
+            if (log.current_url) {
+                html += renderDetailRow('현재 URL',
+                    '<a href="' + escapeHtml(log.current_url) + '" target="_blank" rel="noopener">'
+                    + escapeHtml(log.current_url) + ' <i class="bi bi-box-arrow-up-right"></i></a>');
+            }
+            if (log.page_title) {
+                html += renderDetailRow('페이지 타이틀', escapeHtml(log.page_title));
+            }
+            if (log.target_selector) {
+                html += renderDetailRow('타겟 셀렉터',
+                    '<span class="detail-value code">' + escapeHtml(log.target_selector) + '</span>');
+            }
+            if (log.error_message) {
+                html += renderDetailRow('오류 메시지', escapeHtml(log.error_message));
+            }
+
+            // 스크린샷
+            if (log.screenshot_path) {
+                var imgUrl = '/api/collect-logs/' + log.seq + '/screenshot';
+                html += '<hr>';
+                html += '<div><strong>스크린샷</strong> <small class="text-muted">(클릭하면 확대)</small></div>';
+                html += '<div class="mt-2 mb-3">'
+                    + '<img src="' + imgUrl + '" class="screenshot-thumb" alt="스크린샷"'
+                    + ' onclick="openScreenshot(\'' + imgUrl + '\')"'
+                    + ' onerror="this.parentNode.innerHTML=\'<div class=\\\'text-muted\\\'>스크린샷 파일을 찾을 수 없습니다 (' + escapeHtml(log.screenshot_path) + ')</div>\'">'
+                    + '</div>';
+            }
+
+            // 스택트레이스
+            if (log.error_detail) {
+                html += '<hr>';
+                html += '<div><strong>스택트레이스</strong></div>';
+                html += '<pre class="stack-trace mt-2">' + escapeHtml(log.error_detail) + '</pre>';
+            }
+
+            body.innerHTML = html;
+
+            var modal = new bootstrap.Modal(document.getElementById('logDetailModal'));
+            modal.show();
+        }
+
+        function renderDetailRow(label, valueHtml) {
+            return '<div class="detail-row">'
+                + '<div class="detail-label">' + escapeHtml(label) + '</div>'
+                + '<div class="detail-value">' + valueHtml + '</div>'
+                + '</div>';
+        }
+
+        function openScreenshot(url) {
+            document.getElementById('screenshotFull').src = url;
+            var modal = new bootstrap.Modal(document.getElementById('screenshotModal'));
+            modal.show();
+        }
+
         // 필터 변경 시 재로드
-        document.getElementById('showOnlyFails').addEventListener('change', function() {
-            loadLogs();
+        document.getElementById('showOnlyFails').addEventListener('change', loadLogs);
+        document.getElementById('filterMall').addEventListener('change', function() {
+            renderLogs(applyClientFilters(logsCache));
+        });
+        document.getElementById('filterStep').addEventListener('change', function() {
+            renderLogs(applyClientFilters(logsCache));
         });
 
         // 페이지 로드 시 실행
-        document.addEventListener('DOMContentLoaded', function() {
-            loadLogs();
-        });
+        document.addEventListener('DOMContentLoaded', loadLogs);
         </script>
     </div>
 </body>

@@ -62,6 +62,11 @@ CREATE TABLE IF NOT EXISTS jbg_collect_log (
   item_count INTEGER DEFAULT 0,                 -- 수집된 아이템 수
   error_message TEXT,                           -- 오류 메시지 (실패 시)
   error_detail TEXT,                            -- 상세 오류 (스택트레이스)
+  step_name TEXT,                               -- 실패한 단계명 (예: signin, navigatePurchased)
+  current_url TEXT,                             -- 실패 시점 WebDriver의 현재 URL
+  page_title TEXT,                              -- 실패 시점 페이지 타이틀
+  target_selector TEXT,                         -- 실패한 타겟 셀렉터 (있으면)
+  screenshot_path TEXT,                         -- 실패 시점 스크린샷 파일 경로
   started_at INTEGER,                           -- 실행 시작 시간 (millisecond)
   finished_at INTEGER,                          -- 실행 종료 시간 (millisecond)
   insert_time INTEGER                           -- 등록 시간 (millisecond)

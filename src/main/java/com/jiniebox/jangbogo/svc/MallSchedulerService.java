@@ -282,19 +282,41 @@ public class MallSchedulerService {
 
     } catch (Exception e) {
       logger.error("쇼핑몰 seq={} 수집 실행 중 오류: {}", seq, e.getMessage(), e);
-      saveFailLog(seqInt, mallName, e.getMessage(), ExceptionUtil.getExceptionInfo(e), startedAt);
+      // CollectException이면 컨텍스트 추출
+      CollectException ce = unwrapCollectException(e);
+      JbgCollectLogDataAccessObject logDao = new JbgCollectLogDataAccessObject();
+      logDao.addLog(
+          seqInt,
+          mallName,
+          "FAIL",
+          0,
+          0,
+          e.getMessage(),
+          ExceptionUtil.getExceptionInfo(e),
+          ce != null ? ce.getStepName() : "scheduler",
+          ce != null ? ce.getCurrentUrl() : null,
+          ce != null ? ce.getPageTitle() : null,
+          ce != null ? ce.getTargetSelector() : null,
+          ce != null ? ce.getScreenshotPath() : null,
+          startedAt,
+          System.currentTimeMillis());
     }
   }
 
-  /**
-   * 실패 로그를 DB에 저장
-   *
-   * @param seqMall 쇼핑몰 seq
-   * @param mallName 쇼핑몰 이름
-   * @param errorMessage 오류 메시지
-   * @param errorDetail 상세 오류
-   * @param startedAt 실행 시작 시간
-   */
+  /** 예외 체인에서 첫 번째 CollectException 찾기 */
+  private CollectException unwrapCollectException(Throwable t) {
+    Throwable cur = t;
+    int safety = 0;
+    while (cur != null && safety++ < 20) {
+      if (cur instanceof CollectException) {
+        return (CollectException) cur;
+      }
+      cur = cur.getCause();
+    }
+    return null;
+  }
+
+  /** 실패 로그를 DB에 저장 (간단 버전 — step="scheduler-precheck") */
   private void saveFailLog(
       int seqMall, String mallName, String errorMessage, String errorDetail, long startedAt) {
     try {
@@ -307,6 +329,11 @@ public class MallSchedulerService {
           0,
           errorMessage,
           errorDetail,
+          "scheduler-precheck",
+          null,
+          null,
+          null,
+          null,
           startedAt,
           System.currentTimeMillis());
     } catch (Exception e) {

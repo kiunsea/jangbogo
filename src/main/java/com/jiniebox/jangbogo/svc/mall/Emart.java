@@ -2,8 +2,8 @@ package com.jiniebox.jangbogo.svc.mall;
 
 import com.jiniebox.jangbogo.svc.ifc.MallSession;
 import com.jiniebox.jangbogo.svc.ifc.ReceiptCollector;
+import com.jiniebox.jangbogo.svc.util.CollectStep;
 import com.jiniebox.jangbogo.svc.util.WebDriverManager;
-import com.jiniebox.jangbogo.util.ExceptionUtil;
 import com.jiniebox.jangbogo.util.NumberUtil;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -55,20 +55,37 @@ public class Emart extends MallSession implements ReceiptCollector {
     WebDriver driver = wdm.getWebDriver();
 
     try {
-      if (driver != null && this.signin(driver)) {
-
-        this.delayTime(1500);
-
-        /** 데이터 수집 */
-        resArr = this.navigateReceipt(driver);
-
-        // 마무리
-        this.signout(driver);
+      if (driver == null) {
+        throw CollectStep.wrap(
+            null, "EMART", "init-webdriver", null, new IllegalStateException("WebDriver 생성 실패"));
       }
-    } catch (Exception e) {
-      logger.error(ExceptionUtil.getExceptionInfo(e));
+      boolean signedIn = CollectStep.call(driver, "EMART", "signin", () -> this.signin(driver));
+      if (!signedIn) {
+        throw CollectStep.wrap(
+            driver,
+            "EMART",
+            "signin",
+            null,
+            new IllegalStateException("로그인 실패 — 자격증명 또는 사이트 구조 변경 가능성"));
+      }
+
+      this.delayTime(1500);
+
+      /** 데이터 수집 */
+      resArr =
+          CollectStep.call(driver, "EMART", "navigateReceipt", () -> this.navigateReceipt(driver));
+
+      // 마무리
+      try {
+        this.signout(driver);
+      } catch (Exception ignore) {
+        logger.warn("Emart 로그아웃 중 오류(무시): {}", ignore.getMessage());
+      }
     } finally {
-      driver.quit();
+      try {
+        if (driver != null) driver.quit();
+      } catch (Exception ignore) {
+      }
     }
 
     if (resArr == null) {

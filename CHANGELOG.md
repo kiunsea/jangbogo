@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.8.0] - 2026-04-18
+
+### Added
+
+- **수집 실패 상세 진단 기능**: 쇼핑몰 크롤링 실패 시 실패 단계명, 현재 URL, 페이지 타이틀, 타겟 셀렉터, 스크린샷을 자동으로 기록합니다. 사이트 구조 변경으로 인한 탐색 실패를 정확히 식별할 수 있습니다.
+- **CollectException + CollectStep 유틸리티**: Selenium 작업을 감싸 예외 발생 시 컨텍스트를 자동으로 포착해 상위로 전파합니다. 기존처럼 `log.error`로 삼킨 뒤 빈 결과를 리턴하던 패턴을 제거하여, 모든 수집 실패가 `jbg_collect_log`에 FAIL 상태로 기록됩니다.
+- **ScreenshotUtil**: 실패 시점 WebDriver 화면을 `logs/screenshots/yyyyMMdd/{mall}-{timestamp}.png`로 저장하고, 30일 이전 폴더를 자동 정리합니다.
+- **수집 로그 상세 모달**: `/collect-logs` 페이지에 "보기" 버튼을 추가했습니다. 클릭 시 단계명/URL/타이틀/셀렉터/스크린샷 썸네일(클릭 시 확대)/전체 스택트레이스를 모달로 표시합니다.
+- **실패 단계 필터**: 수집 로그 화면에 쇼핑몰 드롭다운과 실패 단계 드롭다운을 추가했습니다. "어느 쇼핑몰의 어떤 단계에서 자주 실패하는지" 빠르게 파악할 수 있습니다.
+- **스크린샷 서빙 API**: `GET /api/collect-logs/{seq}/screenshot` — 로그 seq로 해당 실패 시점 PNG를 스트리밍합니다. `logs/screenshots` 경로 밖의 파일 접근은 차단됩니다.
+- **단일 로그 조회 API**: `GET /api/collect-logs/{seq}` — 특정 실행의 전체 컨텍스트 조회.
+
+### Changed
+
+- **`jbg_collect_log` 스키마 확장**: `step_name`, `current_url`, `page_title`, `target_selector`, `screenshot_path` 5개 컬럼 추가. 기존 사용자는 애플리케이션 시작 시 `StartupTasks`가 자동으로 `ALTER TABLE ADD COLUMN`을 수행해 데이터 보존된 채 마이그레이션됩니다.
+- **쇼핑몰 크롤러 리팩토링** (Ssg/Oasis/Emart/Hanaro): `getItems()` 메서드의 try/catch가 예외를 삼키지 않고 `CollectException`으로 래핑해 전파합니다. 로그인 실패/네비게이션 실패 시 즉시 FAIL 로그가 기록됩니다.
+- **MallOrderUpdaterRunner / MallSchedulerService**: catch 블록에서 `CollectException` 여부를 확인하여 컨텍스트 필드를 추출해 DAO에 전달합니다.
+- **JbgCollectLogDataAccessObject**: 확장 시그니처 `addLog(...)` 추가 (13개 파라미터). 기존 9개 파라미터 시그니처는 delegation으로 하위호환 유지.
+
+### Fixed
+
+- **수집 실패 시 이력 누락 문제**: 사이트 구조 변경 등으로 Selenium이 다음 단계로 진행하지 못해도, 기존에는 `getItems()` 내부에서 예외를 삼키고 빈 배열을 반환해 상위 runner가 "성공"으로 인식 → `jbg_collect_log`에 FAIL 로그가 남지 않던 버그를 해결했습니다. 이제 모든 수집 실패가 상세 컨텍스트와 함께 기록됩니다.
+
+---
+
 ## [0.7.0] - 2026-04-17
 
 ### Added

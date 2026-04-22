@@ -2,8 +2,8 @@ package com.jiniebox.jangbogo.svc.mall;
 
 import com.jiniebox.jangbogo.svc.ifc.MallSession;
 import com.jiniebox.jangbogo.svc.ifc.PurchasedCollector;
+import com.jiniebox.jangbogo.svc.util.CollectStep;
 import com.jiniebox.jangbogo.svc.util.WebDriverManager;
-import com.jiniebox.jangbogo.util.ExceptionUtil;
 import java.util.Iterator;
 import java.util.List;
 import org.apache.logging.log4j.LogManager;
@@ -47,20 +47,39 @@ public class Ssg extends MallSession implements PurchasedCollector {
     WebDriver driver = wdm.getWebDriver();
 
     try {
-      if (driver != null && this.signin(driver)) {
-
-        this.delayTime(1500);
-
-        /** 데이터 수집 */
-        resArr = this.navigatePurchased(driver);
-
-        // 마무리
-        this.signout(driver);
+      if (driver == null) {
+        throw CollectStep.wrap(
+            null, "SSG", "init-webdriver", null, new IllegalStateException("WebDriver 생성 실패"));
       }
-    } catch (Exception e) {
-      log.error(ExceptionUtil.getExceptionInfo(e));
+      boolean signedIn = CollectStep.call(driver, "SSG", "signin", () -> this.signin(driver));
+      if (!signedIn) {
+        throw CollectStep.wrap(
+            driver,
+            "SSG",
+            "signin",
+            null,
+            new IllegalStateException("로그인 실패 — 자격증명 또는 사이트 구조 변경 가능성"));
+      }
+
+      this.delayTime(1500);
+
+      /** 데이터 수집 */
+      resArr =
+          CollectStep.call(
+              driver, "SSG", "navigatePurchased", () -> this.navigatePurchased(driver));
+
+      // 마무리
+      try {
+        this.signout(driver);
+      } catch (Exception ignore) {
+        // 로그아웃 실패는 수집 결과에 영향 없음
+        log.warn("SSG 로그아웃 중 오류(무시): {}", ignore.getMessage());
+      }
     } finally {
-      driver.quit();
+      try {
+        if (driver != null) driver.quit();
+      } catch (Exception ignore) {
+      }
     }
 
     if (resArr == null) {
