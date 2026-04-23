@@ -4,7 +4,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.jiniebox.jangbogo.dao.JbgCollectLogDataAccessObject;
+import com.jiniebox.jangbogo.dao.JbgItemDataAccessObject;
 import com.jiniebox.jangbogo.dao.JbgMallDataAccessObject;
+import com.jiniebox.jangbogo.dao.JbgOrderDataAccessObject;
 import com.jiniebox.jangbogo.dto.JangbogoConfig;
 import com.jiniebox.jangbogo.svc.JangBoGoManager;
 import com.jiniebox.jangbogo.svc.MallAccountYmlService;
@@ -1657,6 +1659,105 @@ public class AdminController {
       logger.error("스크린샷 조회 오류", e);
       return org.springframework.http.ResponseEntity.internalServerError().build();
     }
+  }
+
+  /**
+   * 구매 주문 목록 조회 GET /api/orders?limit=200&mall=&dateFrom=YYYYMMDD&dateTo=YYYYMMDD 각 주문마다 아이템 배열을
+   * 포함해 반환합니다.
+   */
+  @GetMapping("/api/orders")
+  @ResponseBody
+  public JsonNode getOrders(
+      @RequestParam(value = "limit", defaultValue = "200") int limit,
+      @RequestParam(value = "mall", required = false) String mall,
+      @RequestParam(value = "dateFrom", required = false) Integer dateFrom,
+      @RequestParam(value = "dateTo", required = false) Integer dateTo) {
+    ObjectMapper objectMapper = new ObjectMapper();
+    ObjectNode response = objectMapper.createObjectNode();
+    try {
+      JbgOrderDataAccessObject orderDao = new JbgOrderDataAccessObject();
+      JbgItemDataAccessObject itemDao = new JbgItemDataAccessObject();
+
+      List<JSONObject> orders = orderDao.getAllOrders(limit);
+      org.json.simple.JSONArray resultArray = new org.json.simple.JSONArray();
+      if (orders != null) {
+        for (JSONObject order : orders) {
+          // 서버 사이드 필터 (쇼핑몰/기간)
+          if (mall != null && !mall.isEmpty()) {
+            Object mallName = order.get("mall_name");
+            if (mallName == null || !mall.equals(mallName.toString())) continue;
+          }
+          if (dateFrom != null || dateTo != null) {
+            Object dtObj = order.get("date_time");
+            int dt = dtObj == null ? 0 : Integer.parseInt(dtObj.toString());
+            if (dateFrom != null && dt < dateFrom) continue;
+            if (dateTo != null && dt > dateTo) continue;
+          }
+
+          List<JSONObject> items = itemDao.getItemsByOrder(order.get("seq").toString());
+          JSONObject enriched = new JSONObject();
+          enriched.putAll(order);
+          org.json.simple.JSONArray itemArr = new org.json.simple.JSONArray();
+          if (items != null) itemArr.addAll(items);
+          enriched.put("items", itemArr);
+          enriched.put("item_count", items == null ? 0 : items.size());
+          resultArray.add(enriched);
+        }
+      }
+      response.put("success", true);
+      response.set("orders", objectMapper.readTree(resultArray.toJSONString()));
+    } catch (Exception e) {
+      response.put("success", false);
+      response.put("message", "주문 조회 실패: " + e.getMessage());
+      logger.error("주문 목록 조회 오류", e);
+    }
+    return response;
+  }
+
+  /** 단일 주문 + 아이템 상세 조회 GET /api/orders/{seq} */
+  @GetMapping("/api/orders/{seq}")
+  @ResponseBody
+  public JsonNode getOrderDetail(@PathVariable("seq") int seq) {
+    ObjectMapper objectMapper = new ObjectMapper();
+    ObjectNode response = objectMapper.createObjectNode();
+    try {
+      JbgOrderDataAccessObject orderDao = new JbgOrderDataAccessObject();
+      JbgItemDataAccessObject itemDao = new JbgItemDataAccessObject();
+
+      // getAllOrders 로 전체 조회 후 해당 seq 선택 (간단 구현, 주문 건수가 많지 않음)
+      List<JSONObject> orders = orderDao.getAllOrders(0);
+      JSONObject target = null;
+      if (orders != null) {
+        for (JSONObject o : orders) {
+          Object s = o.get("seq");
+          if (s != null && Integer.parseInt(s.toString()) == seq) {
+            target = o;
+            break;
+          }
+        }
+      }
+      if (target == null) {
+        response.put("success", false);
+        response.put("message", "해당 주문을 찾을 수 없습니다 (seq=" + seq + ")");
+        return response;
+      }
+
+      List<JSONObject> items = itemDao.getItemsByOrder(String.valueOf(seq));
+      JSONObject enriched = new JSONObject();
+      enriched.putAll(target);
+      org.json.simple.JSONArray itemArr = new org.json.simple.JSONArray();
+      if (items != null) itemArr.addAll(items);
+      enriched.put("items", itemArr);
+      enriched.put("item_count", items == null ? 0 : items.size());
+
+      response.put("success", true);
+      response.set("order", objectMapper.readTree(enriched.toJSONString()));
+    } catch (Exception e) {
+      response.put("success", false);
+      response.put("message", "주문 상세 조회 실패: " + e.getMessage());
+      logger.error("주문 상세 조회 오류", e);
+    }
+    return response;
   }
 
   /** 파일 저장 요청 DTO */

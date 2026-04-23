@@ -60,6 +60,13 @@
             </li>
             <li class="nav-item">
                 <a class="nav-link"
+                   th:classappend="${activePage == 'orders'} ? 'active' : ''"
+                   href="/orders">
+                    <i class="bi bi-bag-check"></i> 구매 내역
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link"
                    th:classappend="${activePage == 'collect-logs'} ? 'active' : ''"
                    href="/collect-logs">
                     <i class="bi bi-exclamation-triangle"></i> 오류 로그

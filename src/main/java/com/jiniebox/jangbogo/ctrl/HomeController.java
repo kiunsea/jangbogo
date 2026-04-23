@@ -76,6 +76,13 @@ public class HomeController {
     return "collect-logs";
   }
 
+  /** 구매 내역 조회 페이지 */
+  @GetMapping("/orders")
+  public String orders(Model model) {
+    model.addAttribute("activePage", "orders");
+    return "orders";
+  }
+
   /** 로그인 페이지 Interceptor 제외 경로이므로 내부에서 세션 체크 수행 */
   @GetMapping("/signin")
   public String signin(HttpSession session) {

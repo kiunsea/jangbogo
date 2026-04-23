@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org"
+      xmlns:layout="http://www.ultraq.net.nz/thymeleaf/layout"
+      layout:decorate="~{layout}">
+<head>
+    <title layout:title-pattern="$DECORATOR_TITLE - $CONTENT_TITLE">구매 내역</title>
+    <style>
+        .orders-table {
+            font-size: 0.88rem;
+        }
+        .orders-table th {
+            background: #f8f9fa;
+            position: sticky;
+            top: 0;
+            z-index: 1;
+        }
+        .orders-table td {
+            vertical-align: middle;
+        }
+        .filter-bar {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
+        }
+        .summary-mini {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+        .summary-mini .badge {
+            font-size: 0.9rem;
+            padding: 6px 14px;
+        }
+        .detail-row {
+            display: flex;
+            margin-bottom: 8px;
+        }
+        .detail-label {
+            min-width: 110px;
+            font-weight: 600;
+            color: #495057;
+        }
+        .detail-value {
+            flex: 1;
+            word-break: break-all;
+            color: #212529;
+        }
+        .items-table {
+            font-size: 0.85rem;
+        }
+        .items-table th {
+            background: #f8f9fa;
+        }
+        .badge-mall {
+            background-color: #0d6efd;
+            color: white;
+            font-size: 0.75rem;
+        }
+    </style>
+</head>
+<body>
+    <div layout:fragment="content">
+        <div class="d-flex justify-content-between align-items-center mt-3 mb-3">
+            <h3 class="mb-0 text-primary">
+                <i class="bi bi-bag-check"></i> 구매 내역
+            </h3>
+            <a href="/" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-arrow-left"></i> 대시보드로 돌아가기
+            </a>
+        </div>
+
+        <hr class="mb-3" style="border-top: 1px dotted gray;">
+
+        <!-- 요약 배지 -->
+        <div class="summary-mini">
+            <span class="badge bg-primary" id="ordersSummaryTotal">주문: -</span>
+            <span class="badge bg-info text-dark" id="ordersSummaryItems">아이템: -</span>
+        </div>
+
+        <!-- 필터 바 -->
+        <div class="filter-bar">
+            <div>
+                <label for="filterMall" class="me-2 small text-muted">쇼핑몰:</label>
+                <select id="filterMall" class="form-select form-select-sm d-inline-block" style="width: auto;">
+                    <option value="">전체</option>
+                </select>
+            </div>
+            <div>
+                <label for="filterLimit" class="me-2 small text-muted">최대 건수:</label>
+                <select id="filterLimit" class="form-select form-select-sm d-inline-block" style="width: auto;">
+                    <option value="100">100</option>
+                    <option value="200" selected>200</option>
+                    <option value="500">500</option>
+                    <option value="1000">1000</option>
+                </select>
+            </div>
+            <button class="btn btn-outline-primary btn-sm" onclick="loadOrders()">
+                <i class="bi bi-arrow-clockwise"></i> 새로고침
+            </button>
+        </div>
+
+        <!-- 주문 테이블 -->
+        <div class="card" style="border: 2px solid #495057; border-radius: 8px;">
+            <div class="card-body p-0">
+                <div style="max-height: 600px; overflow-y: auto;">
+                    <table class="table table-hover orders-table mb-0">
+                        <thead>
+                            <tr>
+                                <th style="width: 60px;">#</th>
+                                <th style="width: 110px;">구매일자</th>
+                                <th style="width: 110px;">쇼핑몰</th>
+                                <th>주문번호</th>
+                                <th style="width: 80px;">아이템수</th>
+                                <th style="width: 140px;">등록시간</th>
+                                <th style="width: 90px;">상세</th>
+                            </tr>
+                        </thead>
+                        <tbody id="orderTableBody">
+                            <tr>
+                                <td colspan="7" class="text-center text-muted py-4">
+                                    <i class="bi bi-hourglass-split"></i> 주문을 불러오는 중...
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- 상세 모달 -->
+        <div class="modal fade" id="orderDetailModal" tabindex="-1" aria-labelledby="orderDetailModalLabel" aria-hidden="true">
+            <div class="modal-dialog modal-xl modal-dialog-scrollable">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="orderDetailModalLabel">
+                            <i class="bi bi-receipt"></i> 주문 상세
+                        </h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body" id="orderDetailBody">
+                        로딩 중...
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">닫기</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <script>
+        var ordersCache = [];
+
+        function formatDateInt(dateInt) {
+            if (!dateInt || dateInt === 0) return '-';
+            var s = String(dateInt);
+            if (s.length === 8) {
+                return s.substring(0, 4) + '-' + s.substring(4, 6) + '-' + s.substring(6, 8);
+            }
+            return s;
+        }
+
+        function formatTimestamp(ms) {
+            if (!ms || ms === 0) return '-';
+            var d = new Date(ms);
+            var yyyy = d.getFullYear();
+            var MM = String(d.getMonth() + 1).padStart(2, '0');
+            var dd = String(d.getDate()).padStart(2, '0');
+            var hh = String(d.getHours()).padStart(2, '0');
+            var mm = String(d.getMinutes()).padStart(2, '0');
+            var ss = String(d.getSeconds()).padStart(2, '0');
+            return yyyy + '-' + MM + '-' + dd + ' ' + hh + ':' + mm + ':' + ss;
+        }
+
+        function escapeHtml(text) {
+            if (text === null || text === undefined) return '';
+            var div = document.createElement('div');
+            div.appendChild(document.createTextNode(String(text)));
+            return div.innerHTML;
+        }
+
+        function loadOrders() {
+            var limit = document.getElementById('filterLimit').value;
+            var mall = document.getElementById('filterMall').value;
+            var url = '/api/orders?limit=' + encodeURIComponent(limit);
+            if (mall) url += '&mall=' + encodeURIComponent(mall);
+
+            var xhr = new XMLHttpRequest();
+            xhr.onreadystatechange = function() {
+                if (xhr.readyState === 4 && xhr.status === 200) {
+                    try {
+                        var data = JSON.parse(xhr.responseText);
+                        if (data.success && data.orders) {
+                            ordersCache = data.orders;
+                            populateMallFilter(data.orders);
+                            renderOrders(data.orders);
+                            renderSummary(data.orders);
+                        } else {
+                            renderEmpty(data.message || '주문 조회에 실패했습니다.');
+                        }
+                    } catch(e) {
+                        renderEmpty('데이터 파싱 오류');
+                    }
+                }
+            };
+            xhr.open('GET', url, true);
+            xhr.send();
+        }
+
+        function populateMallFilter(orders) {
+            var mallSet = {};
+            orders.forEach(function(o) {
+                if (o.mall_name) mallSet[o.mall_name] = true;
+            });
+            var sel = document.getElementById('filterMall');
+            var current = sel.value;
+            sel.innerHTML = '<option value="">전체</option>';
+            Object.keys(mallSet).sort().forEach(function(v) {
+                var opt = document.createElement('option');
+                opt.value = v;
+                opt.textContent = v;
+                if (v === current) opt.selected = true;
+                sel.appendChild(opt);
+            });
+        }
+
+        function renderSummary(orders) {
+            var totalItems = 0;
+            orders.forEach(function(o) {
+                totalItems += (o.item_count || 0);
+            });
+            document.getElementById('ordersSummaryTotal').textContent = '주문: ' + orders.length;
+            document.getElementById('ordersSummaryItems').textContent = '아이템: ' + totalItems;
+        }
+
+        function renderOrders(orders) {
+            var tbody = document.getElementById('orderTableBody');
+            if (!orders || orders.length === 0) {
+                renderEmpty('조회된 주문이 없습니다.');
+                return;
+            }
+
+            var html = '';
+            for (var i = 0; i < orders.length; i++) {
+                var o = orders[i];
+                html += '<tr>'
+                    + '<td>' + o.seq + '</td>'
+                    + '<td>' + formatDateInt(o.date_time) + '</td>'
+                    + '<td><span class="badge badge-mall">' + escapeHtml(o.mall_name || '-') + '</span></td>'
+                    + '<td>' + escapeHtml(o.serial_num || '-') + '</td>'
+                    + '<td>' + (o.item_count || 0) + '</td>'
+                    + '<td>' + formatTimestamp(o.insert_time) + '</td>'
+                    + '<td><button class="btn btn-outline-primary btn-sm" onclick="openDetail(' + o.seq + ')">'
+                    + '<i class="bi bi-search"></i> 보기</button></td>'
+                    + '</tr>';
+            }
+            tbody.innerHTML = html;
+        }
+
+        function renderEmpty(message) {
+            var tbody = document.getElementById('orderTableBody');
+            tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-4">'
+                + '<i class="bi bi-inbox"></i> ' + escapeHtml(message)
+                + '</td></tr>';
+        }
+
+        function openDetail(seq) {
+            var order = ordersCache.find(function(o) { return o.seq === seq; });
+            if (!order) return;
+
+            var body = document.getElementById('orderDetailBody');
+            var html = '';
+
+            html += renderDetailRow('주문 seq', order.seq);
+            html += renderDetailRow('구매일자', formatDateInt(order.date_time));
+            html += renderDetailRow('쇼핑몰', escapeHtml(order.mall_name || '-')
+                + ' <span class="text-muted small">(seq=' + order.seq_mall + ')</span>');
+            html += renderDetailRow('주문번호', escapeHtml(order.serial_num || '-'));
+            html += renderDetailRow('등록시간', formatTimestamp(order.insert_time));
+            html += renderDetailRow('아이템 개수', order.item_count || 0);
+
+            html += '<hr>';
+            html += '<div class="mb-2"><strong>아이템 목록</strong></div>';
+
+            var items = order.items || [];
+            if (items.length === 0) {
+                html += '<div class="text-muted">등록된 아이템이 없습니다.</div>';
+            } else {
+                html += '<div class="table-responsive">'
+                    + '<table class="table table-sm items-table">'
+                    + '<thead><tr>'
+                    + '<th style="width: 60px;">#</th>'
+                    + '<th>아이템명</th>'
+                    + '<th style="width: 100px;">수량</th>'
+                    + '<th style="width: 160px;">등록시간</th>'
+                    + '</tr></thead><tbody>';
+                for (var i = 0; i < items.length; i++) {
+                    var it = items[i];
+                    html += '<tr>'
+                        + '<td>' + it.seq + '</td>'
+                        + '<td>' + escapeHtml(it.name || '-') + '</td>'
+                        + '<td>' + escapeHtml(it.qty || '-') + '</td>'
+                        + '<td>' + formatTimestamp(it.insert_time) + '</td>'
+                        + '</tr>';
+                }
+                html += '</tbody></table></div>';
+            }
+
+            body.innerHTML = html;
+
+            var modal = new bootstrap.Modal(document.getElementById('orderDetailModal'));
+            modal.show();
+        }
+
+        function renderDetailRow(label, valueHtml) {
+            return '<div class="detail-row">'
+                + '<div class="detail-label">' + escapeHtml(label) + '</div>'
+                + '<div class="detail-value">' + valueHtml + '</div>'
+                + '</div>';
+        }
+
+        document.getElementById('filterMall').addEventListener('change', loadOrders);
+        document.getElementById('filterLimit').addEventListener('change', loadOrders);
+
+        document.addEventListener('DOMContentLoaded', loadOrders);
+        </script>
+    </div>
+</body>
+</html>

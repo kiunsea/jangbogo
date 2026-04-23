@@ -10,6 +10,50 @@
 
 ## 주요 변경사항
 
+### [2026-04-23 16:00] v0.10.0 - 구매 내역 조회 UI 추가
+
+#### 작업 개요
+
+수집된 주문/아이템 데이터를 웹 UI 에서 직접 열람할 수 있는 `/orders` 페이지를 신규 추가. SESSION_HANDOFF 의 후속 작업 후보 #5 (수집 데이터 브라우저 조회 UI) 착수. 기존에는 파일 내보내기(`/export/orders`) 경로로만 데이터 접근이 가능했고 웹 UI 는 없었음.
+
+#### 배경
+
+- 초기 v0.7.0 논의 단계에서 거론되었으나, 실제 사용자 요구는 "수집 실패 진단" 이었음이 확인되어 v0.8.0 에서 `/collect-logs` 기능으로 방향 전환 → 조회 UI 는 SESSION_HANDOFF 보류 항목으로 유지.
+- 이번 세션에서 2·3·4·5 번 후속 작업을 연속 진행하며 재개.
+- DAO (`JbgOrderDataAccessObject.getAllOrders`, `JbgItemDataAccessObject.getItemsByOrder`) 와 서비스 레이어의 order+item 조인 패턴(`ExportService.collectOrderData`) 이 이미 존재해 조회 API 는 얇게 구현 가능했음.
+
+#### 상세 내용
+
+**1. 신규 API (`AdminController`)**
+- `GET /api/orders?limit=N&mall=X&dateFrom=YYYYMMDD&dateTo=YYYYMMDD`
+  - `JbgOrderDataAccessObject.getAllOrders(limit)` 조회 후, 각 주문에 대해 `JbgItemDataAccessObject.getItemsByOrder(seq)` 를 호출해 `items` 배열과 `item_count` 를 enrich.
+  - 쇼핑몰(`mall_name`) / 기간(`date_time`) 서버 사이드 필터 지원.
+- `GET /api/orders/{seq}` — 단일 주문 상세.
+
+**2. 신규 페이지 (`/orders`)**
+- `HomeController.orders()` 라우트, `activePage=orders`.
+- `templates/orders.html` 신규 — `collect-logs.html` 구조 기반:
+  - Bootstrap 5 테이블 + 필터 바(쇼핑몰 드롭다운, 최대 건수 선택) + 새로고침 버튼.
+  - 요약 배지: 조회된 주문 수, 누적 아이템 수.
+  - 상세 모달: 주문 메타데이터 + 아이템 테이블(아이템명/수량/등록시간).
+  - 날짜 포매팅: `date_time` (INTEGER YYYYMMDD) → `YYYY-MM-DD` 변환, `insert_time` (millisecond epoch) → 로컬 타임스탬프.
+
+**3. 네비게이션**
+- `fragments/header.html` 에 "구매 내역" 메뉴(`bi-bag-check` 아이콘) 추가. 순서: 대시보드 / 구매 내역 / 오류 로그 / 계정 설정.
+
+#### 검증
+
+- `./gradlew compileJava` → BUILD SUCCESSFUL.
+- `./gradlew spotlessApply` → 포맷 적용 완료.
+- 기존 `/export/orders` 경로에 변화 없음 — 새 UI 는 읽기 전용으로 완전히 분리됨.
+
+#### 메모
+
+- 단일 주문 상세(`GET /api/orders/{seq}`) 는 현재 `getAllOrders(0)` 후 순회하는 간단 구현. 주문 건수가 수만 건 이상으로 늘어나면 `JbgOrderDataAccessObject` 에 `getOrder(seq)` 메서드를 추가해 교체 예정. 현 규모에서는 과잉 최적화로 판단.
+- 페이지네이션은 현재 "최대 건수 select" (100/200/500/1000) 로만 제공. 향후 필요 시 커서 기반 무한 스크롤 또는 페이지 번호 방식 추가 가능.
+
+---
+
 ### [2026-04-23 14:00] v0.9.1 - packaging/scripts/ 유물 폴더 제거
 
 #### 작업 개요

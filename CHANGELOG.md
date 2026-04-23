@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.10.0] - 2026-04-23
+
+### Added
+
+- **구매 내역 조회 페이지 (`/orders`)**: 수집된 주문(`jbg_order`)과 해당 아이템(`jbg_item`)을 웹 UI 에서 직접 열람할 수 있습니다. 기존에는 파일 내보내기(export) 경로로만 접근 가능했던 데이터를 대시보드 네비에서 바로 확인할 수 있습니다.
+  - 테이블 컬럼: 주문 seq / 구매일자 / 쇼핑몰 / 주문번호 / 아이템 수 / 등록시간 / 상세.
+  - 필터: 쇼핑몰 드롭다운(수집된 쇼핑몰만 자동 채움), 최대 건수(100/200/500/1000).
+  - 상세 모달: 주문 메타데이터 + 아이템 목록(아이템명/수량/등록시간) 테이블.
+  - 요약 배지: 현재 조건으로 조회된 주문 수와 누적 아이템 수.
+- **구매 내역 조회 API** (`AdminController`):
+  - `GET /api/orders?limit=N&mall=X&dateFrom=YYYYMMDD&dateTo=YYYYMMDD` — 주문 목록 + 각 주문의 아이템 배열을 포함해 반환. 서버 사이드 필터 지원.
+  - `GET /api/orders/{seq}` — 단일 주문 + 아이템 상세 조회.
+- **네비게이션 메뉴 "구매 내역" 추가**: `fragments/header.html` 의 네비 바에 "대시보드 / 구매 내역 / 오류 로그 / 계정 설정" 순서로 배치.
+
+### Notes
+
+- DAO / 스키마 변경 없음. `JbgOrderDataAccessObject.getAllOrders()` + `JbgItemDataAccessObject.getItemsByOrder()` 기존 메서드 조합으로 구현.
+- 기존 파일 내보내기 경로(`/export/orders`) 는 그대로 유지. 새 페이지는 읽기 전용 조회 용도.
+
+---
+
 ## [0.9.1] - 2026-04-23
 
 ### Removed
