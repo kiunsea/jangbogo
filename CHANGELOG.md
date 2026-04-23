@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.9.1] - 2026-04-23
+
+### Removed
+
+- **`packaging/scripts/` 폴더 제거**: `post-install.bat`, `pre-uninstall.bat`, `Jangbogo.bat`(v0.5.5 JAR 참조) 3개 파일 모두 jpackage 시도 실패 시절(→ Custom JRE + ZIP 배포로 전환) 유물이었습니다. `packageDist` 태스크 어디에서도 참조되지 않으며, `post-install.bat` 이 호출하던 `jangbogo.exe --install-complete` 는 v0.9.0 에서 Java 트레이와 함께 이미 제거된 상태라 실행 자체가 불가능했습니다.
+- **`.gitignore` 의 `!packaging/scripts/*` 예외 규칙 제거**: 대상 디렉터리가 사라졌으므로 화이트리스트 라인도 정리.
+
+### Notes
+
+- 소스 코드/스키마/API 변경 없음. 배포 ZIP (`packageDist`) 산출물 구조 및 `install.bat` / WinSW / PowerShell 트레이 동작 모두 동일합니다.
+- 태그/릴리스 발행 없음 (cleanup patch, 사용자 영향 제로).
+
+---
+
 ## [0.9.0] - 2026-04-23
 
 ### Removed

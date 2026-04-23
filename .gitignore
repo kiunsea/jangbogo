@@ -75,7 +75,6 @@ packaging/windows/jangbogo.ico
 !packaging/winsw/*.xml
 !packaging/winsw/README.md
 !packaging/distribution/*
-!packaging/scripts/*
 !packaging/windows/ICON_README.md
 
 ### Temporary Files ###

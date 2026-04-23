@@ -10,6 +10,39 @@
 
 ## 주요 변경사항
 
+### [2026-04-23 14:00] v0.9.1 - packaging/scripts/ 유물 폴더 제거
+
+#### 작업 개요
+
+v0.9.0 세션에서 후속 cleanup 태스크로 미뤄둔 `packaging/scripts/` 폴더를 정리. 구성 파일 3개 모두 jpackage 시도 실패 시절 유물이었음을 재확인하고 전체 삭제.
+
+#### 배경
+
+- v0.9.0 DEVLOG 메모 섹션 및 SESSION_HANDOFF 의 후속 작업 후보 #2 로 명시되어 있던 항목.
+- `build.gradle`(138~163행)의 `packageDist` 태스크는 `packaging/distribution/` 과 `packaging/winsw/` 만 ZIP 에 포함 — `packaging/scripts/` 는 참조하지 않음.
+- `post-install.bat` 은 `jangbogo.exe --install-complete` 를 호출하는데, 해당 플래그는 v0.9.0 에서 Java 트레이와 함께 제거됨. `jangbogo.exe` 산출물도 jpackage 시절 산물이라 현재는 생성되지 않음.
+- `pre-uninstall.bat` 은 동일한 `jangbogo.exe` 프로세스를 종료하는 로직이라 마찬가지로 무효.
+- `Jangbogo.bat` 은 `jangbogo-0.5.5.jar` 을 참조하는 v0.5.5 시절 스크립트. 현재 배포 ZIP 에는 `packaging/distribution/Jangbogo.bat` 이 버전 자동 감지 로직과 함께 들어감.
+
+#### 상세 내용
+
+1. **폴더 삭제**: `packaging/scripts/` 전체 제거 (`post-install.bat`, `pre-uninstall.bat`, `Jangbogo.bat`).
+2. **.gitignore 정리**: 78행 `!packaging/scripts/*` 화이트리스트 예외 제거 (대상 디렉터리 사라짐).
+3. **DISTRIBUTION_IMPLEMENTATION_SUMMARY.md 점검**: `packaging/scripts` 언급 없음 — 수정 불필요.
+4. **버전 bump**: 0.9.0 → 0.9.1 (patch, 사용자 영향 제로).
+
+#### 검증
+
+- `packageDist` 태스크 정의 재확인: `from('packaging/distribution')`, `from('packaging/winsw')` 만 참조 → 배포 ZIP 구조 변동 없음.
+- 저장소 전체에서 `packaging/scripts` 또는 `packaging\\scripts` grep → 문서(DEVLOG/SESSION_HANDOFF) 내 과거 참조 언급만 남고 실행 경로 참조 0건.
+
+#### 메모
+
+- 태그/릴리스 발행하지 않음 (cleanup patch 원칙).
+- SESSION_HANDOFF 후속 작업 후보 #2 항목은 다음 세션 핸드오프 갱신 시 "완료" 로 정리 예정.
+
+---
+
 ### [2026-04-23 09:00] v0.9.0 - 트레이 이중화 정리 + 배포 가이드 재구성
 
 #### 작업 개요
