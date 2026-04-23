@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.9.0] - 2026-04-23
+
+### Removed
+
+- **Java 기반 트레이 애플리케이션 제거**: `src/main/java/.../sys/TrayApplication.java` 삭제. 배포 경로(`install.bat`)는 v0.7.0부터 PowerShell `Jangbogo-Tray.ps1` 만 사용해 왔으며, Java 트레이는 실제로 호출되지 않는 죽은 코드 상태였습니다.
+- **`--tray` / `--install-complete` 실행 플래그 제거**: `JangbogoLauncher` 에서 해당 모드 분기와 관련 메서드를 제거했습니다. 배포 산출물에서 이 플래그를 호출하는 스크립트는 없으므로 외부 영향 없음.
+
+### Changed
+
+- **`JangbogoLauncher` 단순화**: `ExecutionMode` 열거형을 `SERVICE` / `NORMAL` 두 값으로 축소. `--service` (WinSW용)와 인자 없음(개발 모드)만 지원합니다.
+- **DEPLOYMENT_GUIDE 본문 재구성**: 목차를 "🚀 표준 (원스톱 설치)" / "🔧 고급·수동 절차" / "🚨 문제 해결" 3부로 분리. 기존 "설치 방법/실행 방법/Windows 서비스 등록/제거 방법" 섹션을 "수동 ~" 로 개명하고 각 섹션 상단에 "원스톱 `install.bat` 이 이 작업을 자동화합니다" 안내 블록을 추가해 고급 참고자료 성격을 명확히 했습니다. 하단 버전 표시 0.6.0 → 0.8.1 → 0.9.0 로 갱신.
+- **CLAUDE.md 실행 모드 섹션 갱신**: 제거된 플래그 서술 삭제, PowerShell 트레이 위임 사실 명시. `sys/` 패키지 설명에서 `TrayApplication` 제거.
+
+### Notes
+
+- 스키마/API 변경 없음. 기존 설치본은 그대로 동작하며, `install.bat` / WinSW / PowerShell 트레이 경로에 영향 없음.
+- 배포 ZIP (`packageDist`) 산출물 구조 동일.
+
+---
+
 ## [0.8.1] - 2026-04-22
 
 ### Docs

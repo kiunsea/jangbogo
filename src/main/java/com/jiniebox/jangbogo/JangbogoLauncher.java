@@ -1,27 +1,25 @@
 package com.jiniebox.jangbogo;
 
-import com.jiniebox.jangbogo.sys.TrayApplication;
 import com.jiniebox.jangbogo.util.BrowserLauncher;
 import java.util.Arrays;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.SpringApplication;
-import org.springframework.context.ConfigurableApplicationContext;
 
 /**
  * Jangbogo 애플리케이션 런처 실행 모드에 따라 다른 동작을 수행합니다.
  *
- * <p>실행 모드: - --service: 서비스 모드 (브라우저 자동 실행 안 함, 트레이 아이콘 없음) - --tray: 트레이 모드 (브라우저 자동 실행 + 트레이
- * 아이콘) - --install-complete: 설치 완료 모드 (브라우저 자동 실행 + 트레이 아이콘) - 인자 없음: 일반 실행 (개발 모드, 브라우저 자동 실행)
+ * <p>실행 모드: - --service: 서비스 모드 (WinSW 등 OS 서비스가 기동, 브라우저 자동 실행 안 함) - 인자 없음: 일반 실행 (개발 모드, 브라우저 자동
+ * 실행)
+ *
+ * <p>배포 경로의 트레이 UI는 PowerShell 스크립트(`Jangbogo-Tray.ps1`)가 담당하므로 Java 기반 트레이/설치완료 모드는 제공하지 않습니다.
  */
 public class JangbogoLauncher {
 
   private static final Logger logger = LoggerFactory.getLogger(JangbogoLauncher.class);
 
   private static final String MODE_SERVICE = "--service";
-  private static final String MODE_TRAY = "--tray";
-  private static final String MODE_INSTALL_COMPLETE = "--install-complete";
 
   public static void main(String[] args) {
     // Spring Boot 시작 전에 필요한 디렉토리 생성 (로깅 시스템 초기화 전)
@@ -37,12 +35,6 @@ public class JangbogoLauncher {
     switch (mode) {
       case SERVICE:
         launchServiceMode(args);
-        break;
-      case TRAY:
-        launchTrayMode(args);
-        break;
-      case INSTALL_COMPLETE:
-        launchInstallCompleteMode(args);
         break;
       case NORMAL:
       default:
@@ -71,10 +63,6 @@ public class JangbogoLauncher {
 
     if (argList.contains(MODE_SERVICE)) {
       return ExecutionMode.SERVICE;
-    } else if (argList.contains(MODE_TRAY)) {
-      return ExecutionMode.TRAY;
-    } else if (argList.contains(MODE_INSTALL_COMPLETE)) {
-      return ExecutionMode.INSTALL_COMPLETE;
     } else {
       return ExecutionMode.NORMAL;
     }
@@ -89,48 +77,6 @@ public class JangbogoLauncher {
     SpringApplication.run(JangbogoApplication.class, filteredArgs);
 
     logger.info("서비스 모드 실행 완료");
-  }
-
-  /** 트레이 모드로 실행 (사용자가 직접 실행) - Spring Boot 애플리케이션 시작 - 트레이 아이콘 표시 - 브라우저 자동 실행 */
-  private static void launchTrayMode(String[] args) {
-    logger.info("트레이 모드로 실행 - 브라우저 자동 실행 + 트레이 아이콘");
-
-    // 트레이 아이콘 초기화
-    TrayApplication.initialize();
-
-    // Spring Boot 애플리케이션 시작
-    String[] filteredArgs = filterModeArguments(args);
-    ConfigurableApplicationContext context =
-        SpringApplication.run(JangbogoApplication.class, filteredArgs);
-
-    // 브라우저 자동 실행
-    BrowserLauncher.launchWhenReady();
-
-    logger.info("트레이 모드 실행 완료");
-  }
-
-  /** 설치 완료 모드로 실행 - 트레이 아이콘만 표시 - 브라우저 자동 실행 - Spring Boot는 이미 서비스로 실행 중이므로 시작하지 않음 */
-  private static void launchInstallCompleteMode(String[] args) {
-    logger.info("설치 완료 모드로 실행 - 트레이 아이콘 + 브라우저 자동 실행");
-
-    try {
-      // 트레이 아이콘 초기화
-      TrayApplication.initialize();
-
-      // 서버가 시작될 때까지 대기 후 브라우저 실행
-      BrowserLauncher.launchWhenReady();
-
-      logger.info("설치 완료 모드 실행 완료 - 트레이 애플리케이션 대기 중");
-
-      // 트레이 애플리케이션이 종료될 때까지 대기
-      Thread.currentThread().join();
-
-    } catch (InterruptedException e) {
-      logger.warn("트레이 애플리케이션 대기 중 인터럽트 발생", e);
-      Thread.currentThread().interrupt();
-    } catch (Exception e) {
-      logger.error("설치 완료 모드 실행 중 오류", e);
-    }
   }
 
   /** 일반 모드로 실행 (개발 모드) - Spring Boot 애플리케이션 시작 - 브라우저 자동 실행 */
@@ -148,20 +94,12 @@ public class JangbogoLauncher {
 
   /** 모드 인자를 제거한 나머지 인자를 반환합니다. */
   private static String[] filterModeArguments(String[] args) {
-    return Arrays.stream(args)
-        .filter(
-            arg ->
-                !arg.equals(MODE_SERVICE)
-                    && !arg.equals(MODE_TRAY)
-                    && !arg.equals(MODE_INSTALL_COMPLETE))
-        .toArray(String[]::new);
+    return Arrays.stream(args).filter(arg -> !arg.equals(MODE_SERVICE)).toArray(String[]::new);
   }
 
   /** 실행 모드 열거형 */
   private enum ExecutionMode {
     SERVICE, // 서비스 모드 (백그라운드)
-    TRAY, // 트레이 모드 (사용자 실행)
-    INSTALL_COMPLETE, // 설치 완료 모드
     NORMAL // 일반 모드 (개발)
   }
 }

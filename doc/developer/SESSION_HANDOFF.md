@@ -1,7 +1,7 @@
 # Jangbogo — 다음 세션 핸드오프
 
 > 이 문서는 **직전 세션의 상태를 다음 세션 Claude가 빠르게 파악**하기 위한 스냅샷입니다.
-> 마지막 갱신: **2026-04-22 (end of session)**
+> 마지막 갱신: **2026-04-23 (v0.9.0 push 직후)**
 
 ---
 
@@ -10,17 +10,15 @@
 | 항목 | 값 |
 |---|---|
 | **브랜치** | `main` |
-| **HEAD 커밋** | `5ed6aa7 docs: v0.7.0/v0.8.0 기능 반영 + 버전 정합성 patch (0.8.1)` |
-| **빌드 버전** | `0.8.1` (build.gradle) |
+| **빌드 버전** | `0.9.0` (build.gradle) |
 | **최근 태그** | `v0.8.0` (배포된 최종 릴리즈) |
-| **v0.8.1 태그/릴리즈** | ❌ **아직 없음** (main 에만 push, 배포 가치 낮은 docs patch) |
+| **v0.8.1 / v0.9.0 태그/릴리즈** | ❌ **없음** (둘 다 main 에만 push — docs patch / 죽은코드 제거) |
 | **uncommitted** | 없음 (clean) |
-| **CI 최근 결과** | ✅ success (Build + CI, 3m10s, run 24806927705) |
 
 **빠른 검증 명령**:
 ```bash
 git status                           # clean 이어야 함
-git log --oneline -3                 # 5ed6aa7 이 HEAD
+git log --oneline -5                 # v0.9.0 커밋이 HEAD
 ./gradlew compileJava                # 컴파일 통과 확인
 ```
 
@@ -32,32 +30,27 @@ git log --oneline -3                 # 5ed6aa7 이 HEAD
 - v0.7.0 릴리즈 — 수집 오류 로그 + Windows 서비스 관리 세트 + muse-agent 패턴
 - v0.8.0 릴리즈 — 수집 실패 상세 진단 (CollectException/CollectStep/ScreenshotUtil, schema migration, UI 모달)
 - v0.8.1 docs patch — 문서 전반의 버전 정합성 + v0.7.0/v0.8.0 기능 반영 **(태그는 미생성)**
+- v0.9.0 minor — Java TrayApplication + `--tray` / `--install-complete` 플래그 제거(실제 배포 경로 미사용) + DEPLOYMENT_GUIDE 3부 구성(원스톱/고급/문제해결) **(태그는 미생성, main 에만 push)**
 
 ### ⏳ 후속 작업 후보 (우선순위순)
 
-#### 1. v0.8.1 릴리즈 태그 생성 여부 결정
-- 현재 main에 `0.8.1` 버전이 들어가 있지만 릴리즈 태그 없음
-- **이유**: docs-only patch라 배포 ZIP 내용상 큰 차이 없음. 생략 또는 `v0.8.1` 경량 태그 중 선택
-- **권장**: 다음 기능 작업을 v0.9.0 으로 바로 가고 0.8.1 은 태그 생략
+#### 1. 수집 데이터 브라우저 조회 UI (세션 진행 중)
+- `jbg_order` / `jbg_item` 목록 · 상세 페이지. 내보내기 경로 외에 웹 UI 없음.
+- 이 세션에서 바로 이어서 착수하기로 한 작업.
 
-#### 2. Eclipse 로컬 설정 오염 재발 방지
-- 이 세션에서 `.project`, `.settings/`, `.classpath`, `bin/` 등 Eclipse 잔재를 삭제했음 (모두 untracked 였음)
-- `.gitignore` 에 이미 해당 패턴이 있으므로 git에 다시 들어갈 일은 없음
-- 참고: `.settings/org.eclipse.buildship.core.prefs` 가 Cursor의 Red Hat Java 확장에 의해 오염될 수 있다는 이슈가 관찰됨 → Eclipse 재 import 시 재발 여부 모니터링
+#### 2. `packaging/scripts/` 폴더 정리
+- `post-install.bat` / `pre-uninstall.bat` 은 jpackage 시도 실패(→ ZIP 배포로 전환) 시절 유물.
+- `Jangbogo.bat` 은 v0.5.5 JAR 을 참조하는 옛 버전 (배포 ZIP 에는 `packaging/distribution/Jangbogo.bat` 이 들어감).
+- `build.gradle` 의 `packageDist` 어디에서도 참조되지 않음 — 전체 폴더 삭제 안전.
+- 별도 cleanup 태스크로 분리됨.
 
-#### 3. DEPLOYMENT_GUIDE.md 본문 정제 (낮은 우선순위)
-- 최상단에 "🚀 원스톱 설치" 섹션을 새로 추가했으나, 본문 뒷부분은 여전히 v0.6.x 시절 수동 WinSW 등록 절차 중심
-- 현재는 **참고자료 성격**으로만 유지. 추후 재작성 시 "🚀 원스톱 설치가 표준, 아래는 고급/문제해결용" 으로 재구성 권장
+#### 3. Eclipse 로컬 설정 오염 재발 방지 (모니터링만)
+- `.gitignore` 는 `.project` / `.settings/` / `.classpath` / `bin/` 를 정상 무시 중.
+- `.settings/org.eclipse.buildship.core.prefs` 의 `arguments=` 라인이 Cursor 의 Red Hat Java 확장에 의해 절대 경로로 오염되는 이슈가 과거 관찰됨 → 현재 세션 확인 시점엔 비어 있음 (OK).
 
-#### 4. 트레이 앱 이중화 정리 (낮은 우선순위)
-- v0.7.0에서 `Jangbogo-Tray.ps1` (PowerShell 기반, 배포 기본) 도입
-- 기존 `src/main/java/.../sys/TrayApplication.java` (Java 기반)는 **보존 상태**로 남음 (`--install-complete`, `--tray` 모드용)
-- 실제 배포 경로에서는 PS1 이 사용되므로 Java TrayApplication 제거 가능하나, 회귀 리스크 고려해 다음 릴리즈까지 유예
-
-#### 5. 수집 데이터 브라우저 조회 UI (미착수, 기획 보류)
-- 초기에 논의됐던 "쇼핑몰에서 수집된 주문/아이템 브라우저 조회 페이지"는 **사용자가 실제로 원한 것은 수집 실패 진단**이었음이 판명되어 보류
-- `jbg_order`, `jbg_item` 테이블을 조회하는 목록/상세 페이지는 내보내기(export) 경로에만 존재하고 UI는 없음
-- 향후 기능 요청 시 재개 가능
+#### 4. DEPLOYMENT_GUIDE 후속 정제 (선택)
+- v0.9.0 에서 "🚀 표준 / 🔧 고급 / 🚨 문제해결" 3부로 재구성 완료.
+- 세부 수동 절차 중 일부 (예: 관리자 계정 설정의 방법 3) 는 여전히 구체적 tune 필요 — 사용자가 활용하게 되면 피드백 받아 다듬기.
 
 ---
 

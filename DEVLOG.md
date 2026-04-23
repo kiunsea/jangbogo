@@ -10,6 +10,52 @@
 
 ## 주요 변경사항
 
+### [2026-04-23 09:00] v0.9.0 - 트레이 이중화 정리 + 배포 가이드 재구성
+
+#### 작업 개요
+
+v0.7.0 에서 PowerShell 기반 트레이(`Jangbogo-Tray.ps1`)를 배포 기본으로 도입하면서 Java 기반 `TrayApplication` 이 죽은 코드로 남아 있었음. 실제 배포 경로(`install.bat` → WinSW `--service` + PowerShell 트레이)에서 Java 트레이를 호출하지 않음을 확인하고 안전하게 제거. 동시에 `DEPLOYMENT_GUIDE.md` 본문을 "원스톱 표준 / 고급 수동 / 문제 해결" 3부로 재구성.
+
+#### 배경
+
+- SESSION_HANDOFF 의 후속 작업 후보 #3 (DEPLOYMENT_GUIDE 정제) + #4 (트레이 앱 이중화 정리) 를 한 번에 처리.
+- 조사 결과, `packageDist` 태스크가 `packaging/distribution/` 과 `packaging/winsw/` 만 ZIP 에 넣으므로 `TrayApplication` 과 `--tray` / `--install-complete` 플래그는 **실제 배포 경로에서 완전히 미사용** 임이 확인됨.
+- v0.8.1 docs patch 에서 원스톱 설치 섹션을 추가했으나, 본문 뒷부분은 여전히 수동 절차 중심이라 "원스톱이 표준이고 수동은 참고" 라는 방향성이 명확히 드러나지 않았음.
+
+#### 상세 내용
+
+**1. Java 트레이 제거**
+- `src/main/java/com/jiniebox/jangbogo/sys/TrayApplication.java` 삭제.
+- `JangbogoLauncher.java`:
+  - `MODE_TRAY` / `MODE_INSTALL_COMPLETE` 상수 제거.
+  - `launchTrayMode()` / `launchInstallCompleteMode()` 메서드 제거.
+  - `ExecutionMode` 열거형을 `SERVICE` / `NORMAL` 로 축소.
+  - `filterModeArguments()` 를 `--service` 하나만 필터링하도록 단순화.
+  - 클래스 Javadoc 을 배포 트레이는 PowerShell 스크립트가 담당한다는 사실로 갱신.
+
+**2. DEPLOYMENT_GUIDE.md 재구성**
+- 목차를 3부 (🚀 표준 / 🔧 고급·수동 / 🚨 문제 해결) 로 재편.
+- "설치 방법" → "수동 설치", "실행 방법" → "수동 실행", "Windows 서비스 등록" → "수동 Windows 서비스 등록", "제거 방법" → "수동 제거" 로 개명.
+- 각 수동 섹션 상단에 "💡 `install.bat` / `uninstall.bat` 이 이 단계를 자동화합니다" 안내 블록 추가.
+- 하단 버전 표시 0.6.0 → 0.9.0, 최종 수정일 2026-04-23 으로 갱신.
+- 외부 파일에서 `DEPLOYMENT_GUIDE.md#설치-방법` 등 옛 앵커 참조는 0건 — 링크 깨짐 없음.
+
+**3. CLAUDE.md 동기화**
+- 프로젝트 구조 설명의 `sys/` 항목에서 `TrayApplication` 제거.
+- 실행 모드 섹션을 `--service` / 인자 없음 두 가지로 축소하고, 배포 트레이는 PowerShell 이 담당한다는 주석 추가.
+
+#### 검증
+
+- `./gradlew compileJava` → BUILD SUCCESSFUL.
+- `./gradlew spotlessApply` → 포맷 적용 완료.
+- 영향 범위 재확인: `packaging/distribution/install.bat` 과 `packaging/winsw/jangbogo-service.xml` 은 `--service` 만 사용 → 변경 영향 없음.
+
+#### 메모
+
+- `packaging/scripts/` 폴더(post-install.bat / pre-uninstall.bat / Jangbogo.bat v0.5.5 참조)는 jpackage 시도 실패 시절 유물로 확인됨. `packageDist` 어디에서도 참조되지 않음. 이번 범위에서는 건드리지 않고 별도 정리 태스크로 spawn.
+
+---
+
 ### [2026-04-18 15:00] v0.8.0 - 수집 실패 상세 진단 기능
 
 #### 작업 개요

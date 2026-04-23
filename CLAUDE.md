@@ -73,7 +73,7 @@ src/main/java/com/jiniebox/jangbogo/
 │  ├─ ifc/     # 인터페이스 (MallSession, PurchasedCollector, ReceiptCollector)
 │  ├─ mall/    # 쇼핑몰별 크롤링 (Ssg, Oasis, Coupang, Emart, Hanaro)
 │  └─ util/    # WebDriverManager
-├─ sys/        # 시스템 (AuthInterceptor, TrayApplication, WebMvcConfig)
+├─ sys/        # 시스템 (AuthInterceptor, WebMvcConfig)
 └─ util/       # 유틸리티 (FtpUploadUtil, PasswordEncryptor, RSA 등)
 ```
 
@@ -95,10 +95,9 @@ src/main/java/com/jiniebox/jangbogo/
 - `signin.html`, `profile.html`
 
 ### 실행 모드 (JangbogoLauncher)
-- `--service`: 서비스 모드 (브라우저/트레이 없음)
-- `--tray`: 트레이 모드 (브라우저 + 트레이 아이콘)
-- `--install-complete`: 설치 완료 모드 (트레이 + 브라우저, Spring Boot 미시작)
-- 인자 없음: 일반 개발 모드
+- `--service`: 서비스 모드 (WinSW가 기동, 브라우저 자동 실행 없음)
+- 인자 없음: 일반 개발 모드 (브라우저 자동 실행)
+- 배포 환경의 트레이 UI는 PowerShell `Jangbogo-Tray.ps1` 이 담당 (Java 트레이 없음, v0.9.0 에서 제거됨)
 
 ### 코드 포맷
 - Spotless + Google Java Format 1.17.0
