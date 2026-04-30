@@ -10,6 +10,55 @@
 
 ## 주요 변경사항
 
+### [2026-04-23 17:30] v0.10.1 - 트레이 아이콘 재시작 도구 추가
+
+#### 작업 개요
+
+OS 재부팅 후 Windows 시스템 트레이의 NotifyIcon 새로고침 누락으로 `Jangbogo-Tray.ps1` 프로세스는 살아있지만 아이콘이 보이지 않는 상황을 위해 별도 재시작 진입점을 추가. 사용자가 바탕화면 단축아이콘 한 번으로 트레이를 안전하게 다시 띄울 수 있도록 함.
+
+#### 배경
+
+- v0.7.0 에서 PowerShell 트레이를 도입한 이후, 일부 환경에서 재부팅 직후 트레이 아이콘이 보이지 않는 현상이 보고됨.
+- 원인은 Windows explorer.exe 의 알려진 새로고침 버그 — 프로세스 자체는 정상이지만 알림 영역에서 누락됨.
+- 기존 "Jangbogo Tray" 단축아이콘을 그대로 더블클릭하면 새 인스턴스가 추가되어 좀비 프로세스가 누적될 수 있어, 명시적 재시작 경로가 필요했음.
+
+#### 상세 내용
+
+**1. `Jangbogo-Tray.ps1` 단일 인스턴스 보호**
+- 스크립트 상단에 `param([switch]$Restart)` 추가.
+- 글로벌 Mutex `Global\JangbogoTrayInstance` 획득 시도 → 이미 잡혀 있으면 안내 메시지 후 즉시 종료.
+- `-Restart` 모드: `Get-CimInstance Win32_Process` 로 같은 스크립트(`Jangbogo-Tray.ps1`)를 실행 중인 powershell.exe / pwsh.exe 프로세스를 모두 찾아 `Stop-Process -Force` 후 400ms 대기 → mutex 획득 → 트레이 시작.
+- "Exit Tray" 메뉴 핸들러에서 `ReleaseMutex()` + `Dispose()` 추가.
+
+**2. `Restart-Tray.bat` 신규 (`packaging/distribution/`)**
+- 관리자 권한 불필요한 일회성 배치 파일.
+- `start "" /B powershell -NoProfile -ExecutionPolicy Bypass -STA -WindowStyle Hidden -File "%SCRIPT_DIR%Jangbogo-Tray.ps1" -Restart` 호출.
+- 실행 후 3초 대기 후 자동 종료 (사용자가 메시지를 읽을 시간 확보).
+
+**3. `create-shortcuts.ps1` 확장**
+- 바탕화면에 "Restart Jangbogo Tray.lnk" 생성 (`-Restart` 인자 포함).
+- 시작 메뉴에 동일 단축아이콘 추가.
+- 출력 메시지에 사용 안내(Tip) 라인 추가.
+
+**4. `build.gradle` 의 `packageDist` 태스크**
+- `from('packaging/distribution')` 의 `include` 목록에 `'Restart-Tray.bat'` 추가 → 배포 ZIP 에 자동 포함.
+
+**5. `사용설명서.txt` FAQ Q11 추가**
+- "컴퓨터를 재부팅했더니 트레이 아이콘이 안 보여요" 질문에 3가지 해결 방법 (바탕화면 단축아이콘 / Restart-Tray.bat / 시작 메뉴) 안내.
+- "서비스는 계속 동작 중이므로 데이터 수집에는 영향 없음" 명시 → 사용자 안심.
+
+#### 검증
+
+- PowerShell 두 스크립트(`Jangbogo-Tray.ps1`, `create-shortcuts.ps1`) AST 파스 에러 0건.
+- `install.bat` 의 트레이 기동 부분(183행)은 사전에 기존 프로세스를 정리(95행)하므로 mutex 와 충돌하지 않음 — 추가 변경 불필요.
+
+#### 메모
+
+- 새 단축아이콘 이름은 영문 "Restart Jangbogo Tray" — 다른 단축아이콘들("Jangbogo Tray", "Jangbogo Dashboard")과 톤을 맞춤. 한글로 표기하면 일부 Windows 환경에서 단축아이콘 이름 인코딩 문제가 발생할 수 있어 영문 유지.
+- 향후 주기적 watchdog (예: 5분마다 트레이 프로세스 살아있는지 체크하고 죽었으면 재시작) 까지 도입할 수도 있으나, 현재는 사용자가 인지했을 때 바로 복구할 수 있는 도구를 제공하는 선에서 멈춤. 자동 watchdog 은 좀비 프로세스 위험이 있어 신중히 설계 필요.
+
+---
+
 ### [2026-04-23 16:00] v0.10.0 - 구매 내역 조회 UI 추가
 
 #### 작업 개요

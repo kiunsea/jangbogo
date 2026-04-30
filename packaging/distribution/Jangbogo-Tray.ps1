@@ -1,3 +1,7 @@
+param(
+    [switch]$Restart
+)
+
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
@@ -5,6 +9,56 @@ $ErrorActionPreference = 'Stop'
 
 $baseDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $serviceExe = Join-Path $baseDir 'service\jangbogo-service.exe'
+
+# ---------------------------------------------------------------------------
+# Single-instance guard
+#
+# OS 재부팅 후 explorer.exe 가 NotifyIcon 알림 영역을 새로고침하지 못하면 트레이
+# 아이콘이 보이지 않는 상태가 발생할 수 있습니다. 이 경우 사용자가 단축아이콘을
+# 더블클릭하면 새 인스턴스가 추가되어 좀비 프로세스가 누적될 수 있어, 실행 시점에
+# 기존 인스턴스 유무를 검사합니다.
+#
+# - Restart 모드: 같은 스크립트로 떠 있는 PowerShell 프로세스를 모두 종료 후 진행.
+# - 기본 모드: Mutex 를 획득해 중복 실행을 막고, 이미 잡혀 있으면 사용자에게 안내.
+# ---------------------------------------------------------------------------
+$scriptPath = $MyInvocation.MyCommand.Path
+$scriptName = [System.IO.Path]::GetFileName($scriptPath)
+$mutexName = 'Global\JangbogoTrayInstance'
+
+function Stop-ExistingTrayInstances {
+    $current = $PID
+    $procs = Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe' OR Name = 'pwsh.exe'" -ErrorAction SilentlyContinue
+    foreach ($p in $procs) {
+        if ($p.ProcessId -eq $current) { continue }
+        $cmd = $p.CommandLine
+        if ([string]::IsNullOrEmpty($cmd)) { continue }
+        if ($cmd -like "*$scriptName*") {
+            try {
+                Stop-Process -Id $p.ProcessId -Force -ErrorAction Stop
+            }
+            catch {
+                # 이미 종료되었거나 권한 부족 — 계속 진행
+            }
+        }
+    }
+    Start-Sleep -Milliseconds 400
+}
+
+if ($Restart) {
+    Stop-ExistingTrayInstances
+}
+
+$mutexCreated = $false
+$singleInstanceMutex = New-Object System.Threading.Mutex($true, $mutexName, [ref]$mutexCreated)
+if (-not $mutexCreated) {
+    [System.Windows.Forms.MessageBox]::Show(
+        "Jangbogo 트레이가 이미 실행 중입니다.`n`n트레이 아이콘이 보이지 않는다면 'Restart Jangbogo Tray' 단축아이콘을 사용하거나, Restart-Tray.bat 을 실행하세요.",
+        'Jangbogo Tray',
+        [System.Windows.Forms.MessageBoxButtons]::OK,
+        [System.Windows.Forms.MessageBoxIcon]::Information
+    ) | Out-Null
+    return
+}
 $trayIconIcoCandidates = @(
     [System.IO.Path]::GetFullPath((Join-Path $baseDir 'img\favicon.ico')),
     [System.IO.Path]::GetFullPath((Join-Path $baseDir '..\..\img\favicon.ico'))
@@ -137,6 +191,10 @@ $menuExit = $contextMenu.Items.Add('Exit Tray')
 $menuExit.Add_Click({
     $notifyIcon.Visible = $false
     $notifyIcon.Dispose()
+    if ($singleInstanceMutex) {
+        try { $singleInstanceMutex.ReleaseMutex() } catch { }
+        $singleInstanceMutex.Dispose()
+    }
     [System.Windows.Forms.Application]::Exit()
 })
 

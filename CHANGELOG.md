@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.10.1] - 2026-04-23
+
+### Added
+
+- **트레이 아이콘 재시작 도구**: OS 재부팅 후 Windows 시스템 트레이가 새로고침되지 않아 `Jangbogo-Tray.ps1` 프로세스는 살아있지만 아이콘이 보이지 않는 상황을 위해 **재시작용 진입점**을 추가했습니다.
+  - `packaging/distribution/Restart-Tray.bat` 신규 — 관리자 권한 없이 실행 가능한 일회성 배치 파일.
+  - 바탕화면 / 시작 메뉴에 "Restart Jangbogo Tray" 단축아이콘을 자동 생성 (`create-shortcuts.ps1` 확장).
+  - `Jangbogo-Tray.ps1` 의 `-Restart` 인자: 호출 시 같은 스크립트로 떠있는 PowerShell 프로세스를 모두 종료한 후 새 트레이를 띄웁니다.
+
+### Changed
+
+- **`Jangbogo-Tray.ps1` 단일 인스턴스 보호**: 글로벌 Mutex(`Global\JangbogoTrayInstance`)로 중복 실행을 차단합니다. 이미 다른 인스턴스가 떠 있으면 안내 메시지를 띄우고 즉시 종료합니다. `-Restart` 인자로 호출하면 기존 인스턴스를 종료한 후 진행합니다.
+- **`build.gradle` 의 `packageDist` 태스크**: 배포 ZIP 에 `Restart-Tray.bat` 파일을 포함하도록 `include` 목록 갱신.
+- **사용설명서.txt**: FAQ 에 Q11 "컴퓨터를 재부팅했더니 트레이 아이콘이 안 보여요" 항목 추가. 3가지 해결 방법(바탕화면 단축아이콘 / Restart-Tray.bat / 시작 메뉴) 안내 및 "서비스는 계속 동작 중이므로 데이터 수집에는 영향 없음" 명시.
+
+### Notes
+
+- 스키마 / API 변경 없음. 기존 단축아이콘 "Jangbogo Tray" 동작은 그대로 유지되며, 추가된 "Restart Jangbogo Tray" 가 보조 진입점 역할만 수행합니다.
+- `install.bat` 은 트레이 기동 전에 기존 PS 프로세스를 정리하므로 mutex 충돌이 발생하지 않습니다 (변경 없음).
+
+---
+
 ## [0.10.0] - 2026-04-23
 
 ### Added

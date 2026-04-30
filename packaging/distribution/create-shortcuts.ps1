@@ -39,11 +39,37 @@ $startMenuShortcut.Description = 'Launch Jangbogo tray app'
 $startMenuShortcut.IconLocation = $shortcutIcon
 $startMenuShortcut.Save()
 
+# 4) Restart Tray shortcuts (for cases where the tray icon disappears after reboot)
+$restartTrayArgs = '-NoProfile -ExecutionPolicy Bypass -STA -WindowStyle Hidden -File "' + (Join-Path $baseDir 'Jangbogo-Tray.ps1') + '" -Restart'
+
+$restartDesktopPath = Join-Path $desktop 'Restart Jangbogo Tray.lnk'
+$restartDesktop = $shell.CreateShortcut($restartDesktopPath)
+$restartDesktop.TargetPath = 'powershell.exe'
+$restartDesktop.Arguments = $restartTrayArgs
+$restartDesktop.WorkingDirectory = $baseDir
+$restartDesktop.Description = 'Restart Jangbogo tray icon (use when the icon is missing after reboot)'
+$restartDesktop.IconLocation = $shortcutIcon
+$restartDesktop.Save()
+
+$restartStartMenuPath = Join-Path $startMenu 'Restart Jangbogo Tray.lnk'
+$restartStartMenu = $shell.CreateShortcut($restartStartMenuPath)
+$restartStartMenu.TargetPath = 'powershell.exe'
+$restartStartMenu.Arguments = $restartTrayArgs
+$restartStartMenu.WorkingDirectory = $baseDir
+$restartStartMenu.Description = 'Restart Jangbogo tray icon (use when the icon is missing after reboot)'
+$restartStartMenu.IconLocation = $shortcutIcon
+$restartStartMenu.Save()
+
 Write-Host 'Shortcuts created:'
 Write-Host " - $trayShortcutPath"
 Write-Host " - $dashboardShortcutPath"
 Write-Host " - $startMenuShortcutPath"
+Write-Host " - $restartDesktopPath"
+Write-Host " - $restartStartMenuPath"
 Write-Host ''
 Write-Host 'Pin to taskbar:'
 Write-Host '  1) Right-click "Jangbogo Tray" on Desktop'
 Write-Host '  2) Select "Pin to taskbar"'
+Write-Host ''
+Write-Host 'Tip: If the tray icon is missing after a Windows reboot, double-click'
+Write-Host '     "Restart Jangbogo Tray" on Desktop or run Restart-Tray.bat.'
