@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.10.2] - 2026-05-01
+
+### Added
+
+- **WinSW 자동 다운로드 fallback**: 배포 ZIP 에 `service\jangbogo-service.exe` 가 누락된 경우(빌드 환경에 WinSW 가 없어 `packageDist` 시점에 ZIP 에 들어가지 못한 경우) `install.bat` 이 즉시 종료하지 않고 동봉된 `download-winsw.ps1` 을 호출해 자동으로 받아옵니다.
+  - 신규 `packaging/distribution/download-winsw.ps1`: WinSW v2.12.0 (`net461` 빌드, 안정 버전) 을 GitHub Releases 에서 받아 `service\jangbogo-service.exe` 로 저장 + `Unblock-File` 로 MOTW 제거.
+  - `download-jre.ps1` 과 동일한 패턴 — TLS 1.2 강제, 이미 존재하면 skip, 실패 시 명확한 에러 메시지.
+
+### Changed
+
+- **`install.bat` 의 WinSW 누락 처리**: 기존 "[ERROR] not found → exit /b 1" 분기를 제거하고, `download-winsw.ps1` 이 있으면 자동 호출, 없거나 다운로드 실패 시에만 에러로 종료하도록 변경. 기존 사용자(이미 WinSW 가 있는 경우)에게는 영향 없음.
+- **`build.gradle` 의 `packageDist` 태스크**: 배포 ZIP 의 `include` 목록에 `download-winsw.ps1` 추가.
+
+### Fixed
+
+- **첫 설치 시 WinSW 누락으로 install.bat 이 멈추던 문제**: 빌드 환경에 따라 `packaging/winsw/jangbogo-service.exe` 가 없으면 (`.gitignore` 로 git 미추적이므로 새 환경에서는 항상 누락) ZIP 에도 빠져 사용자가 직접 받아야 했습니다. v0.10.2 부터 install.bat 이 자동으로 처리합니다.
+
+---
+
 ## [0.10.1] - 2026-04-23
 
 ### Added

@@ -28,10 +28,25 @@ if errorlevel 1 (
 )
 
 if not exist "service\jangbogo-service.exe" (
-    echo [ERROR] service\jangbogo-service.exe not found.
-    echo Please place the WinSW executable first.
-    pause
-    exit /b 1
+    echo [INFO] service\jangbogo-service.exe not found. Will auto-download via download-winsw.ps1.
+    if not exist "download-winsw.ps1" (
+        echo [ERROR] download-winsw.ps1 not found alongside install.bat.
+        echo Please place the WinSW executable manually at service\jangbogo-service.exe.
+        pause
+        exit /b 1
+    )
+    powershell -NoProfile -ExecutionPolicy Bypass -File ".\download-winsw.ps1"
+    if errorlevel 1 (
+        echo [ERROR] WinSW download failed. Check internet connection and retry,
+        echo         or place service\jangbogo-service.exe manually.
+        pause
+        exit /b 1
+    )
+    if not exist "service\jangbogo-service.exe" (
+        echo [ERROR] WinSW download script ran but executable is still missing.
+        pause
+        exit /b 1
+    )
 )
 
 if not defined APP_JAR (

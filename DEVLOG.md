@@ -10,6 +10,49 @@
 
 ## 주요 변경사항
 
+### [2026-05-01 03:30] v0.10.2 - WinSW 자동 다운로드 fallback
+
+#### 작업 개요
+
+배포 ZIP 의 `service\jangbogo-service.exe`(WinSW 실행파일) 가 누락되어 `install.bat` 이 즉시 종료되던 문제를 해결. `download-jre.ps1` 과 동일한 패턴으로 `download-winsw.ps1` 을 신규 추가하고, install.bat 이 누락 감지 시 자동 호출하도록 변경.
+
+#### 배경
+
+- `packaging/winsw/jangbogo-service.exe` 는 `.gitignore` 의 `packaging/winsw/jangbogo-service.exe` 라인에 의해 git 추적 제외. 각 빌드 환경에서 한 번 받아둬야 함.
+- 빌드 환경에 해당 파일이 없으면 `packageDist` 태스크가 `from('packaging/winsw') { include '*.exe' }` 단계에서 그냥 빈 결과로 처리해 ZIP 에 exe 가 들어가지 않음 (Gradle 의 include 패턴은 매칭 0건이어도 에러를 안 냄).
+- 사용자가 새 빌드 환경에서 ZIP 을 만들고 압축 풀어 install.bat 실행 시 "service\jangbogo-service.exe not found" 에러로 막힘. 실제 발생함.
+- `download-jre.ps1` 이 이미 동일한 fallback 패턴을 사용하고 있어 (JRE 누락 → Temurin 자동 다운로드) 동일 패턴 적용이 자연스러움.
+
+#### 상세 내용
+
+**1. `download-winsw.ps1` 신규**
+- `packaging/distribution/download-winsw.ps1` 추가.
+- WinSW v2.12.0 (`WinSW-x64.exe`, .NET Framework 4.6.1 빌드) 을 GitHub Releases 에서 다운로드.
+- 다운로드 후 `Unblock-File` 로 MOTW 제거 (Windows 가 인터넷에서 받은 exe 를 차단하면 sc 등록이 거부됨).
+- TLS 1.2 강제, 이미 존재 시 skip, 실패 시 throw → install.bat 의 `errorlevel` 검사가 잡아냄.
+- PowerShell 5.1 의 비-BOM UTF-8 파일 파스 한계 때문에 한글 주석 + em-dash(`—`) 조합이 파스 에러를 일으켜 영문 주석으로 작성. (`Jangbogo-Tray.ps1` 처럼 BOM 없는 한글이 통과되는 케이스도 있어 케이스별로 차이가 있음 — 안전하게 영문 사용.)
+
+**2. `install.bat` 의 WinSW 누락 분기 변경**
+- 기존: WinSW 없으면 `[ERROR] ... Please place the WinSW executable first.` 출력 후 `exit /b 1`.
+- 변경: `download-winsw.ps1` 존재 시 자동 호출 → `errorlevel` 검사 → exe 생성 재확인. 다운로드 스크립트도 없거나 실패 시에만 에러로 종료.
+- 기존에 WinSW exe 가 있던 사용자는 분기 자체에 진입하지 않아 동작 변동 없음.
+
+**3. `build.gradle` 의 `packageDist`**
+- `from('packaging/distribution')` 의 `include` 목록에 `'download-winsw.ps1'` 추가 → 새 ZIP 부터 자동 포함.
+
+#### 검증
+
+- `Parser::ParseFile` 로 `download-winsw.ps1` syntax 0 errors.
+- 기존 사용자(빌드 환경에 WinSW 있음) 는 분기 미진입 → 회귀 없음.
+- 신규 사용자(WinSW 없음) 는 install.bat 한 번에 다운로드 + 설치 완결.
+
+#### 메모
+
+- WinSW v3.x (alpha) 도 사용 가능하지만 .NET Core 의존성 부담 + production 채택 사례 부족으로 v2.12.0 채택. 향후 .NET 4.6 호환성 이슈 발생 시 재검토.
+- 현재 사용자는 이번 push 가 main 에 들어간 후 ZIP 재빌드 + 압축 풀어 install.bat 재실행하면 자동 복구. 또는 즉시 한 줄 PowerShell 다운로드(이전 메시지)로도 복구 가능.
+
+---
+
 ### [2026-04-23 17:30] v0.10.1 - 트레이 아이콘 재시작 도구 추가
 
 #### 작업 개요

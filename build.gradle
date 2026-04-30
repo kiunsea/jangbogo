@@ -7,7 +7,7 @@ plugins {
 }
 
 group = 'com.jiniebox'
-version = '0.10.1'
+version = '0.10.2'
 description = '사용자 온라인/오프라인 구매 내역 수집기'
 
 java {
@@ -147,7 +147,7 @@ tasks.register('packageDist', Zip) {
 	
 	from('packaging/distribution') {
 		include 'Jangbogo.bat', 'install.bat', 'uninstall.bat', 'Restart-Tray.bat',
-			'Jangbogo-Tray.ps1', 'create-shortcuts.ps1', 'download-jre.ps1',
+			'Jangbogo-Tray.ps1', 'create-shortcuts.ps1', 'download-jre.ps1', 'download-winsw.ps1',
 			'설치가이드.txt', '사용설명서.txt', '고급가이드.txt', 'README.md'
 		into('/')
 	}
