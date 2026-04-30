@@ -10,6 +10,26 @@
 
 ## 주요 변경사항
 
+### [2026-05-01 04:00] v0.10.2 정식 릴리즈 발행 (v0.8.0 이후 첫 태그)
+
+#### 작업 개요
+
+v0.8.0 (2026-04-18) 이후 main 에 누적된 다섯 차례의 push (v0.9.0 / v0.9.1 / v0.10.0 / v0.10.1 / v0.10.2) 를 v0.10.2 정식 릴리즈로 묶어 발행. CLAUDE.md 의 Release 워크플로우 8~11 단계 수행.
+
+#### 상세 내용
+
+1. `release/RELEASE_NOTES_v0.10.2.md` 신규 작성 — v0.9.0 ~ v0.10.2 누적 변경을 "새로운 기능 / 내부 개선 / 버그·안정화 / 새 API / 호환성·업그레이드 / 설치 방법" 으로 재구성.
+2. release notes 파일 commit + main push (release.yml 이 태그 push 시 해당 파일을 body 로 사용하므로 태그 푸시 전에 main 에 들어가 있어야 함).
+3. `git tag v0.10.2` + `git push origin v0.10.2` 로 release.yml 트리거.
+4. release.yml 자동 실행 모니터링 — `clean bootJar createJre packageDist` → `Jangbogo-v0.10.2.zip` 생성 → GitHub Release 발행.
+
+#### 메모
+
+- 이번 ZIP 빌드 환경(GitHub Actions runner) 에는 `packaging/winsw/jangbogo-service.exe` 가 없으므로, ZIP 의 `service/` 폴더에는 exe 가 빠진 채로 발행됨. 사용자가 `install.bat` 실행 시 v0.10.2 의 fallback (`download-winsw.ps1`) 이 자동으로 받아오므로 사용자 측 영향 없음 — 의도된 동작.
+- 향후 빌드 환경에 사전 다운로드된 WinSW 를 두고 싶으면 release.yml 에 `download-winsw.ps1` 호출 단계를 추가 가능. 현재는 fallback 으로 충분하다고 판단해 단순 유지.
+
+---
+
 ### [2026-05-01 03:30] v0.10.2 - WinSW 자동 다운로드 fallback
 
 #### 작업 개요
