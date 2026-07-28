@@ -1,5 +1,6 @@
 package com.jiniebox.jangbogo.dao;
 
+import com.jiniebox.jangbogo.svc.util.CollectIntervalPolicy;
 import com.jiniebox.jangbogo.util.ExceptionUtil;
 import com.jiniebox.jangbogo.util.JinieboxUtil;
 import java.sql.ResultSet;
@@ -217,6 +218,12 @@ public class JbgMallDataAccessObject extends CommonDataAccessObject {
           String seq = entry.getKey().replaceAll("[^0-9]", "");
           Integer minutes = entry.getValue();
           if (!seq.isEmpty() && minutes != null) {
+            // 하한 미만은 저장하지 않는다. 호출부(AdminController)가 미리 걸러내므로 여기까지 오면
+            // API 직접 호출 등 화면을 거치지 않은 경로다. 트랜잭션을 되돌리고 사유를 알린다.
+            if (!CollectIntervalPolicy.isAllowed(minutes)) {
+              throw new IllegalArgumentException(
+                  "쇼핑몰 seq=" + seq + " " + CollectIntervalPolicy.rejectionMessage(minutes));
+            }
             String updateQuery =
                 "UPDATE jbg_mall SET collect_interval_minutes=" + minutes + " WHERE seq=" + seq;
             conn.txExecuteUpdate(updateQuery);
@@ -257,6 +264,12 @@ public class JbgMallDataAccessObject extends CommonDataAccessObject {
       String cleanSeq = seq.replaceAll("[^0-9]", "");
       if (cleanSeq.isEmpty()) {
         throw new IllegalArgumentException("Invalid seq: " + seq);
+      }
+
+      // 하한 강제. saveAutoCollectFlags 와 같은 규칙을 적용한다.
+      if (!CollectIntervalPolicy.isAllowed(intervalMinutes)) {
+        throw new IllegalArgumentException(
+            "쇼핑몰 seq=" + cleanSeq + " " + CollectIntervalPolicy.rejectionMessage(intervalMinutes));
       }
 
       String query =

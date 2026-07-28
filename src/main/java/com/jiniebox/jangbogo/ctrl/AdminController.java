@@ -1180,6 +1180,19 @@ public class AdminController {
       java.util.Map<String, Integer> intervals =
           req != null ? req.getIntervals() : java.util.Collections.emptyMap();
 
+      // 주기 하한 검증. 화면의 min 속성만으로는 API 직접 호출을 막지 못하므로 서버에서도 거부한다.
+      for (java.util.Map.Entry<String, Integer> entry : intervals.entrySet()) {
+        if (!com.jiniebox.jangbogo.svc.util.CollectIntervalPolicy.isAllowed(entry.getValue())) {
+          String reason =
+              com.jiniebox.jangbogo.svc.util.CollectIntervalPolicy.rejectionMessage(
+                  entry.getValue());
+          logger.warn("자동수집 설정 저장 거부 - 쇼핑몰 seq={} {}", entry.getKey(), reason);
+          response.put("success", false);
+          response.put("message", reason);
+          return response;
+        }
+      }
+
       jaDao.saveAutoCollectFlags(seqs, intervals);
 
       // 스케줄링 상태 동기화

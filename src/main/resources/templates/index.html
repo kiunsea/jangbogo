@@ -142,7 +142,7 @@
                                         <div>자동 수집 주기(분)</div>
                                         <div class="d-flex align-items-center gap-2">
                                             <input type="number" class="form-control form-control-sm mall-interval" 
-                                                   data-seq="1" value="0" min="0" placeholder="주기(분)" 
+                                                   data-seq="1" value="0" min="0" step="60" placeholder="0 또는 360+" 
                                                    style="width: 100px;" title="자동수집 주기(분)">
                                             <input type="checkbox" class="form-check-input mall-check" value="1">
                                         </div>
@@ -179,7 +179,7 @@
                                         <div>자동 수집 주기(분)</div>
                                         <div class="d-flex align-items-center gap-2">
                                             <input type="number" class="form-control form-control-sm mall-interval" 
-                                                   data-seq="2" value="0" min="0" placeholder="주기(분)" 
+                                                   data-seq="2" value="0" min="0" step="60" placeholder="0 또는 360+" 
                                                    style="width: 100px;" title="자동수집 주기(분)">
                                             <input type="checkbox" class="form-check-input mall-check" value="2">
                                         </div>
@@ -216,7 +216,7 @@
                                         <div>자동 수집 주기(분)</div>
                                         <div class="d-flex align-items-center gap-2">
                                             <input type="number" class="form-control form-control-sm mall-interval"
-                                                   data-seq="3" value="0" min="0" placeholder="주기(분)"
+                                                   data-seq="3" value="0" min="0" step="60" placeholder="0 또는 360+"
                                                    style="width: 100px;" title="자동수집 주기(분)">
                                             <input type="checkbox" class="form-check-input mall-check" value="3">
                                         </div>
@@ -637,15 +637,31 @@
                         .map(el => String(el.value));
                     
                     // 모든 쇼핑몰의 주기 값 수집
+                    // 0 은 "자동수집 안 함", 그 외에는 하한 이상이어야 한다.
+                    // 짧은 주기는 같은 계정으로 로그인을 반복하게 만들어 차단을 자초한다.
+                    // 서버(CollectIntervalPolicy)도 같은 규칙으로 거부하지만, 사용자가 저장 버튼을
+                    // 누르기 전에 알려 주는 편이 낫다.
+                    const MIN_INTERVAL_MINUTES = 360;
                     const intervals = {};
+                    let invalidInterval = null;
                     _doc.querySelectorAll('input.mall-interval').forEach(input => {
                         const seq = input.getAttribute('data-seq');
                         const value = parseInt(input.value) || 0;
                         if (seq) {
                             intervals[seq] = value;
+                            if (value > 0 && value < MIN_INTERVAL_MINUTES && invalidInterval === null) {
+                                invalidInterval = value;
+                            }
                         }
                     });
-                    
+
+                    if (invalidInterval !== null) {
+                        alert('수집 주기는 0(자동수집 안 함) 또는 ' + MIN_INTERVAL_MINUTES + '분 이상이어야 합니다.\n'
+                            + '입력값: ' + invalidInterval + '분\n\n'
+                            + '주기가 짧으면 같은 계정으로 로그인을 반복하게 되어 쇼핑몰 차단을 유발할 수 있습니다.');
+                        return;
+                    }
+
                     var xhr = new XMLHttpRequest();
                     xhr.onreadystatechange = function() {
                         if (xhr.readyState === XMLHttpRequest.DONE) {

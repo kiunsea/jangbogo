@@ -3,6 +3,7 @@ package com.jiniebox.jangbogo.svc;
 import com.jiniebox.jangbogo.dao.JbgCollectLogDataAccessObject;
 import com.jiniebox.jangbogo.dao.JbgMallDataAccessObject;
 import com.jiniebox.jangbogo.dto.MallAccount;
+import com.jiniebox.jangbogo.svc.util.CollectIntervalPolicy;
 import com.jiniebox.jangbogo.svc.util.FtpPendingQueue;
 import com.jiniebox.jangbogo.util.ExceptionUtil;
 import com.jiniebox.jangbogo.util.JinieboxUtil;
@@ -67,6 +68,10 @@ public class MallSchedulerService {
       return;
     }
 
+    // 하한 강제. 저장 시점 검증 이전에 DB 에 들어간 값이 남아 있을 수 있으므로,
+    // 조용히 쓰지 않고 경고를 남긴 뒤 하한으로 올린다.
+    intervalMinutes = CollectIntervalPolicy.clampForSchedule(seq, intervalMinutes);
+
     // 새로운 스케줄 시작
     ScheduledFuture<?> future =
         scheduler.scheduleAtFixedRate(
@@ -107,6 +112,9 @@ public class MallSchedulerService {
       logger.info("쇼핑몰 seq={} 주기={}분, 즉시 스케줄링 안함", seq, intervalMinutes);
       return;
     }
+
+    // 하한 강제 (scheduleMall 과 동일 규칙)
+    intervalMinutes = CollectIntervalPolicy.clampForSchedule(seq, intervalMinutes);
 
     // 새로운 스케줄 시작 (초기 지연 0으로 즉시 실행)
     ScheduledFuture<?> future =
