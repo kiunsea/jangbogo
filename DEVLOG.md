@@ -10,6 +10,95 @@
 
 ## 주요 변경사항
 
+### [2026-07-29 09:00] BASELINE 2026-07-29 — Phase 2 종결 (v0.11.1)
+
+#### 작업 개요
+
+Phase 2 의 잔여 기록 항목(2-4, 2-9)을 처리해 **Phase 2 를 종결**한다. 함께 판단 대기 7(jackson 스큐)을 해소하고 `CLAUDE.md` 의 깨진 참조를 정리했다.
+
+---
+
+#### BASELINE 2026-07-29 (2-9)
+
+**이 시점의 값이 이후 모든 Phase 의 무회귀 판정 기준이다.**
+
+| 항목 | 값 |
+|---|---|
+| `jbg_order` | **22** (Emart 15 + Oasis 7) |
+| `jbg_item` | **168** (117 + 51) |
+| DB md5 | `909dfe48822aea77bf4f6806a37073ac` |
+| `jbg_collect_log` | 6행 (seq 1·3 은 Phase 1 수정 전 기록 — **보존 결정**) |
+| 백업 | `db/backup/jangbogo-dev.db.baseline-2026-07-28` (초기화 전 주문 7 / 아이템 53) |
+| 몰 상태 | seq=1 ssg, seq=2 oasis 모두 `account_status=1`·`auto_collect=1`·**720분**. seq=3 hanaro 미연결 |
+| 자동화 판정 단위 | 테스트 49건 (실패 0 / 스킵 15) |
+
+**판정 방식**: 회귀는 **실계정 재수집이 아니라 테스트 통과 여부와 위 수치 비교**로 판정한다. Emart 파서는 `EmartReceiptParserTest` 의 합성 픽스처가, FTP 전송 실패 경로는 `FtpPendingQueueTest` 가, jackson 정렬은 `YamlMapperCompatibilityTest` 가 각각 담당한다.
+
+DB md5 는 이번 세션 내내(수집 가드 검증 → 파서 픽스처 → FTP 큐 → jackson 정렬) 한 번도 바뀌지 않았다. 모든 작업이 실계정·실 DB 접근 0 으로 수행됐다는 뜻이다.
+
+---
+
+#### 호스트 환경 기록 (2-4)
+
+| 항목 | 값 |
+|---|---|
+| OS | Windows 11 Pro (10.0.22621) |
+| 설치 Chrome | **150.0.7871.187** |
+| chromedriver 캐시 최대 | **150.0.7871.124** |
+| `app_bound_encrypted_key` | **존재** (Chrome `Local State`) |
+| `encrypted_key` | 존재 |
+
+**계획서 정정 2건**
+
+1. **4A-0 은 이미 충족됐다.** 계획서는 "chromedriver 캐시 최대 148, 설치 Chrome 150 → 실행 파일 다운로드이므로 사용자 승인 필요"로 적고 있으나, 캐시에 `150.0.7871.124` 가 이미 있다. 이전 세션에서 Selenium Manager 가 받아 둔 것이다(새 질문 5 의 "자동 다운로드 허용" 결정에 따른 결과). chromedriver 는 메이저 버전으로 매칭되므로 150.0.7871.124 ↔ Chrome 150.0.7871.187 조합은 유효하다. **Phase 4A 의 T1~T4 는 다운로드 승인 없이 착수 가능하다.**
+2. **`app_bound_encrypted_key` 가 존재한다.** Chrome 127+ 의 App-Bound Encryption 이 활성이라는 뜻이다. 쿠키 복호화가 이를 기록한 애플리케이션에 묶이므로 **쿠키를 꺼내 쓰는 방식은 성립하지 않는다.** Phase 5 가 쿠키 추출이 아니라 **프로필 재사용**을 택한 것이 환경적으로도 옳다는 근거가 된다.
+
+---
+
+#### 판단 대기 7 해소 — jackson 스큐 정렬
+
+`build.gradle` 이 `jackson-dataformat-yaml` 만 2.15.3 으로 못박아 BOM 해석값(2.19.2)과 4개 마이너가 어긋나 있었다. 버전 선언을 제거해 정렬했고, 결과적으로 `core`/`databind`/`dataformat-yaml`/`bom` 모두 2.19.2 로 수렴했다(강제 표기 `->` 소멸).
+
+`YamlMapperCompatibilityTest` 4건이 이를 감시한다. 프로젝트가 YAML 을 다루는 세 방식(`JangbogoConfig` 의 기본 팩토리 읽기, `MallAccountYmlService` 의 builder + `findAndRegisterModules` 왕복, `ExportService` 의 `MINIMIZE_QUOTES` 쓰기)을 각각 덮고, 모듈 버전 일치 검사를 더했다.
+
+**가드의 실효를 실증했다** — 수정 전 상태에서 버전 검사가 `expected: <2.19> but was: <2.15>` 로 정확히 실패했다. 나머지 3건은 스큐 상태에서도 통과했는데, 이것이 그동안 드러나지 않은 이유다. 관측된 장애는 없었으므로 잠재 위험이었다.
+
+이로써 **판단 대기 9(의존성 스큐 상시 탐지)도 함께 해소**됐다. 파일 diff 가 아니라 테스트가 감시한다.
+
+---
+
+#### `CLAUDE.md` 깨진 참조 정리
+
+`CLAUDE.md` 가 미커밋 문서(미결 4)를 참조해 공개 저장소에서 깨진 링크가 돼 있었다. 참조를 제거하면서 PRIVATE 저장소명과 특정 PC 절대경로 서술도 함께 걷어냈다. 내용상 필요한 것은 "외부 패키지를 import 하지 않는다"는 방침뿐이고, 그 경위는 저장소에 없는 내부 문서에 있다는 사실만 남겼다.
+
+---
+
+#### Phase 2 항목 최종 현황
+
+| # | 상태 |
+|---|---|
+| 2-1 | **완료** — 재정의 후 측정·기록. 부산물로 jackson 스큐 발견 |
+| 2-2 | **완료** — seq=1·2 실측 (seq=3 은 `account_status=0` 미연결) |
+| 2-3 | **완료(Emart)** — 마스킹 규칙 = 합성 픽스처. 나머지 몰은 2-8 과 함께 보류 |
+| 2-4 | **완료** — 위 호스트 환경 기록 |
+| 2-5 | **보류** — 배포 baseline 실측. 운영이 콘솔 실행으로 확정돼 우선순위가 내려갔다 |
+| 2-6 | **보류** — 쿠팡 메일 샘플. Phase 4B 게이트 입력이라 4B 착수 시 함께 |
+| 2-7 | **보류** — jiniebox 운영 시드 확인. §9-2 와 묶인다 |
+| 2-8 | **완료(Emart)** — 파서 픽스처 8건. Oasis·Hanaro·SSG 는 순수 파서 부재로 판단 대기 8 |
+| 2-9 | **완료** — 위 BASELINE |
+
+**Phase 2 를 종결한다.** 목표였던 "수정된 코드 기준의 무회귀 판정 단위"는 확보됐다. 보류 3건(2-5·2-6·2-7)은 Phase 2 의 목표에 필수가 아니며 각각 다른 Phase 의 선행 작업으로 이관한다.
+
+#### 변경 파일
+
+| 파일 | 구분 | 내용 |
+|---|---|---|
+| `build.gradle` | 수정 | jackson 버전 선언 제거, 버전 0.11.1 |
+| `src/test/java/.../svc/YamlMapperCompatibilityTest.java` | 신규 | jackson 호환성·버전 일치 감시 4건 |
+| `CLAUDE.md` | 수정 | 깨진 참조 + 절대경로 서술 제거 |
+
+---
+
 ### [2026-07-29 08:20] Phase 3-1 — FTP 전송 실패분 보류 큐 (v0.11.0)
 
 #### 작업 개요

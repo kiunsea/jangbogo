@@ -104,7 +104,7 @@ src/main/java/com/jiniebox/jangbogo/
 - `./gradlew spotlessApply` 로 포맷 적용
 
 ### 외부 의존
-- 없음. (구 `settings.gradle`의 `includeBuild('D:/GIT/doribox')` 는 2026-07-28 제거됨 — 대상이 없어 no-op 인 죽은 코드였고, PUBLIC 저장소에 PRIVATE 저장소명과 특정 PC 절대경로가 노출되는 문제가 있었다. doribox 패키지 import 방침은 폐기 확정, `doc/CROSS-PROJECT-PROPAGATION.md` 의 역방향 전파로 대체)
+- 없음. 구 `settings.gradle` 의 로컬 포함 빌드 선언은 2026-07-28 제거됐다 — 대상이 없어 no-op 인 죽은 코드였고, 공개 저장소에 특정 PC 의 절대경로가 박혀 있어 그 경로에 clone 이 존재하면 빌드 구성이 조용히 바뀌는 문제가 있었다. 외부 패키지를 import 하지 않는 방침은 확정이다. (설계 경위는 저장소에 포함되지 않은 내부 문서에 있다.)
 
 ## DB 스키마 (SQLite)
 - `jbg_item` - 구매 아이템

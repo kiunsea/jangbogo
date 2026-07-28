@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.11.1] - 2026-07-29
+
+Phase 2(기준선 동결) 종결 릴리스. 의존성 정합성 수정 외에 동작 변경은 없습니다.
+
+### Fixed
+
+- **jackson 모듈 버전이 어긋나 있던 문제**: `build.gradle` 이 `jackson-dataformat-yaml` 만 `2.15.3` 으로 고정해, Spring Boot 의존성 관리가 해석하는 `jackson-core`·`jackson-databind`(2.19.2)와 4개 마이너 버전이 달랐습니다. jackson 은 모듈 버전 일치를 전제하므로 보증되지 않는 조합이었고, 이 경로는 설정 로드·계정 파일·내보내기가 모두 사용합니다. 관측된 장애는 없었으나 잠재 위험이었습니다. 버전 선언을 제거해 정렬했습니다.
+
+### Added
+
+- **jackson YAML 호환성 테스트**(`YamlMapperCompatibilityTest`, 4건): 프로젝트가 YAML 을 다루는 세 방식을 각각 검증하고, 모듈 버전 일치를 함께 검사합니다. 버전이 다시 어긋나면 CI 에서 잡힙니다.
+
+### Changed
+
+- `CLAUDE.md` 의 외부 의존 항목에서 저장소에 포함되지 않은 문서에 대한 참조와 특정 PC 의 절대경로 서술을 제거했습니다.
+- `DEVLOG.md` 에 `BASELINE 2026-07-29` 을 기록했습니다. 이후 회귀 판정은 실계정 재수집이 아니라 테스트 통과 여부와 이 수치 비교로 합니다.
+
+---
+
 ## [0.11.0] - 2026-07-29
 
 FTP 전송 실패분이 조용히 사라지던 경로를 막은 릴리스.
