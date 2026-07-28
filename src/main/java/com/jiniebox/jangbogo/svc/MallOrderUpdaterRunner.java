@@ -50,6 +50,10 @@ public class MallOrderUpdaterRunner implements Runnable {
       JbgMallDataAccessObject jmDao = new JbgMallDataAccessObject();
       mallName = jmDao.getName(this.seqMall);
 
+      // 일부 수집기만 실패한 경우(예: SSG 실패 + Emart 성공) 각각을 FAIL 로 남긴다.
+      // 전체 수집은 계속 진행되므로 아래에서 SUCCESS 행이 따로 기록된다.
+      recordPartialFailures(mou.getPartialFailures(), mallName, startedAt);
+
       logger.info("===========================================================================");
       logger.info("쇼핑몰: {} (seq={})", mallName, this.seqMall);
       logger.info("수집된 주문 개수: {}", itemArr != null ? itemArr.size() : 0);
@@ -245,7 +249,7 @@ public class MallOrderUpdaterRunner implements Runnable {
         logger.info("===========================================================================");
 
         // 수집 결과 로그 저장
-        String logStatus = (skippedOrders > 0 && orderCount == 0) ? "FAIL" : "SUCCESS";
+        String logStatus = decideStatus(orderCount, existingOrderCount, skippedOrders);
         String logErrorMsg = (skippedOrders > 0) ? "스킵된 주문: " + skippedOrders + "개" : null;
         saveCollectLog(
             Integer.parseInt(this.seqMall),
@@ -295,6 +299,77 @@ public class MallOrderUpdaterRunner implements Runnable {
           ce != null ? ce.getScreenshotPath() : null,
           startedAt,
           System.currentTimeMillis());
+    }
+  }
+
+  /**
+   * 수집 실행 결과의 SUCCESS/FAIL 을 판정한다.
+   *
+   * <p>실패로 볼 조건은 "수집해 온 주문이 하나도 쓸 수 없었을 때" 뿐이다.
+   *
+   * <ul>
+   *   <li><b>신규 주문 0 은 실패가 아니다.</b> 이미 수집을 마친 뒤의 재실행은 전부 중복({@code existingOrderCount})으로 걸러지는 것이
+   *       정상이다. 이를 FAIL 로 찍으면 데이터가 따라잡힌 시점부터 모든 주기 실행이 영구히 실패로 기록되어 대시보드가 거짓말을 한다.
+   *   <li><b>스킵 자체도 실패가 아니다.</b> serial/date_time 이 없는 주문은 키가 없어 저장할 수 없으므로 건너뛰는 것이 의도된 동작이다.
+   * </ul>
+   *
+   * <p>수집기 자체의 실패는 이 판정과 별개로 {@link #recordPartialFailures} 가 FAIL 행으로 남긴다.
+   *
+   * @param orderCount 신규 등록된 주문 수
+   * @param existingOrderCount 이미 등록돼 있어 건너뛴 주문 수
+   * @param skippedOrders 키 누락 등으로 저장하지 못한 주문 수
+   * @return "SUCCESS" 또는 "FAIL"
+   */
+  static String decideStatus(int orderCount, int existingOrderCount, int skippedOrders) {
+    boolean nothingUsable = orderCount == 0 && existingOrderCount == 0 && skippedOrders > 0;
+    return nothingUsable ? "FAIL" : "SUCCESS";
+  }
+
+  /**
+   * 부분 실패(수집기 일부만 실패)를 각각 jbg_collect_log 에 FAIL 로 기록한다.
+   *
+   * <p>seq=1 처럼 수집기가 여러 개인 쇼핑몰에서, 한쪽 실패가 다른 쪽 수집을 막지 않도록 격리한 대가로 실패가 로그에서 사라지면 안 된다. step_name 에
+   * 수집기 이름을 붙여 어느 쪽이 실패했는지 구분한다.
+   *
+   * @param failures 부분 실패 목록
+   * @param mallName 쇼핑몰 이름
+   * @param startedAt 실행 시작 시간
+   */
+  private void recordPartialFailures(
+      List<MallOrderUpdater.CollectFailure> failures, String mallName, long startedAt) {
+    if (failures == null || failures.isEmpty()) {
+      return;
+    }
+
+    int seqMallInt = 0;
+    try {
+      seqMallInt = Integer.parseInt(this.seqMall);
+    } catch (NumberFormatException ignore) {
+    }
+
+    JbgCollectLogDataAccessObject logDao = new JbgCollectLogDataAccessObject();
+    for (MallOrderUpdater.CollectFailure failure : failures) {
+      CollectException ce = failure.cause();
+      logger.warn("부분 실패 기록 - 수집기: {}, 단계: {}", failure.collector(), ce.getStepName());
+      try {
+        logDao.addLog(
+            seqMallInt,
+            mallName,
+            "FAIL",
+            0,
+            0,
+            ce.getMessage(),
+            ExceptionUtil.getExceptionInfo(ce),
+            failure.collector() + ":" + ce.getStepName(),
+            ce.getCurrentUrl(),
+            ce.getPageTitle(),
+            ce.getTargetSelector(),
+            ce.getScreenshotPath(),
+            startedAt,
+            System.currentTimeMillis());
+      } catch (Exception e) {
+        logger.warn("부분 실패 로그 저장 중 오류: {}", e.getMessage());
+      }
     }
   }
 

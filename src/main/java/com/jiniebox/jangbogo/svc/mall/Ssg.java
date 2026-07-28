@@ -2,6 +2,7 @@ package com.jiniebox.jangbogo.svc.mall;
 
 import com.jiniebox.jangbogo.svc.ifc.MallSession;
 import com.jiniebox.jangbogo.svc.ifc.PurchasedCollector;
+import com.jiniebox.jangbogo.svc.util.ClickUtil;
 import com.jiniebox.jangbogo.svc.util.CollectStep;
 import com.jiniebox.jangbogo.svc.util.WebDriverManager;
 import java.util.Iterator;
@@ -99,20 +100,35 @@ public class Ssg extends MallSession implements PurchasedCollector {
     driver.findElement(By.id("mem_id")).sendKeys(this.USER_ID);
     driver.findElement(By.id("mem_pw")).sendKeys(this.USER_PASS);
     WebElement elemLogin = driver.findElement(By.id("loginBtn"));
-    elemLogin.click(); // 로그인 버튼 클릭
+    ClickUtil.safeClick(driver, elemLogin, "#loginBtn"); // 로그인 버튼 클릭 (프로모션 배너 오버레이 대응)
 
     this.delayTime(1500); // 페이지 이동후엔 세션 유지를 위해 지연시간이 필요하다
 
-    // 로그인 성공 여부 확인
-    /**
-     * TODO Task #889 WebElement elemLogoutButton =
-     * driver.findElement(By.xpath("//*[@id='logoutBtn']/a")); String elemOnclick =
-     * elemLogoutButton.getAttribute("onclick");
-     *
-     * <p>if (elemLogoutButton != null && elemOnclick.indexOf("logout") > -1) { log.debug("[버튼 요소]
-     * onclick 속성: {}", elemOnclick); return true; }
-     */
-    return false;
+    return this.isSignedIn(driver);
+  }
+
+  /**
+   * 실제 로그인 상태를 판정한다. (Task #889)
+   *
+   * <p>이전에는 판정 로직이 주석 처리된 채 무조건 {@code false} 를 반환했다. 그 결과 SSG 수집은 로그인이 성공해도 항상 "로그인 실패"로 끝나 실제 실패
+   * 원인을 구분할 수 없었다. 여기서는 로그인을 "완벽하게" 만들지 않고, **관측된 상태를 정직하게 반환**하는 데까지만 책임진다. 로그인 안정화 자체는 세션 프로필
+   * 재사용으로 다룬다.
+   *
+   * <p>판정은 로그아웃 어포던스의 존재로 한다. {@code findElements} 를 쓰므로 요소가 없어도 예외가 아니라 {@code false} 가 된다.
+   *
+   * @param driver WebDriver 인스턴스
+   * @return 로그인된 상태로 관측되면 true
+   */
+  private boolean isSignedIn(WebDriver driver) {
+    driver.navigate().to("https://www.ssg.com/");
+    this.delayTime(1500);
+
+    boolean byId = !driver.findElements(By.id("logoutBtn")).isEmpty();
+    boolean byHref = !driver.findElements(By.cssSelector("a[href*='logout']")).isEmpty();
+    boolean signedIn = byId || byHref;
+
+    log.debug("SSG 로그인 판정: signedIn={} (logoutBtn={}, logoutHref={})", signedIn, byId, byHref);
+    return signedIn;
   }
 
   @Override
@@ -135,7 +151,7 @@ public class Ssg extends MallSession implements PurchasedCollector {
     // 구매 내역
     driver.navigate().to("https://www.ssg.com/myssg/productMng/purchaseList.ssg?menu=purchaseList");
 
-    driver.findElement(By.xpath("//label[@for='sf_m3']")).click(); // 단기간 조회 (1개월전부터 지금까지)
+    ClickUtil.safeClick(driver, By.xpath("//label[@for='sf_m3']")); // 단기간 조회 (1개월전부터 지금까지)
     WebElement aElem = driver.findElement(By.id("_d_sch_button"));
     js.executeScript("arguments[0].click();", aElem);
     this.delayTime(1500);
@@ -192,6 +208,15 @@ public class Ssg extends MallSession implements PurchasedCollector {
         Iterator<WebElement> onIter = elems_onlinePurchase_tr.iterator();
         while (onIter.hasNext()) {
           WebElement onTrElem = (WebElement) onIter.next();
+
+          // 구매 내역이 없으면 SSG 는 "해당기간내에 온라인몰에서 구매하신 내역이 없습니다." 안내 행 하나를 렌더링한다.
+          // 이 행은 td 가 1개(colspan)뿐이라 데이터 행으로 파싱하면 td[2]/p 에서 예외가 나고, 수집이 통째로 실패한다.
+          // (오프라인 목록을 다루는 offlinePurchaseList 는 이미 같은 방식으로 걸러낸다)
+          if (onTrElem.findElements(By.xpath("td")).size() < 4) {
+            log.debug("SSG 온라인 구매내역 없음 (안내 행) — 건너뜀: {}", onTrElem.getText());
+            continue;
+          }
+
           String date = onTrElem.findElement(By.xpath("td[1]/p")).getText();
           String orderNum = onTrElem.findElement(By.xpath("td[2]/p")).getText();
           String mallName = onTrElem.findElement(By.xpath("td[3]/p[1]/span/i/span")).getText();

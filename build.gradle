@@ -7,7 +7,7 @@ plugins {
 }
 
 group = 'com.jiniebox'
-version = '0.10.2'
+version = '0.10.3'
 description = '사용자 온라인/오프라인 구매 내역 수집기'
 
 java {
@@ -23,6 +23,14 @@ configurations {
 		extendsFrom annotationProcessor
 	}
 }
+
+// Selenium 버전 고정 (Spring Boot 의존성 관리가 사용하는 프로퍼티)
+// 모든 selenium-* 모듈이 이 버전으로 함께 해석되도록 한 곳에서만 지정한다.
+// 주의: typed DevTools(org.seleniumhq.selenium:selenium-devtools-vNNN)는 이 버전에 맞는 아티팩트가
+// 있어야 쓸 수 있다. Chrome 150 용 v150 아티팩트는 존재하지 않으므로 CDP 는 typed API 가 아니라
+// ChromiumDriver.executeCdpCommand(...) 로 호출해야 한다. (기동 시 뜨는 "Unable to find CDP
+// implementation matching NNN" 경고는 typed API 부재를 알릴 뿐, executeCdpCommand 동작과 무관하다)
+ext['selenium.version'] = '4.31.0'
 
 repositories {
 	mavenCentral()
@@ -52,7 +60,10 @@ dependencies {
 	implementation 'org.xerial:sqlite-jdbc:3.45.3.0'
 	
 	// Selenium WebDriver (selenium-java에 모든 드라이버 포함)
-	implementation 'org.seleniumhq.selenium:selenium-java:4.25.0'
+	// 버전은 위 ext['selenium.version'] 으로 고정한다. 여기에 버전을 직접 쓰면 selenium-java(집합 POM)만
+	// 그 버전이 되고 실제 모듈(api/remote-driver/chromium-driver 등)은 Spring Boot 관리 버전으로 해석돼
+	// 선언과 실제가 어긋난다.
+	implementation 'org.seleniumhq.selenium:selenium-java'
 	
 	// JSON Simple
 	implementation 'com.googlecode.json-simple:json-simple:1.1.1'

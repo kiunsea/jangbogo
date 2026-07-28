@@ -2,6 +2,7 @@ package com.jiniebox.jangbogo.svc.mall;
 
 import com.jiniebox.jangbogo.svc.ifc.MallSession;
 import com.jiniebox.jangbogo.svc.ifc.ReceiptCollector;
+import com.jiniebox.jangbogo.svc.util.ClickUtil;
 import com.jiniebox.jangbogo.svc.util.CollectStep;
 import com.jiniebox.jangbogo.svc.util.WebDriverManager;
 import com.jiniebox.jangbogo.util.NumberUtil;
@@ -105,7 +106,7 @@ public class Emart extends MallSession implements ReceiptCollector {
     // 로그인 시작
     driver.findElement(By.id("userId")).sendKeys(this.USER_ID);
     driver.findElement(By.id("userPw")).sendKeys(this.USER_PASS);
-    driver.findElement(By.id("loginBtn")).click(); // 로그인 버튼 클릭
+    ClickUtil.safeClick(driver, By.id("loginBtn")); // 로그인 버튼 클릭 (프로모션 배너 오버레이 대응)
 
     // reCAPTCHA 감지
     boolean isCaptchaPresent = false;
@@ -210,7 +211,7 @@ public class Emart extends MallSession implements ReceiptCollector {
         logger.debug("영수증 목록이 비어있습니다. 다음 페이지로 이동합니다.");
         try {
           btn_prev = driver.findElement(By.cssSelector(".btn-prev-month"));
-          btn_prev.click();
+          ClickUtil.safeClick(driver, btn_prev, ".btn-prev-month");
           this.delayTime(2000);
         } catch (Exception e) {
           logger.debug("이전 달 버튼을 찾을 수 없습니다. 루프를 종료합니다.");
@@ -275,7 +276,7 @@ public class Emart extends MallSession implements ReceiptCollector {
       }
 
       btn_prev = driver.findElement(By.cssSelector(".btn-prev-month"));
-      btn_prev.click();
+      ClickUtil.safeClick(driver, btn_prev, ".btn-prev-month");
     }
 
     return resJsonArr;

@@ -23,6 +23,14 @@ public class JangbogoConfig {
 
   private static final String CONFIG_FILE_PATH = "config/jbg_config.yml";
 
+  /**
+   * Spring 컨텍스트 밖에서 참조하기 위한 인스턴스 홀더.
+   *
+   * <p>{@code new} 로 생성되는 유틸/크롤러 클래스({@code WebDriverManager} 등)는 빈이 아니므로 {@code @Autowired} 가 동작하지
+   * 않는다. 그런 클래스는 {@link #getInstance()} 로 설정을 얻는다.
+   */
+  private static volatile JangbogoConfig instance;
+
   // 필드
   private String localdbName;
   private String localdbPath;
@@ -41,6 +49,9 @@ public class JangbogoConfig {
   @PostConstruct
   public void loadConfig() {
     logger.info("========== JangbogoConfig 초기화 시작 ==========");
+
+    // 로드 성공/실패와 무관하게 홀더에 먼저 등록한다. Spring 이 만든 빈이 fallback 인스턴스를 대체한다.
+    instance = this;
 
     File configFile = new File(CONFIG_FILE_PATH);
 
@@ -81,6 +92,28 @@ public class JangbogoConfig {
     }
 
     logger.info("========== JangbogoConfig 초기화 완료 ==========");
+  }
+
+  /**
+   * Spring 이 관리하는 설정 인스턴스를 반환한다.
+   *
+   * <p>빈이 아닌 클래스(크롤러·WebDriver 유틸 등)가 설정을 참조할 때 사용한다. Spring 기동 전에 호출되면 기본값이 로드된 인스턴스를 만들어 반환하고, 이후
+   * Spring 이 빈을 초기화하면 그 빈으로 교체된다.
+   *
+   * @return 설정 인스턴스 (null 아님)
+   */
+  public static JangbogoConfig getInstance() {
+    JangbogoConfig local = instance;
+    if (local == null) {
+      synchronized (JangbogoConfig.class) {
+        if (instance == null) {
+          logger.warn("JangbogoConfig 빈이 아직 없습니다. 기본 설정으로 임시 인스턴스를 생성합니다.");
+          new JangbogoConfig().loadConfig(); // loadConfig() 안에서 instance 에 등록된다
+        }
+        local = instance;
+      }
+    }
+    return local;
   }
 
   /** 기본 설정 로드 (jbg_config.yml이 없을 때) */

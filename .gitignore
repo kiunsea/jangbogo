@@ -68,6 +68,9 @@ logs/
 db/*.db
 db/*.db-*
 db/jangbogo-dev.db-wal
+# DB 백업 (확장자가 제각각이라 위 패턴에 걸리지 않는다).
+# 이 저장소는 PUBLIC 이고 jbg_mall 에 계정 암호화 키(encrypt_key/encrypt_iv)가 들어 있으므로 통째로 제외한다.
+db/backup/
 
 ### Packaging - Exclude downloaded binaries only ###
 packaging/winsw/jangbogo-service.exe

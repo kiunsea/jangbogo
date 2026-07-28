@@ -2,6 +2,7 @@ package com.jiniebox.jangbogo.svc.mall;
 
 import com.jiniebox.jangbogo.svc.ifc.MallSession;
 import com.jiniebox.jangbogo.svc.ifc.PurchasedCollector;
+import com.jiniebox.jangbogo.svc.util.ClickUtil;
 import com.jiniebox.jangbogo.svc.util.CollectStep;
 import com.jiniebox.jangbogo.svc.util.WebDriverManager;
 import com.jiniebox.jangbogo.util.JinieboxUtil;
@@ -99,7 +100,7 @@ public class Oasis extends MallSession implements PurchasedCollector {
               By.cssSelector(
                   "#sec_login > div.loginTabCont.idCont > div > form > div.btn_login.on > a"));
     }
-    elemLogin.click(); // 로그인 버튼 클릭
+    ClickUtil.safeClick(driver, elemLogin, "oasis-login"); // 로그인 버튼 클릭
     this.delayTime(3000); // 페이지 이동후엔 세션 유지를 위해 지연시간이 필요하다
 
     driver.navigate().to("https://www.oasis.co.kr/myPage/main");

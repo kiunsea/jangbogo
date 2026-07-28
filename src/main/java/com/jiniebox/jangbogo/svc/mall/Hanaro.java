@@ -3,6 +3,7 @@ package com.jiniebox.jangbogo.svc.mall;
 import com.jiniebox.jangbogo.dao.JbgOrderDataAccessObject;
 import com.jiniebox.jangbogo.svc.ifc.MallSession;
 import com.jiniebox.jangbogo.svc.ifc.PurchasedCollector;
+import com.jiniebox.jangbogo.svc.util.ClickUtil;
 import com.jiniebox.jangbogo.svc.util.CollectStep;
 import com.jiniebox.jangbogo.svc.util.WebDriverManager;
 import java.util.List;
@@ -100,7 +101,7 @@ public class Hanaro extends MallSession implements PurchasedCollector {
         driver.findElement(
             By.cssSelector(
                 "#loginForm > div.inner > div > div.login-box > div.login-form > button"));
-    elemLogin.click(); // 로그인 버튼 클릭
+    ClickUtil.safeClick(driver, elemLogin, "hanaro-login"); // 로그인 버튼 클릭
 
     this.delayTime(2000); // 페이지 이동후엔 세션 유지를 위해 지연시간이 필요하다
 
@@ -121,7 +122,7 @@ public class Hanaro extends MallSession implements PurchasedCollector {
 
     try {
       WebElement btnLogout = driver.findElement(By.id("a_id_logout"));
-      btnLogout.click();
+      ClickUtil.safeClick(driver, btnLogout, "#a_id_logout");
       this.delayTime(2000);
       log.debug("로그아웃 완료");
     } catch (Exception e) {
@@ -155,7 +156,7 @@ public class Hanaro extends MallSession implements PurchasedCollector {
       // 행이 없는 경우: 단일 상세보기 버튼으로 시도
       try {
         WebElement detailBtn = driver.findElement(By.xpath("//*[@id=\"eltRctwDtlView\"]"));
-        detailBtn.click();
+        ClickUtil.safeClick(driver, detailBtn, "#eltRctwDtlView");
         this.delayTime(2000);
       } catch (Exception e) {
         log.debug("상세보기 버튼을 찾을 수 없음 (영수증 없음)");
@@ -183,12 +184,12 @@ public class Hanaro extends MallSession implements PurchasedCollector {
         }
 
         // 행 클릭하여 선택
-        receiptRows.get(idx).click();
+        ClickUtil.safeClick(driver, receiptRows.get(idx), "receipt-row[" + idx + "]");
         this.delayTime(500);
 
         // 상세보기 버튼 클릭
         WebElement detailBtn = driver.findElement(By.xpath("//*[@id=\"eltRctwDtlView\"]"));
-        detailBtn.click();
+        ClickUtil.safeClick(driver, detailBtn, "#eltRctwDtlView");
         this.delayTime(2000);
 
         // 상세 페이지 파싱

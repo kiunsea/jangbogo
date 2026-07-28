@@ -10,6 +10,85 @@
 
 ## 주요 변경사항
 
+### [2026-07-29 00:10] Phase 1 — 수집 장애 버그 일괄 수정 및 기준선 확보 (v0.10.3)
+
+#### 작업 개요
+
+`doc/PLAN-2026-07-28-REV1-decisions-applied.md` 의 Phase 1(버그 일괄 수정)을 수행하고, 종료 조건인 "수집 1회 이상 성공(기준선 확보)"을 달성. 2026-05-30 이후 수집 0건이던 상태에서 **주문 22건 / 아이템 168건**을 실제로 수집했다.
+
+#### 배경
+
+Phase 0A 실측으로 드러난 사실은 "봇 차단"이 아니었다. 배포본 로그(`logs/jangbogo-2026-05-30-1.log.gz`)에 이마트 프로모션 배너 `<img>` 가 로그인 버튼을 덮어 `ElementClickInterceptedException` 이 발생한 순간이 그대로 남아 있었고, 그 뒤 약 2개월간 모든 예약 수집이 `account_status가 1이 아님, 건너뜀` 으로 끝났다.
+
+#### 상세 내용
+
+**1. 기준 DB 결정 (착수 전 확인)**
+
+회귀 판정 기준 DB 를 개발 트리 초기화(0/0)로 확정. `db/backup/jangbogo-dev.db.baseline-2026-07-28` 에 기존 데이터(주문 7 / 아이템 53)를 백업한 뒤 `jbg_order`·`jbg_item` 을 비우고 시작.
+
+**2. 계획서 8개 항목 처리**
+
+| # | 대상 | 처리 |
+|---|---|---|
+| 1+2 | `WebDriverManager.java` | `new ChromeDriver(options)` + headless 조건 정상화를 **같은 커밋**에서. 54만 고치면 무효였던 headless 가 처음 적용되어 "설정 없음 → headless 기동"이 되는 것을 막기 위함 |
+| 3 | `WebDriverManager.java` `@Autowired` | `JangbogoConfig.getInstance()` 홀더로 교체 |
+| 4 | `Ssg.java` 하드코딩 `return false` | `isSignedIn()` 으로 관측 상태 반환. 로그인 "완성"이 아니라 "정직화"까지만 |
+| 5 | click 11지점 | `ClickUtil.safeClick()` 도입 |
+| 6 | `settings.gradle` | 죽은 `includeBuild` 제거 |
+| 7 | `jbg_collect_log` | **검증 결과 자동 생성되지 않음.** `migrateCollectLogSchema` 는 ALTER 만 하고, `spring.sql.init` 은 `continue-on-error` 로 실패를 삼켰다. `CREATE TABLE IF NOT EXISTS` 추가 |
+| 8 | `ExportService.getMallIdFromSeq` | jiniebox `getSeqById()` 확인 결과 `emart`/`ssg` 둘 다 seq 1 로 매핑되어 무해 → **현행 유지** |
+
+**3. 실행으로 발견해 추가 수정한 3건**
+
+- **SSG 빈 결과 행 파싱 실패** — 조회 기간에 구매내역이 없으면 안내 문구 행(td 1개)이 렌더링되는데 이를 데이터 행으로 파싱해 `td[2]/p` 에서 예외. 이 예외가 seq=1 수집 전체를 중단시켜 Emart 에 도달하지 못하게 한 직접 원인이었다.
+- **수집기 간 실패 격리** — seq=1 의 SSG/Emart 가 예외 격리 없이 순차 실행되어 한쪽 실패가 다른 쪽을 막았다. 격리하되 실패를 삼키지 않도록 `partialFailures` → `jbg_collect_log` FAIL 행 경로를 만들었다(v0.8.0 에서 제거한 swallow 패턴의 부활 방지).
+- **성공/실패 판정 오탐** — `스킵 > 0 && 신규 == 0` 을 FAIL 로 보던 식 때문에, 17건을 정상 수집하고 15건 중복·2건 키 누락인 정상 상황이 FAIL 로 기록됐다. 데이터가 따라잡히면 상시화되는 오탐.
+
+**4. 실행 검증 (실계정, seq=1 → 이후 seq=2 포함)**
+
+- `ChromeDriver 기동 (headless=false)` — 옵션 전달·headless 정상 (항목 1·2·3)
+- `SSG 로그인 판정: signedIn=true` — 4회 연속 재현 (항목 4)
+- 이마트 로그인 통과, `data-body=mypage` — 2026-05-30 장애 지점 (항목 5)
+- `jbg_collect_log 테이블 확인/생성 완료` + 실제 행 기록 (항목 7)
+- **격리 로직 실전 검증**: 마지막 실행에서 Emart 가 `StaleElementReferenceException` 으로 실패했으나 SSG 결과는 보존되고 수집은 계속됐으며, 실패는 `Emart:navigateReceipt` FAIL 행으로 별도 기록됨. 수정 전이었다면 seq=1 전체가 FAIL 이고 아무 데이터도 남지 않았다.
+- seq=2(오아시스)도 처음으로 수집 성공 — 7건 / 51아이템
+
+**5. CDP 사용 가능 실증**
+
+계획서 §[정정]의 전제를 실측 확인. typed DevTools(`selenium-devtools-vNNN`)는 Chrome 150 용 아티팩트가 없어 사용 불가지만, `ChromiumDriver.executeCdpCommand` 는 정상 동작한다. `Page.addScriptToEvaluateOnNewDocument` 로 주입한 스크립트가 실제 사이트(ssg.com)에서도 유지되고 `navigator.webdriver` 가 `undefined` 로 마스킹되는 것까지 확인했다. Phase 4A 의 T2 는 이 방식으로 진행 가능하다.
+
+#### 변경 파일
+
+| 파일 | 구분 | 내용 |
+|---|---|---|
+| `svc/util/WebDriverManager.java` | 수정 | ChromeOptions 전달, headless 조건, 설정 조회 경로 |
+| `dto/JangbogoConfig.java` | 수정 | `getInstance()` 인스턴스 홀더 추가 |
+| `svc/util/ClickUtil.java` | 신규 | `safeClick` 헬퍼 |
+| `svc/mall/Ssg.java` | 수정 | `isSignedIn()`, 빈 결과 행 스킵, safeClick 적용 |
+| `svc/mall/Emart.java` / `Hanaro.java` / `Oasis.java` | 수정 | safeClick 적용 |
+| `svc/MallOrderUpdater.java` | 수정 | 수집기 격리(`collectFrom`, `partialFailures`) |
+| `svc/MallOrderUpdaterRunner.java` | 수정 | 부분 실패 기록, `decideStatus` 분리 |
+| `boot/StartupTasks.java` | 수정 | `ensureCollectLogTable` 추가 |
+| `settings.gradle` | 수정 | 죽은 `includeBuild` 제거 |
+| `build.gradle` | 수정 | `ext['selenium.version'] = '4.31.0'` 로 버전 일원화 |
+| `svc/MallOrderUpdaterIsolationTest.java` | 신규 | 격리 회귀 테스트 5건 |
+| `svc/MallOrderUpdaterRunnerStatusTest.java` | 신규 | 상태 판정 회귀 테스트 5건 |
+| `CLAUDE.md` | 수정 | 외부 의존 항목 갱신(doribox 참조 제거 반영) |
+
+#### 운영 설정 변경 (DB)
+
+- `jbg_mall.collect_interval_minutes` — seq=1,2 를 **720분**으로 (결정 5)
+- seq=2 는 검증 중 일시적으로 `auto_collect=0` 으로 두었다가 원복 완료
+
+#### 남은 판단 대기 항목
+
+1. `./gradlew test` 가 실계정 수집을 실행한다 — `JangbogoApplicationTests` 가 전체 컨텍스트를 로드하면 `StartupTasks` 의 `ApplicationReadyEvent` 가 수집을 건다. CI 에서도 시도된다. 기동 수집을 프로퍼티로 가드할지 결정 필요.
+2. Emart `navigateReceipt` 의 `StaleElementReferenceException` — 간헐적 발생.
+3. 영수증 바코드(`#barcodeTargetRec`) 미인식 2건 — serial/date_time 이 비어 스킵된다. 스킵 동작 자체는 올바르다고 확정됐으나 원인은 미조사.
+4. `jbg_collect_log` 의 수정 전 기록 2행(seq 1·3) 삭제 여부.
+
+---
+
 ### [2026-05-01 04:00] v0.10.2 정식 릴리즈 발행 (v0.8.0 이후 첫 태그)
 
 #### 작업 개요

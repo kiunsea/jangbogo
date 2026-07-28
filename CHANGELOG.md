@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.10.3] - 2026-07-29
+
+수집이 2026-05-30 이후 한 건도 성공하지 못하던 원인을 제거한 버그 수정 릴리스. 수정 후 실측으로 주문 22건 / 아이템 168건을 수집해 기준선을 확보했습니다.
+
+### Fixed
+
+- **ChromeOptions 가 드라이버에 전달되지 않던 문제**: `WebDriverManager.getWebDriver()` 가 `ChromeOptions` 를 구성해 놓고 `new ChromeDriver()` 를 인자 없이 호출해, user-agent·`--remote-allow-origins` 를 포함한 모든 옵션이 무시되고 있었습니다. `new ChromeDriver(options)` 로 수정했습니다.
+- **headless 판정이 반대로 되어 있던 문제**: `BROWSER_HEADLESS` 가 **false 일 때** headless 를 켜는 조건이었습니다. 위 옵션 미전달 때문에 그동안 실제로 적용되지는 않았으나, 옵션 전달을 고치는 순간 "설정 없음 → headless 기동"이 되어 로그인 화면 진단이 불가능해지므로 **같은 커밋에서 함께** 바로잡았습니다. 아울러 `headless` → `--headless=new` 로 교체했습니다.
+- **빈이 아닌 클래스의 `@Autowired` 가 동작하지 않던 문제**: `WebDriverManager` 는 크롤러에서 `new` 로 생성되므로 `@Autowired JangbogoConfig` 가 주입되지 않고, `@PostConstruct` 가 실행되지 않은 빈 설정을 참조했습니다. `JangbogoConfig.getInstance()` 홀더를 통해 Spring 이 관리하는 인스턴스를 조회하도록 변경했습니다.
+- **SSG 로그인이 항상 실패로 보고되던 문제**: `Ssg.signin()` 이 판정 로직을 주석 처리한 채 무조건 `false` 를 반환했습니다(Task #889). 그 결과 로그인에 성공해도 수집이 중단되어 Emart 단계에 도달조차 하지 못했습니다. 로그아웃 어포던스 관측으로 실제 상태를 반환하도록 수정했습니다.
+- **오버레이에 클릭이 가로채이던 문제**: 2026-05-30 장애는 봇 차단이 아니라 이마트 프로모션 배너 `<img>` 가 로그인 버튼을 덮어 `ElementClickInterceptedException` 이 발생한 것이었습니다. 신규 `svc/util/ClickUtil.safeClick()` 이 스크롤 → 클릭 가능 대기 → JS 클릭 폴백 순으로 처리하며, Emart/Hanaro/Oasis/Ssg 의 클릭 지점 11곳에 적용했습니다.
+- **SSG 구매내역이 없을 때 수집 전체가 실패하던 문제**: 조회 기간에 온라인몰 구매내역이 없으면 SSG 는 안내 문구 행 하나를 렌더링하는데, 이를 데이터 행으로 파싱해 예외가 발생했습니다. `offlinePurchaseList` 와 동일하게 td 개수로 걸러냅니다.
+- **한 수집기의 실패가 다른 수집기까지 막던 문제**: seq=1 은 SSG 와 Emart 두 수집기를 순차 실행하는데 예외 격리가 없어, SSG 실패 시 Emart 수집이 아예 실행되지 않았습니다. 이제 수집기별로 격리되며, 실패는 삼켜지지 않고 `jbg_collect_log` 에 `step_name = "<수집기>:<단계>"` 형태의 FAIL 행으로 별도 기록됩니다. 시도한 수집기가 전부 실패한 경우에만 수집 실패로 전파됩니다.
+- **정상 실행이 FAIL 로 기록되던 문제**: 성공/실패 판정이 `스킵 > 0 && 신규 주문 == 0` 이어서, 이미 수집을 마친 뒤의 재실행(전량 중복)이 실패로 기록됐습니다. 데이터가 따라잡힌 시점부터 모든 주기 실행이 영구히 실패로 남는 오탐입니다. "수집해 온 주문이 하나도 쓸 수 없었을 때"만 FAIL 로 판정하도록 수정했습니다.
+- **`jbg_collect_log` 테이블이 생성되지 않던 문제**: `StartupTasks.migrateCollectLogSchema()` 는 컬럼 추가(ALTER)만 수행하고 테이블 생성은 `schema.sql` + `spring.sql.init` 에 의존했는데, 그 경로가 `continue-on-error: true` 로 실패를 삼켜 테이블이 없는 채로 남을 수 있었습니다(개발 트리 DB 가 실제로 그 상태였습니다). 기동 시 `CREATE TABLE IF NOT EXISTS` 로 직접 보장합니다.
+- **Selenium 버전 선언과 실제가 어긋나던 문제**: `build.gradle` 은 `selenium-java:4.25.0` 을 선언했으나 Spring Boot 의존성 관리가 나머지 selenium 모듈을 4.31.0 으로 해석해, 집합 POM 만 4.25.0 인 혼재 상태였습니다. CDP 경고가 안내하는 아티팩트 좌표도 4.31.0 기준이라 선언을 보고 맞추면 계속 어긋납니다. `ext['selenium.version']` 으로 일원화했습니다.
+
+### Added
+
+- **`svc/util/ClickUtil`**: 오버레이·레이지로딩에 강한 클릭 헬퍼.
+- **수집기 격리 회귀 테스트**(`MallOrderUpdaterIsolationTest`, 5건): 한 수집기의 실패가 다른 수집기를 막지 않는지, 그리고 그 실패가 컨텍스트와 함께 남는지를 실계정·브라우저 없이 검증합니다.
+- **수집 상태 판정 회귀 테스트**(`MallOrderUpdaterRunnerStatusTest`, 5건).
+
+### Removed
+
+- **`settings.gradle` 의 죽은 `includeBuild('D:/GIT/doribox')`**: 대상이 없어 no-op 이었고, PUBLIC 저장소에 PRIVATE 저장소명과 특정 PC 절대경로가 노출되며, 해당 경로에 clone 이 존재하면 빌드 구성이 조용히 바뀌는 문제가 있었습니다. doribox 패키지 import 방침은 폐기 확정입니다.
+
+---
+
 ## [0.10.2] - 2026-05-01
 
 ### Added

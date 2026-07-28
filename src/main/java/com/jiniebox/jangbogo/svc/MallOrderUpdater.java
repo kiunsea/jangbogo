@@ -5,6 +5,10 @@ import com.jiniebox.jangbogo.svc.mall.Emart;
 import com.jiniebox.jangbogo.svc.mall.Hanaro;
 import com.jiniebox.jangbogo.svc.mall.Oasis;
 import com.jiniebox.jangbogo.svc.mall.Ssg;
+import com.jiniebox.jangbogo.svc.util.CollectStep;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.function.Supplier;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.simple.JSONArray;
@@ -13,6 +17,26 @@ import org.json.simple.JSONObject;
 public class MallOrderUpdater {
 
   private static final Logger logger = LogManager.getLogger(MallOrderUpdater.class);
+
+  /**
+   * 한 쇼핑몰(seq)에 수집기가 여러 개 붙는 경우(seq=1 은 SSG + Emart), 일부만 실패한 사실.
+   *
+   * @param collector 수집기 이름 (SSG / Emart 등)
+   * @param cause 실패 컨텍스트를 담은 예외
+   */
+  public record CollectFailure(String collector, CollectException cause) {}
+
+  /** 이번 수집에서 발생한 부분 실패 목록. 성공한 수집기가 하나라도 있으면 예외 대신 여기에 쌓인다. */
+  private final List<CollectFailure> partialFailures = new ArrayList<>();
+
+  /**
+   * 이번 수집에서 발생한 부분 실패 목록을 반환한다. 호출측(runner)이 각각을 jbg_collect_log 에 FAIL 로 기록해야 한다.
+   *
+   * @return 부분 실패 목록 (없으면 빈 리스트)
+   */
+  public List<CollectFailure> getPartialFailures() {
+    return new ArrayList<>(partialFailures);
+  }
 
   /**
    * 각 쇼핑몰에서의 주문 내역들을 수집한다
@@ -34,30 +58,70 @@ public class MallOrderUpdater {
 
     JSONArray itemArr = new JSONArray();
     int seqMallInt = Integer.parseInt(seqMall);
+    int attempted = 0;
     if (seqMallInt == 1) {
-      logger.info("SSG 구매 내역 수집 시작");
-      JSONArray ssgItems = new Ssg(mallId, mallPw).getItems();
-      logger.info("SSG 수집 완료 - {} 건", ssgItems != null ? ssgItems.size() : 0);
-      if (ssgItems != null) itemArr.addAll(ssgItems);
-
-      logger.info("Emart 구매 내역 수집 시작");
-      JSONArray emartItems = new Emart(mallId, mallPw).getItems();
-      logger.info("Emart 수집 완료 - {} 건", emartItems != null ? emartItems.size() : 0);
-      if (emartItems != null) itemArr.addAll(emartItems);
+      // seq=1 은 수집기가 둘이다. 한쪽이 실패해도 다른 쪽은 반드시 시도한다.
+      // (SSG 온라인몰과 Emart 오프라인 영수증은 서로 독립적인 데이터원이라, 하나의 실패가 다른 하나를 막을 이유가 없다)
+      attempted = 2;
+      itemArr.addAll(collectFrom("SSG", () -> new Ssg(mallId, mallPw).getItems()));
+      itemArr.addAll(collectFrom("Emart", () -> new Emart(mallId, mallPw).getItems()));
     } else if (seqMallInt == 2) {
-      logger.info("Oasis 구매 내역 수집 시작");
-      JSONArray oasisItems = new Oasis(mallId, mallPw).getItems();
-      logger.info("Oasis 수집 완료 - {} 건", oasisItems != null ? oasisItems.size() : 0);
-      if (oasisItems != null) itemArr.addAll(oasisItems);
+      attempted = 1;
+      itemArr.addAll(collectFrom("Oasis", () -> new Oasis(mallId, mallPw).getItems()));
     } else if (seqMallInt == 3) {
-      logger.info("Hanaro 구매 내역 수집 시작");
-      JSONArray hanaroItems = new Hanaro(mallId, mallPw).getItems();
-      logger.info("Hanaro 수집 완료 - {} 건", hanaroItems != null ? hanaroItems.size() : 0);
-      if (hanaroItems != null) itemArr.addAll(hanaroItems);
+      attempted = 1;
+      itemArr.addAll(collectFrom("Hanaro", () -> new Hanaro(mallId, mallPw).getItems()));
     }
 
-    logger.info("전체 수집 완료 - 총 {} 건", itemArr.size());
+    // 시도한 수집기가 전부 실패했다면 이번 수집은 실패다. 컨텍스트를 담은 채로 상위에 전파한다.
+    if (attempted > 0 && partialFailures.size() == attempted) {
+      throw partialFailures.get(0).cause();
+    }
+
+    logger.info("전체 수집 완료 - 총 {} 건 (부분 실패 {} 건)", itemArr.size(), partialFailures.size());
     return itemArr;
+  }
+
+  /**
+   * 수집기 하나를 실행한다. 실패해도 예외를 전파하지 않고 {@link #partialFailures} 에 쌓아 다음 수집기가 계속 실행되게 한다.
+   *
+   * <p>실패를 삼키는 것이 아니다 — 호출측 runner 가 {@link #getPartialFailures()} 로 꺼내 jbg_collect_log 에 FAIL 로
+   * 기록한다. 이 구분이 없으면 v0.8.0 에서 제거한 "예외를 삼키고 빈 결과를 반환해 성공으로 보이는" 패턴이 되살아난다.
+   *
+   * @param name 수집기 이름 (로그·실패 기록용)
+   * @param collector 수집 동작
+   * @return 수집 결과 (실패 시 빈 배열)
+   */
+  // 테스트에서 직접 호출하기 위해 package-private
+  JSONArray collectFrom(String name, Supplier<JSONArray> collector) {
+    logger.info("{} 구매 내역 수집 시작", name);
+    try {
+      JSONArray items = collector.get();
+      logger.info("{} 수집 완료 - {} 건", name, items != null ? items.size() : 0);
+      return items != null ? items : new JSONArray();
+    } catch (Exception e) {
+      CollectException ce = unwrapCollectException(e);
+      if (ce == null) {
+        ce = CollectStep.wrap(null, name, "collect", null, e);
+      }
+      partialFailures.add(new CollectFailure(name, ce));
+      logger.error(
+          "{} 수집 실패 (다른 수집기는 계속 진행) - 단계: {}, 원인: {}", name, ce.getStepName(), e.getMessage());
+      return new JSONArray();
+    }
+  }
+
+  /** 예외 체인을 거슬러 올라가 첫 번째 CollectException을 찾는다. 없으면 null. */
+  private CollectException unwrapCollectException(Throwable t) {
+    Throwable cur = t;
+    int safety = 0;
+    while (cur != null && safety++ < 20) {
+      if (cur instanceof CollectException) {
+        return (CollectException) cur;
+      }
+      cur = cur.getCause();
+    }
+    return null;
   }
 
   //    /**
