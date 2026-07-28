@@ -2,6 +2,9 @@ spring:
   application:
     name: jangbogo-test
 
+  # 주의: 이 DataSource 는 spring.sql.init(schema.sql) 경로에만 쓰인다.
+  # DAO 계층의 LocalDBConnection 은 Spring DataSource 를 거치지 않고 직접 JDBC 로 접속하며,
+  # 접속 대상은 시스템 프로퍼티 jangbogo.localdb.url 로 정한다 (build.gradle 의 test 태스크 참조).
   datasource:
     url: "jdbc:sqlite::memory:"
     driver-class-name: org.sqlite.JDBC
@@ -25,6 +28,12 @@ admin:
 
 # 사용자 정의 설정 (테스트용)
 jangbogo:
+  # 테스트는 절대 실계정 수집을 실행하지 않는다.
+  # StartupTasks 의 코드 기본값도 false 지만, 의도를 명시하기 위해 여기에도 선언한다.
+  startup:
+    collect:
+      enabled: false
+
   config:
     localdb-name: jangbogo-test
     localdb-path: ./test-db

@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.10.4] - 2026-07-29
+
+테스트 실행이 실계정 수집을 일으키던 문제를 차단한 안전성 수정 릴리스. 기능 변경은 없습니다.
+
+### Fixed
+
+- **`./gradlew test` 가 실계정 수집을 실행하던 문제**: `JangbogoApplicationTests` 가 `@SpringBootTest` 로 전체 컨텍스트를 로드하면 `StartupTasks` 의 `ApplicationReadyEvent` 가 발화하고, `runInitialCollection()` 이 **동기 호출**이라 실계정 로그인과 브라우저 수집이 끝날 때까지 기동을 붙잡았습니다. CI 는 `build.yml`·`ci.yml` 양쪽에서 테스트를 돌리므로 push 할 때마다 같은 일이 시도됐습니다. 기동 수집을 `jangbogo.startup.collect.enabled` 프로퍼티로 가드하고, 코드 기본값을 `false` 로 두어 프로퍼티가 정의되지 않은 컨텍스트에서는 자동으로 수집이 꺼지게 했습니다. 운영 실행은 `application.yml` 에서 명시적으로 `true` 를 선언합니다. DB 스키마 마이그레이션은 가드 밖에 두어 "앱은 띄우되 수집만 끈다" 가 스키마 갱신까지 끄지 않도록 했습니다.
+- **테스트가 운영 DB 파일을 직접 열던 문제**: `LocalDBConnection` 은 Spring `DataSource` 를 거치지 않고 직접 JDBC 로 접속하며 접속 문자열이 하드코딩돼 있어, `src/test/resources/application.yml` 의 `spring.datasource.url` 이 **아무 효과가 없었습니다**. 그 결과 테스트가 기준선 DB(`./db/jangbogo-dev.db`)를 열고 DDL 을 실행했습니다. 접속 대상을 시스템 프로퍼티 `jangbogo.localdb.url` 로 오버라이드할 수 있게 하고(기본값은 기존 값이라 운영 동작 불변), `build.gradle` 의 `test` 태스크가 `build/test-db/` 를 가리키도록 했습니다. 수집 가드와 독립적으로 동작하는 2차 방어선입니다.
+
+---
+
 ## [0.10.3] - 2026-07-29
 
 수집이 2026-05-30 이후 한 건도 성공하지 못하던 원인을 제거한 버그 수정 릴리스. 수정 후 실측으로 주문 22건 / 아이템 168건을 수집해 기준선을 확보했습니다.

@@ -46,6 +46,12 @@ admin:
 
 # 사용자 정의 설정 (Custom Configuration)
 jangbogo:
+  # 기동 시 수집 동작. StartupTasks 의 코드 기본값은 false 이며 여기서 명시적으로 켠다.
+  # 끄면 1회 수집과 스케줄 복원을 건너뛴다 (DB 스키마 마이그레이션은 계속 수행).
+  startup:
+    collect:
+      enabled: true
+
   config:
     localdb-name: jangbogo-dev
     localdb-path: ./db

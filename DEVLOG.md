@@ -10,6 +10,77 @@
 
 ## 주요 변경사항
 
+### [2026-07-29 06:30] 판단 대기 B-1 해소 — 기동 수집 프로퍼티 가드 및 테스트 DB 격리 (v0.10.4)
+
+#### 작업 개요
+
+`[2026-07-29 00:10]` 항목의 "남은 판단 대기" 1번(`./gradlew test` 가 실계정 수집을 실행한다)을 사용자 승인 후 해소했다. 조사 과정에서 같은 뿌리의 두 번째 결함(테스트가 기준선 DB 파일을 직접 연다)이 드러나 함께 처리했다.
+
+#### 배경
+
+`JangbogoApplicationTests` 는 `@SpringBootTest` 로 전체 컨텍스트를 로드한다. 그러면 `StartupTasks.onApplicationReady()` 가 발화하고 `runInitialCollection()` 이 실행되는데, 이 호출은 **동기**다(`MallSchedulerService.runOneTimeCollection` → `runCollectForMall` 직접 호출). 즉 테스트가 실계정 로그인과 브라우저 수집이 끝날 때까지 블록된다. CI 는 `build.yml`(windows)·`ci.yml`(ubuntu) 양쪽에서 `./gradlew test` 를 돌리고 `gradlew build` 도 test 를 포함하므로, push 1회당 4번 시도된다.
+
+조사 중 확인한 것:
+
+- `ApplicationReadyEvent` 진입점은 `StartupTasks` **하나뿐**이다(전체 grep).
+- `config/jbg_config.yml` 의 `auto-update-items-on-startup: true` 는 **코드에서 참조되지 않는 죽은 설정**이다.
+- `JangbogoConfig` 는 Spring 프로퍼티가 아니라 `config/jbg_config.yml` 을 직접 읽는다. 따라서 이 파일로는 프로퍼티 가드를 만들 수 없어 Spring 프로퍼티를 신설했다.
+- `LocalDBConnection` 이 접속 문자열을 하드코딩하고 있어 `src/test/resources/application.yml` 의 `spring.datasource.url: jdbc:sqlite::memory:` 가 **DAO 계층에는 아무 효과가 없었다**(그 설정은 `spring.sql.init` 경로에만 쓰인다).
+
+#### 상세 내용
+
+**1. 기동 수집 가드 — `jangbogo.startup.collect.enabled`**
+
+`StartupTasks` 에 `@Value("${jangbogo.startup.collect.enabled:false}")` 를 두고 `runInitialCollection()` + `restoreIndividualSchedules()` 를 감쌌다. `migrateCollectLogSchema()` 와 스크린샷 정리는 가드 **밖**이다 — "앱은 띄우되 수집만 끈다" 를 해도 스키마는 최신이어야 하기 때문이다.
+
+코드 기본값을 `false` 로 둔 것이 설계의 핵심이다. 프로퍼티 소스가 없는 컨텍스트(테스트 슬라이스, 앞으로 추가될 CI 잡, 컨텍스트만 띄우는 외부 도구)에서 자동으로 안전한 쪽으로 떨어지고, 수집을 켜는 것이 명시적 행위가 된다. `src/main/resources/application.yml` 이 `true` 를 선언하므로 콘솔 운영 동작은 바뀌지 않는다.
+
+건너뛸 때 info 로그를 남겨 "왜 수집이 안 도나" 진단 비용을 없앴다.
+
+**2. 테스트 DB 격리 — `jangbogo.localdb.url`**
+
+`LocalDBConnection` 의 `DB_URL` 을 `System.getProperty("jangbogo.localdb.url", "jdbc:sqlite:./db/jangbogo-dev.db")` 로 바꾸고, `build.gradle` 의 `test` 태스크에서만 `build/test-db/jangbogo-test.db` 를 가리키게 했다. 기본값이 기존 값이라 운영 동작은 불변이고 DAO 는 한 줄도 손대지 않았다.
+
+이것이 가드와 **독립적인 2차 방어선**이다. 가드가 어떤 이유로 실패해도 테스트가 보는 DB 에는 `jbg_mall` 이 없으므로 수집 대상이 0건이고 실계정에 도달할 수 없다.
+
+**3. 검증 (`./gradlew test` 실측)**
+
+| 확인 | 결과 |
+|---|---|
+| 기준선 DB md5 | `909dfe48822aea77bf4f6806a37073ac` — 실행 전후 동일, mtime·크기까지 불변 |
+| `jbg_order` / `jbg_item` | 22 / 168 유지 |
+| WAL·shm 잔여 | 없음 |
+| 격리 DB | `build/test-db/jangbogo-test.db` 생성, 테이블은 `jbg_collect_log`(0행)뿐 |
+| 가드 로그 | `06:27:11.704 기동 수집 비활성 … 건너뜁니다` |
+| 브라우저·로그인 시도 | 0건 |
+| 테스트 | 29건 / 실패 0 / 오류 0 (스킵 15 — `FtpTlsConnectionTest` `@Disabled` 14 포함) |
+| 소요 | 27초 (수집이 돌면 수 분) |
+
+#### 변경 파일
+
+| 파일 | 구분 | 내용 |
+|---|---|---|
+| `boot/StartupTasks.java` | 수정 | `startupCollectEnabled` 가드 |
+| `dao/LocalDBConnection.java` | 수정 | `jangbogo.localdb.url` 오버라이드 |
+| `src/main/resources/application.yml` | 수정 | `jangbogo.startup.collect.enabled: true` |
+| `src/test/resources/application.yml` | 수정 | 같은 키 `false` + DataSource 적용 범위 주석 |
+| `build.gradle` | 수정 | 버전 0.10.4, `test` 태스크 DB 격리 |
+
+#### 남은 판단 대기 항목
+
+`[2026-07-29 00:10]` 항목의 1번은 해소. 2·3·4 는 그대로 남는다.
+
+2. Emart `navigateReceipt` 의 `StaleElementReferenceException` — 간헐적 발생.
+3. 영수증 바코드(`#barcodeTargetRec`) 미인식 2건 — 스킵 동작은 올바르나 원인 미조사.
+4. `jbg_collect_log` 의 수정 전 기록 2행(seq 1·3) — **보존으로 결정**(2026-07-29). Phase 1 수정의 before 증거이고, 회귀 판정은 `jbg_order`/`jbg_item` 수치로 하므로 영향이 없다.
+
+새로 기록하는 항목:
+
+5. `dev/JangbogoConfigExample.java:97` 이 `JangbogoConfig` 로 DB 경로를 별도 조립한다. 개발 예제 클래스라 런타임 경로가 아니지만, DB 경로 출처가 두 곳이라는 사실은 남아 있다.
+6. `CLAUDE.md` 가 `doc/CROSS-PROJECT-PROPAGATION.md` 를 참조하는데 이 문서는 미결 4(PUBLIC 저장소 공개 판단) 때문에 미커밋이다. 공개 저장소에서 깨진 참조가 된다.
+
+---
+
 ### [2026-07-29 00:10] Phase 1 — 수집 장애 버그 일괄 수정 및 기준선 확보 (v0.10.3)
 
 #### 작업 개요

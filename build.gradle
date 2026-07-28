@@ -7,7 +7,7 @@ plugins {
 }
 
 group = 'com.jiniebox'
-version = '0.10.3'
+version = '0.10.4'
 description = '사용자 온라인/오프라인 구매 내역 수집기'
 
 java {
@@ -92,6 +92,14 @@ dependencies {
 
 tasks.named('test') {
 	useJUnitPlatform()
+
+	// LocalDBConnection 은 Spring DataSource 를 거치지 않고 직접 JDBC 로 접속하므로
+	// src/test/resources/application.yml 의 spring.datasource.url 이 적용되지 않는다.
+	// 오버라이드하지 않으면 테스트가 기준선 DB(./db/jangbogo-dev.db)를 그대로 열고 DDL 을 실행한다.
+	def testDbDir = layout.buildDirectory.dir('test-db').get().asFile
+	doFirst { testDbDir.mkdirs() }
+	def testDbFile = new File(testDbDir, 'jangbogo-test.db').absolutePath.replace('\\', '/')
+	systemProperty 'jangbogo.localdb.url', "jdbc:sqlite:${testDbFile}"
 }
 
 spotless {

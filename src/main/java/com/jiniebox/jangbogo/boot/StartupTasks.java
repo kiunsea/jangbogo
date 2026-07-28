@@ -12,6 +12,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.simple.JSONObject;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
@@ -23,19 +24,34 @@ public class StartupTasks {
 
   @Autowired private MallSchedulerService mallSchedulerService;
 
+  /**
+   * 기동 시 수집(1회 수집 + 스케줄 복원) 활성화 여부.
+   *
+   * <p>기본값을 {@code false} 로 둔 것은 의도적이다. 이 프로퍼티가 정의되지 않은 컨텍스트 — 테스트({@code @SpringBootTest}), CI,
+   * 컨텍스트만 띄우는 외부 도구 — 에서 자동으로 안전한 쪽으로 떨어져야 한다. {@code runInitialCollection()} 은 동기 호출이라 실계정 로그인과
+   * 브라우저 수집이 끝날 때까지 기동을 붙잡는다. 수집을 켜는 것은 {@code src/main/resources/application.yml} 에서 명시적으로 선언한다.
+   */
+  @Value("${jangbogo.startup.collect.enabled:false}")
+  private boolean startupCollectEnabled;
+
   @EventListener(ApplicationReadyEvent.class)
   public void onApplicationReady() {
     try {
       logger.info("장보고 애플리케이션 시작 - 초기화 작업 시작");
 
       // 0. DB 스키마 마이그레이션 (기존 사용자 데이터 보존하며 컬럼 추가)
+      //    수집 가드 밖에 둔다. "앱은 띄우되 수집만 끈다" 를 해도 스키마는 최신이어야 한다.
       migrateCollectLogSchema();
 
-      // 1. 스케줄링 대상 쇼핑몰에 대해 1회 수집 실행
-      runInitialCollection();
+      if (startupCollectEnabled) {
+        // 1. 스케줄링 대상 쇼핑몰에 대해 1회 수집 실행
+        runInitialCollection();
 
-      // 2. 개별 쇼핑몰 스케줄링 복원 (사용자가 설정한 주기대로 동작)
-      restoreIndividualSchedules();
+        // 2. 개별 쇼핑몰 스케줄링 복원 (사용자가 설정한 주기대로 동작)
+        restoreIndividualSchedules();
+      } else {
+        logger.info("기동 수집 비활성 (jangbogo.startup.collect.enabled=false) - 1회 수집·스케줄 복원을 건너뜁니다");
+      }
 
       // 3. 오래된 스크린샷 정리 (30일 이전)
       try {

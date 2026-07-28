@@ -12,8 +12,22 @@ import java.sql.Statement;
  */
 public class LocalDBConnection {
 
+  /** 기본 접속 대상. 운영·개발 콘솔 실행이 사용하는 값이다. */
+  private static final String DEFAULT_DB_URL = "jdbc:sqlite:./db/jangbogo-dev.db";
+
+  /**
+   * 접속 대상 오버라이드 키.
+   *
+   * <p>이 클래스는 Spring DataSource 를 거치지 않고 직접 JDBC 로 접속하므로 {@code application.yml} 의 {@code
+   * spring.datasource.url} 이 적용되지 않는다. 그 결과 테스트가 기준선 DB 파일을 그대로 열게 되므로, 테스트 실행에서만 다른 파일을 가리킬 수 있도록
+   * 시스템 프로퍼티로 뺀다. 지정하지 않으면 {@link #DEFAULT_DB_URL} 이므로 운영 동작은 바뀌지 않는다.
+   *
+   * <p>설정 위치: {@code build.gradle} 의 {@code tasks.named('test')}
+   */
+  private static final String DB_URL_PROPERTY = "jangbogo.localdb.url";
+
   // JDBC정보를 셋팅
-  private final String DB_URL = "jdbc:sqlite:./db/jangbogo-dev.db";
+  private final String DB_URL = System.getProperty(DB_URL_PROPERTY, DEFAULT_DB_URL);
   private final String DB_DRIVER = "org.sqlite.JDBC";
 
   private Connection conn = null;
