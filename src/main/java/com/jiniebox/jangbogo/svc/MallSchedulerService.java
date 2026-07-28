@@ -3,6 +3,7 @@ package com.jiniebox.jangbogo.svc;
 import com.jiniebox.jangbogo.dao.JbgCollectLogDataAccessObject;
 import com.jiniebox.jangbogo.dao.JbgMallDataAccessObject;
 import com.jiniebox.jangbogo.dto.MallAccount;
+import com.jiniebox.jangbogo.svc.util.FtpPendingQueue;
 import com.jiniebox.jangbogo.util.ExceptionUtil;
 import com.jiniebox.jangbogo.util.JinieboxUtil;
 import com.jiniebox.jangbogo.util.StringEncrypter;
@@ -418,8 +419,12 @@ public class MallSchedulerService {
       // 신규 주문이 있는 경우 파일 저장
       if (!newOrderSeqs.isEmpty()) {
         try {
-          String exportedFile = exportService.exportOrdersBySeqList(savePath, format, newOrderSeqs);
+          // 자동저장이 꺼져 있으면 로컬 파일을 만들지 않는다.
+          // 과거에는 exportOrdersBySeqList 를 무조건 실행하고 로그만 shouldAutoSave 로 감쌌기 때문에,
+          // 사용자가 자동저장을 껐어도 savePath 에 파일이 쌓였다.
           if (shouldAutoSave) {
+            String exportedFile =
+                exportService.exportOrdersBySeqList(savePath, format, newOrderSeqs);
             logger.info(
                 "쇼핑몰 seq={} 스케줄 수집 후 파일 자동저장 완료: {}, 주문: {}개",
                 seq,
@@ -435,15 +440,11 @@ public class MallSchedulerService {
           logger.error("쇼핑몰 seq={} 파일 저장 실패: {}", seq, exportEx.getMessage(), exportEx);
         }
       } else if (shouldUploadToFtp) {
-        // 신규 주문이 없어도 FTP 업로드 설정이 있으면 상태 파일 생성
-        try {
-          String statusFile = exportService.createEmptyStatusFile(savePath);
-          logger.info("쇼핑몰 seq={} 신규 주문 없음, 상태 파일 생성: {}", seq, statusFile);
-          processFtpUpload(
-              seq, exportConfig, exportConfigDao, savePath, new java.util.ArrayList<>());
-        } catch (Exception statusEx) {
-          logger.warn("쇼핑몰 seq={} 상태 파일 생성 실패: {}", seq, statusEx.getMessage());
-        }
+        // 신규 주문이 없어도 FTP 업로드 설정이 있으면 상태 파일을 보낸다.
+        // 상태 파일 생성은 processFtpUpload 안에서 한 번만 한다. 과거에는 여기서도 한 번 만들어
+        // 두 호출이 초 경계를 넘으면 앞의 파일이 업로드되지도 삭제되지도 않고 남았다.
+        logger.info("쇼핑몰 seq={} 신규 주문 없음, 상태 파일 전송", seq);
+        processFtpUpload(seq, exportConfig, exportConfigDao, savePath, new java.util.ArrayList<>());
       }
     } catch (Exception e) {
       logger.error("쇼핑몰 seq={} 파일 저장/FTP 처리 중 오류: {}", seq, e.getMessage(), e);
@@ -466,98 +467,108 @@ public class MallSchedulerService {
       String savePath,
       List<Integer> newOrderSeqs) {
     try {
-      String ftpReadyFile = null;
-      boolean ftpReadyFileGenerated = false;
+      final String ftpAddress =
+          exportConfig.get("ftp_address") != null ? exportConfig.get("ftp_address").toString() : "";
+      final String ftpId =
+          exportConfig.get("ftp_id") != null ? exportConfig.get("ftp_id").toString() : "";
 
-      if (!newOrderSeqs.isEmpty()) {
+      String decryptedPass = "";
+      try {
+        decryptedPass = exportConfigDao.getDecryptedFtpPassword();
+      } catch (Exception e) {
+        logger.error("쇼핑몰 seq={} FTP 비밀번호 복호화 실패", seq, e);
+      }
+      final String ftpPass = decryptedPass;
+
+      // 자격증명을 먼저 확인한다. 보낼 수 없는 상태라면 파일을 만들지 않는다 —
+      // 과거에는 파일을 먼저 만들고 나서 자격증명이 없으면 지웠다.
+      if (ftpAddress.isEmpty() || ftpId.isEmpty() || ftpPass.isEmpty()) {
+        logger.warn("쇼핑몰 seq={} FTP 업로드 정보가 불완전합니다. (주소/아이디/비밀번호 확인)", seq);
+        return;
+      }
+
+      int ftpEncryptEnabledVal = 1;
+      if (exportConfig.get("ftp_encrypt_enabled") != null) {
+        try {
+          ftpEncryptEnabledVal =
+              Integer.parseInt(exportConfig.get("ftp_encrypt_enabled").toString());
+        } catch (NumberFormatException ignore) {
+        }
+      }
+      boolean ftpEncryptEnabled = (ftpEncryptEnabledVal == 1);
+
+      String publicKey =
+          exportConfig.get("public_key") != null ? exportConfig.get("public_key").toString() : "";
+
+      // 1. 지난 회차에 실패해 보류된 것부터 재전송한다. 신규분보다 먼저 보내 순서를 지킨다.
+      FtpPendingQueue pendingQueue = new FtpPendingQueue(savePath);
+      pendingQueue.drain(
+          file ->
+              com.jiniebox.jangbogo.util.FtpUploadUtil.uploadFile(
+                  ftpAddress, ftpId, ftpPass, file.getAbsolutePath()));
+
+      // 2. 이번 회차 전송분 생성
+      boolean hasNewOrders = !newOrderSeqs.isEmpty();
+      String ftpReadyFile;
+      if (hasNewOrders) {
         ftpReadyFile = exportService.exportToJinieboxFileBySeqList(savePath, newOrderSeqs);
-        ftpReadyFileGenerated = true;
         logger.info("쇼핑몰 seq={} FTP 업로드용 jiniebox JSON 생성: {}", seq, ftpReadyFile);
       } else {
-        // 신규 주문이 없으면 상태 파일 사용
         ftpReadyFile = exportService.createEmptyStatusFile(savePath);
-        ftpReadyFileGenerated = true;
         logger.info("쇼핑몰 seq={} FTP 업로드용 상태 파일 생성: {}", seq, ftpReadyFile);
       }
 
-      if (ftpReadyFile != null) {
-        String ftpAddress =
-            exportConfig.get("ftp_address") != null
-                ? exportConfig.get("ftp_address").toString()
-                : "";
-        String ftpId =
-            exportConfig.get("ftp_id") != null ? exportConfig.get("ftp_id").toString() : "";
-        String ftpPass = "";
-        try {
-          ftpPass = exportConfigDao.getDecryptedFtpPassword();
-        } catch (Exception e) {
-          logger.error("쇼핑몰 seq={} FTP 비밀번호 복호화 실패", seq, e);
-        }
+      if (ftpReadyFile == null) {
+        return;
+      }
 
-        int ftpEncryptEnabledVal = 1;
-        if (exportConfig.get("ftp_encrypt_enabled") != null) {
-          try {
-            ftpEncryptEnabledVal =
-                Integer.parseInt(exportConfig.get("ftp_encrypt_enabled").toString());
-          } catch (NumberFormatException ignore) {
+      String fileToUpload = ftpReadyFile;
+      boolean fileEncrypted = false;
+      boolean uploadSuccess = false;
+
+      try {
+        if (ftpEncryptEnabled && !publicKey.isEmpty()) {
+          String encryptedFilePath = ftpReadyFile + ".encrypted";
+          logger.info("쇼핑몰 seq={} FTP 업로드용 파일 암호화 시작", seq);
+
+          boolean encryptSuccess =
+              com.jiniebox.jangbogo.util.security.RsaFileEncryption.encryptFile(
+                  ftpReadyFile, encryptedFilePath, publicKey);
+
+          if (encryptSuccess) {
+            fileToUpload = encryptedFilePath;
+            fileEncrypted = true;
+            logger.info("쇼핑몰 seq={} FTP 업로드용 암호화 완료: {}", seq, encryptedFilePath);
+          } else {
+            logger.warn("쇼핑몰 seq={} FTP 업로드용 파일 암호화 실패 - 평문 업로드 진행", seq);
           }
         }
-        boolean ftpEncryptEnabled = (ftpEncryptEnabledVal == 1);
 
-        String publicKey =
-            exportConfig.get("public_key") != null ? exportConfig.get("public_key").toString() : "";
+        uploadSuccess =
+            com.jiniebox.jangbogo.util.FtpUploadUtil.uploadFile(
+                ftpAddress, ftpId, ftpPass, fileToUpload);
 
-        if (!ftpAddress.isEmpty() && !ftpId.isEmpty() && !ftpPass.isEmpty()) {
-          String fileToUpload = ftpReadyFile;
-          boolean fileEncrypted = false;
-
-          try {
-            if (ftpEncryptEnabled && !publicKey.isEmpty()) {
-              String encryptedFilePath = ftpReadyFile + ".encrypted";
-              logger.info("쇼핑몰 seq={} FTP 업로드용 파일 암호화 시작", seq);
-
-              boolean encryptSuccess =
-                  com.jiniebox.jangbogo.util.security.RsaFileEncryption.encryptFile(
-                      ftpReadyFile, encryptedFilePath, publicKey);
-
-              if (encryptSuccess) {
-                fileToUpload = encryptedFilePath;
-                fileEncrypted = true;
-                logger.info("쇼핑몰 seq={} FTP 업로드용 암호화 완료: {}", seq, encryptedFilePath);
-              } else {
-                logger.warn("쇼핑몰 seq={} FTP 업로드용 파일 암호화 실패 - 평문 업로드 진행", seq);
-              }
-            }
-
-            boolean uploadSuccess =
-                com.jiniebox.jangbogo.util.FtpUploadUtil.uploadFile(
-                    ftpAddress, ftpId, ftpPass, fileToUpload);
-
-            if (uploadSuccess) {
-              logger.info(
-                  "쇼핑몰 seq={} 스케줄 수집 후 FTP 업로드 완료 - 서버: {}, 암호화: {}",
-                  seq,
-                  ftpAddress,
-                  fileEncrypted);
-            } else {
-              logger.warn("쇼핑몰 seq={} 스케줄 수집 후 FTP 업로드 실패 - 서버: {}", seq, ftpAddress);
-            }
-          } catch (Exception ftpUploadEx) {
-            logger.error("쇼핑몰 seq={} FTP 업로드 중 오류: {}", seq, ftpUploadEx.getMessage(), ftpUploadEx);
-          } finally {
-            // 임시 파일 삭제 (재시도 로직 포함)
-            deleteTempFileSafely(fileToUpload, "암호화 임시 파일", 3);
-            if (ftpReadyFileGenerated
-                && ftpReadyFile != null
-                && !ftpReadyFile.equals(fileToUpload)) {
-              deleteTempFileSafely(ftpReadyFile, "FTP 업로드용 임시 JSON 파일", 3);
-            }
-          }
+        if (uploadSuccess) {
+          logger.info(
+              "쇼핑몰 seq={} 스케줄 수집 후 FTP 업로드 완료 - 서버: {}, 암호화: {}", seq, ftpAddress, fileEncrypted);
         } else {
-          logger.warn("쇼핑몰 seq={} FTP 업로드 정보가 불완전합니다. (주소/아이디/비밀번호 확인)", seq);
-          if (ftpReadyFileGenerated && ftpReadyFile != null) {
-            deleteTempFileSafely(ftpReadyFile, "FTP 업로드용 임시 파일", 3);
-          }
+          logger.warn("쇼핑몰 seq={} 스케줄 수집 후 FTP 업로드 실패 - 서버: {}", seq, ftpAddress);
+        }
+      } catch (Exception ftpUploadEx) {
+        logger.error("쇼핑몰 seq={} FTP 업로드 중 오류: {}", seq, ftpUploadEx.getMessage(), ftpUploadEx);
+      } finally {
+        // 신규 주문분이 전송되지 못했으면 지우지 않고 보류 큐에 넣는다. 내보내기가 증분이라
+        // 여기서 지우면 그 주문들은 수신측에 영원히 도달하지 못한다.
+        // 상태 파일은 "신규 없음" 하트비트라 뒤늦게 보내면 시각을 오도하므로 큐에 넣지 않는다.
+        if (!uploadSuccess && hasNewOrders) {
+          pendingQueue.enqueue(new java.io.File(fileToUpload));
+        } else {
+          deleteTempFileSafely(fileToUpload, fileEncrypted ? "암호화 임시 파일" : "FTP 업로드용 임시 파일", 3);
+        }
+
+        // 암호화한 경우 평문 원본은 성공·실패와 무관하게 지운다. 보류 큐에는 암호문만 남는다.
+        if (!ftpReadyFile.equals(fileToUpload)) {
+          deleteTempFileSafely(ftpReadyFile, "FTP 업로드용 임시 JSON 파일", 3);
         }
       }
     } catch (Exception e) {
