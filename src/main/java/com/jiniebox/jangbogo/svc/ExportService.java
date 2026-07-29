@@ -577,7 +577,21 @@ public class ExportService {
   }
 
   /**
-   * 신규 주문이 없을 때 FTP 업로드를 위한 상태 파일 생성
+   * 신규 주문이 없을 때 FTP 업로드를 위한 상태 파일 생성.
+   *
+   * <p><b>반드시 최상위 JSON 배열이어야 한다.</b> 수신측은 최상위 노드가 배열인지를 검사한 뒤에야 주문을 순회한다. 배열이 아니면 그 자리에서
+   * 검증에 실패하고, 파일은 처리 대기 폴더에서 {@code failed/} 로 옮겨진다 — 게다가 그때 <b>복호화된 평문 JSON 이 함께 디스크에 기록된다.</b>
+   *
+   * <p>과거 이 메서드는 {@code {"status":…,"timestamp":…,"message":…,"orders":[]}} 형태의 JSON <b>객체</b>를 썼다.
+   * 같은 수신측에 최상위 구조가 다른 두 종류(주문 파일=배열, 상태 파일=객체)가 올라갔고, 상태 파일은 <b>매 회차 예외 없이 실패</b>했다. 배열로 보내면 주문
+   * 0건으로 정상 파싱돼 DB 에 아무 영향 없이 {@code committed/} 로 이동한다.
+   *
+   * <p>버려진 필드에 대해 — {@code timestamp} 는 파일명에 이미 들어 있고, {@code status} 와 {@code message} 는 {@code
+   * jangbogo_status_} 접두사와 빈 배열로 충분히 드러난다. 페이로드 계약 {@code [{serial, datetime, mall_id, mallname,
+   * items:[…]}]} 에는 메타데이터를 실을 자리가 없다.
+   *
+   * <p>이 파일의 존재 자체가 "수집은 돌았고 신규가 없었다"는 하트비트다. 보내지 않으면 수신측에서 그 상태와 "수집 자체가 죽었다"를 구분할 수 없다. (Phase
+   * 3-6)
    *
    * @param directory 저장 디렉터리
    * @return 생성된 상태 파일 경로
@@ -596,19 +610,15 @@ public class ExportService {
     String fileName = "jangbogo_status_" + timestamp + "_ftp.json";
     String filePath = directory + File.separator + fileName;
 
-    // 빈 배열과 상태 정보를 포함한 JSON 생성
-    org.json.simple.JSONObject statusObj = new org.json.simple.JSONObject();
-    statusObj.put("status", "no_new_orders");
-    statusObj.put("timestamp", timestamp);
-    statusObj.put("message", "신규 주문이 없어 빈 상태 파일을 생성했습니다.");
-    statusObj.put("orders", new org.json.simple.JSONArray());
+    // 주문 0건 = 빈 배열. 수신측 계약이 최상위 배열이므로 객체로 감싸지 않는다 (위 javadoc 참조).
+    String statusJson = new org.json.simple.JSONArray().toJSONString();
 
     try (FileWriter writer = new FileWriter(filePath, java.nio.charset.StandardCharsets.UTF_8)) {
-      writer.write(statusObj.toJSONString());
+      writer.write(statusJson);
       writer.flush();
     }
 
-    logger.info("FTP 업로드용 상태 파일 생성 완료: {}", filePath);
+    logger.info("FTP 업로드용 상태 파일 생성 완료 (신규 주문 0건): {}", filePath);
     return filePath;
   }
 }
