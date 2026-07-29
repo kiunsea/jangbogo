@@ -12,8 +12,19 @@
   <!-- 실행 파일 경로 (번들된 JRE의 java.exe 사용) -->
   <executable>%BASE%\..\jre\bin\java.exe</executable>
   
-  <!-- 실행 인자 (JVM 옵션 + JAR 파일) -->
-  <arguments>-Xms256m -Xmx1024m -jar "%BASE%\..\jangbogo-0.8.1.jar" --service</arguments>
+  <!-- 실행 인자 (JVM 옵션 + JAR 파일)
+
+       @JAR_NAME@ 은 배포 패키지를 만들 때(build.gradle 의 packageDist) bootJar 가 실제로
+       생성한 JAR 파일명으로 치환된다. 여기에 버전을 직접 적지 않는다 — 과거 이 자리에
+       jangbogo-0.8.1.jar 이 박혀 있었고 앱은 0.11.2 였다. 릴리스 ZIP 에 그대로 들어가므로
+       service/README.md 의 수동 등록 절차를 따르면 존재하지 않는 JAR 를 실행하게 된다.
+
+       버전의 단일 출처는 build.gradle 의 version 하나뿐이다. 이 파일에도, README 에도,
+       어디에도 두 번째 사본을 만들지 않는다. ServiceDescriptorTest 가 이를 감시한다.
+
+       install.bat 은 설치 시점에 폴더의 실제 JAR 이름으로 이 노드를 한 번 더 덮어쓴다
+       (JAR 만 교체하고 재설치하는 경우 대비). 두 장치는 서로를 대체하지 않는다. -->
+  <arguments>-Xms256m -Xmx1024m -jar "%BASE%\..\@JAR_NAME@" --service</arguments>
   
   <!-- 작업 디렉토리 -->
   <workingdirectory>%BASE%\..</workingdirectory>

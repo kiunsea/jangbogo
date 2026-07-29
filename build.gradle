@@ -7,7 +7,7 @@ plugins {
 }
 
 group = 'com.jiniebox'
-version = '0.11.2'
+version = '0.11.3'
 description = '사용자 온라인/오프라인 구매 내역 수집기'
 
 java {
@@ -179,7 +179,17 @@ tasks.register('packageDist', Zip) {
 	}
 	
 	from('packaging/winsw') {
-		include '*.exe', '*.xml', '*.md'
+		include '*.exe', '*.md'
+		into('service')
+	}
+
+	// WinSW 서비스 정의(XML)는 JAR 파일명을 참조한다. 저장소의 원본에는 버전을 적지 않고
+	// @JAR_NAME@ 토큰만 두며, 여기서 bootJar 가 실제로 만든 파일명으로 치환한다.
+	// 버전의 단일 출처는 위 version 선언 하나뿐이다. (Phase 3-8)
+	from('packaging/winsw') {
+		include 'jangbogo-service.xml'
+		filter(org.apache.tools.ant.filters.ReplaceTokens,
+			tokens: ['JAR_NAME': bootJar.archiveFileName.get()])
 		into('service')
 	}
 	

@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.11.3] - 2026-07-29
+
+WinSW 서비스 정의의 JAR 버전 드리프트를 구조적으로 제거한 릴리스.
+
+### Fixed
+
+- **배포본으로 서비스를 수동 등록하면 없는 JAR 를 실행하던 문제**: `packaging/winsw/jangbogo-service.xml` 이 `jangbogo-0.8.1.jar` 을 가리키고 있었습니다(당시 앱 버전 0.11.2). 이 파일은 릴리스 ZIP 의 `service/` 에 그대로 들어갑니다.
+  - `install.bat` 으로 설치하면 설치 시점에 폴더의 실제 JAR 이름으로 XML 이 자동 동기화되므로 영향이 없었습니다. 그러나 `service/README.md` 는 `install.bat` 없이 `jangbogo-service.exe install` 을 직접 실행하는 절차를 안내하고 있었고, **그 경로에는 동기화가 없습니다.** 서비스는 등록되지만 시작에 실패합니다.
+  - 이제 저장소의 XML 에는 버전을 적지 않습니다. `@JAR_NAME@` 토큰만 두고, `packageDist` 가 `bootJar` 가 실제로 만든 파일명으로 치환합니다. **버전의 단일 출처는 `build.gradle` 의 `version` 하나입니다.**
+- **서비스 README 의 낡은 정보 3건**: JAR 이름을 `jangbogo-0.6.0.jar` 로 적고 있었고(3곳), WinSW 버전을 `v3.0.0-alpha.11` 로 적고 있었습니다(실제 `download-winsw.ps1` 이 받는 것은 `v2.12.0`). 문서에서 버전을 걷어내고, 수동 등록 절차에 **JAR 이름 일치 확인 단계**를 추가했습니다.
+
+### Added
+
+- **서비스 정의 드리프트 감시 테스트**(`ServiceDescriptorTest`, 4건): XML 의 실행 인자에 버전이 박히면, README 에 버전이 박히면, `packageDist` 의 토큰 치환이 사라지면, `install.bat` 의 자동 동기화가 사라지면 각각 CI 에서 잡힙니다.
+
+---
+
 ## [0.11.2] - 2026-07-29
 
 수집 주기 하한을 코드로 강제한 릴리스.

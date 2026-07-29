@@ -10,6 +10,66 @@
 
 ## 주요 변경사항
 
+### [2026-07-29 12:10] Phase 3-8 — WinSW 서비스 정의 버전 드리프트 제거 (v0.11.3)
+
+#### 작업 개요
+
+`packaging/winsw/jangbogo-service.xml:16` 이 `jangbogo-0.8.1.jar` 을 가리키고 있었다. 당시 앱 버전은 0.11.2 다. 버전을 고쳐 적는 대신 **버전을 적을 자리 자체를 없앴다.**
+
+#### 배경 — 계획서의 판단을 착수 전에 재확인했고, 두 군데가 달랐다
+
+계획서는 "배포본으로 서비스를 설치하면 존재하지 않는 JAR 를 실행하게 된다"고 적었다. 절반만 맞다.
+
+`install.bat:90` 이 이미 설치 시점에 XML 을 동기화하고 있다. 폴더에서 `dir /b /o:-d jangbogo-*.jar` 로 실제 JAR 을 찾아 `/service/arguments` 노드를 통째로 갈아끼운다. 그래서 **`install.bat` 경로로 설치하면 0.8.1 참조는 실행되지 않는다.**
+
+문제는 다른 경로다. `packaging/winsw/README.md` 는 `install.bat` 을 언급하지 않고 관리자 명령 프롬프트에서 `jangbogo-service.exe install` 을 직접 실행하라고 안내한다. 그 README 도 릴리스 ZIP 의 `service/` 에 들어간다. **README 절차를 그대로 따르면 동기화가 일어나지 않고, 서비스는 등록되지만 시작에 실패한다.**
+
+게다가 드리프트 지점은 XML 하나가 아니었다.
+
+| 위치 | 적혀 있던 값 | 실제 |
+|---|---|---|
+| `jangbogo-service.xml:16` | `jangbogo-0.8.1.jar` | 0.11.2 |
+| `README.md` 설정 예시(2곳) | `jangbogo-0.6.0.jar` | 0.11.2 |
+| `README.md` 문제 해결 | `jangbogo-0.6.0.jar` | 0.11.2 |
+| `README.md` WinSW 버전 | `v3.0.0-alpha.11` | `download-winsw.ps1` 은 `v2.12.0` 을 받는다 |
+
+버전을 다섯 군데에 적어 두면 다섯 군데가 각자 낡는다. 실제로 그렇게 됐다.
+
+#### 채택안 — 버전을 두 번 적지 않는다
+
+저장소의 XML 에는 `@JAR_NAME@` 토큰만 둔다. `packageDist` 가 `bootJar.archiveFileName` 으로 치환한다(`ReplaceTokens`). 앱 버전이 오르면 ZIP 안의 XML 도 같이 오른다 — 사람이 손댈 자리가 없다.
+
+`@JAR_NAME@` 은 유효한 JAR 이름이 아니라서 **자리표시자임이 한눈에 보인다.** `jangbogo-0.8.1.jar` 처럼 그럴듯하면서 틀린 값보다 낫다. 저장소 파일을 그대로 복사해 쓰면 즉시 실패하고, 그 실패가 곧 "치환 단계를 빠뜨렸다"는 신호다.
+
+README 에서는 버전을 전부 걷어내고 `jangbogo-x.y.z.jar` 자리표시자로 바꿨다. 수동 등록 절차에는 **3-1 JAR 이름 확인** 단계를 새로 넣었다(`dir ..\jangbogo-*.jar` 와 XML 대조).
+
+#### install.bat 의 동기화는 그대로 둔다
+
+두 장치는 서로를 대체하지 않는다.
+
+- `packageDist` 치환 → **ZIP 을 만든 시점**의 정합성을 보장한다.
+- `install.bat` 동기화 → **JAR 만 갈아끼우고 재설치하는 폴더**의 정합성을 보장한다.
+
+앱만 새 JAR 로 교체한 뒤 `install.bat` 을 다시 도는 것은 실제로 있는 운용이라, 후자를 빼면 드리프트가 되살아난다. `ServiceDescriptorTest` 가 이 단계의 존재도 함께 감시한다.
+
+#### 검증
+
+`./gradlew packageDist` 로 실제 ZIP 을 만들어 확인했다. 앱은 기동하지 않았다.
+
+```
+service/jangbogo-service.xml:
+  <arguments>-Xms256m -Xmx1024m -jar "%BASE%\..\jangbogo-0.11.2.jar" --service</arguments>
+ZIP 최상단: jangbogo-0.11.2.jar
+```
+
+두 이름이 일치한다.
+
+#### 남은 것
+
+`bat\clean_build.bat:52,55,56` 이 `jangbogo-0.5.0.jar` 을 적고 있다. 개발용 스크립트라 배포본에 들어가지 않고 릴리스 경로에 영향이 없어 이번 범위에서 제외했다. 별건으로 정리 대상이다.
+
+---
+
 ### [2026-07-29 09:40] Phase 3-2 — 수집 주기 하한 코드 강제 (v0.11.2)
 
 #### 작업 개요
