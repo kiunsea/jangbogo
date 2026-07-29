@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.11.6] - 2026-07-29
+
+Oasis·Hanaro·SSG 파서에 브라우저 없는 회귀 테스트를 붙인 릴리스. 동작 변경은 없습니다.
+
+### Added
+
+- **쇼핑몰 DOM 추출 규칙 테스트 29건**: 셀렉터로 뽑아낸 값을 수신측 계약으로 바꾸는 변환 규칙을 검증합니다. Selenium 인터페이스를 Mockito 로 세우므로 브라우저·네트워크·DB 를 쓰지 않습니다.
+  - `OasisParserTest`(11건) — 주문번호 괄호 제거(짧은 값 보호 포함), 구매일자 점 제거·공백 제거, 가격 없는 상품 보존, 상품 0건일 때 빈 배열
+  - `HanaroParserTest`(10건) — 테이블 부족 시 `null`, 구매일자 하이픈 제거, `구매일자_구매금액` serial 합성(금액 없을 때 포함), 헤더행 skip, `td` 3개 미만 행 skip
+  - `SsgParserTest`(8건) — 주문번호 하이픈 제거, 구매일자 점 제거, "구매 내역 없음" 안내 행 skip, `td` 개수 가드(3개 이하 거부 / 5개 이상 허용)
+- **검증 범위를 명시했습니다**: 실사이트 HTML 을 캡처할 수 없어(앱 기동 = 실계정 로그인) 픽스처는 손으로 세운 `WebElement` 트리입니다. 따라서 이 테스트가 잡는 것은 **변환 규칙의 회귀이지 셀렉터의 정확성이 아닙니다.** 셀렉터가 실사이트와 맞는지는 원리상 단위테스트로 알 수 없습니다.
+
+### Changed
+
+- **파싱 지점을 별도 메서드로 분리했습니다**(순수 코드 이동, 로직 동일). 기존에는 `navigatePurchased` 하나에 페이지 이동·창 전환·지연·DOM 추출이 뒤섞여 있어 브라우저 없이는 어느 부분도 검증할 수 없었습니다.
+  - `Oasis` — `parseOrderSummary` / `extractDetailLink` / `applyOrderDetail`
+  - `Ssg` — `parseOnlineOrderRow` / `parseOnlineOrderItems`
+  - `Hanaro` — 기존 `parseDetailPage` 의 가시성만 확대(`private` → package-private)
+
+---
+
 ## [0.11.5] - 2026-07-29
 
 '신규 주문 없음' 상태 파일이 수신측에서 매번 실패하던 문제를 고친 릴리스.

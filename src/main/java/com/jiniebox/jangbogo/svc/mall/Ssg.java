@@ -209,53 +209,17 @@ public class Ssg extends MallSession implements PurchasedCollector {
         while (onIter.hasNext()) {
           WebElement onTrElem = (WebElement) onIter.next();
 
-          // 구매 내역이 없으면 SSG 는 "해당기간내에 온라인몰에서 구매하신 내역이 없습니다." 안내 행 하나를 렌더링한다.
-          // 이 행은 td 가 1개(colspan)뿐이라 데이터 행으로 파싱하면 td[2]/p 에서 예외가 나고, 수집이 통째로 실패한다.
-          // (오프라인 목록을 다루는 offlinePurchaseList 는 이미 같은 방식으로 걸러낸다)
-          if (onTrElem.findElements(By.xpath("td")).size() < 4) {
-            log.debug("SSG 온라인 구매내역 없음 (안내 행) — 건너뜀: {}", onTrElem.getText());
-            continue;
+          orderJson = parseOnlineOrderRow(onTrElem);
+          if (orderJson == null) {
+            continue; // 구매 내역 없음 안내 행
           }
 
-          String date = onTrElem.findElement(By.xpath("td[1]/p")).getText();
-          String orderNum = onTrElem.findElement(By.xpath("td[2]/p")).getText();
-          String mallName = onTrElem.findElement(By.xpath("td[3]/p[1]/span/i/span")).getText();
-          WebElement elemA = onTrElem.findElement(By.xpath("td[4]/a"));
-
-          orderJson = new JSONObject();
-          orderJson.put("serial", orderNum != null ? orderNum.replace("-", "") : null);
-          orderJson.put("datetime", date != null ? date.replace(".", "") : null);
-          orderJson.put("mallname", mallName);
-
-          String orderDetailPage = elemA.getAttribute("href");
+          String orderDetailPage = onTrElem.findElement(By.xpath("td[4]/a")).getAttribute("href");
           driver.switchTo().newWindow(WindowType.WINDOW);
           driver.navigate().to(orderDetailPage);
           this.delayTime(1500); // 스크립트 실행후에는 완료시까지 지연 시간이 필요하다
 
-          List<WebElement> elems_orderinfo_tr =
-              driver.findElements(
-                  By.xpath("//div[@name='divShppUnit']/div[@class='codr_unit']/table/tbody/tr"));
-
-          itemJsonArr = new JSONArray();
-          Iterator<WebElement> orderIter = elems_orderinfo_tr.iterator();
-          while (orderIter.hasNext()) {
-            WebElement orderElem = (WebElement) orderIter.next();
-            String itemName =
-                orderElem
-                    .findElement(By.xpath("td[@class='codr_unit_cont']/p/a/span/span"))
-                    .getText();
-            String itemNum =
-                orderElem
-                    .findElement(
-                        By.xpath(
-                            "td[@class='codr_unit_pricewrap']/span[@class='codr_unit_count']/em[@class='num notranslate']"))
-                    .getText();
-
-            itemJson = new JSONObject();
-            itemJson.put("name", itemName);
-            itemJson.put("qty", itemNum);
-            itemJsonArr.add(itemJson);
-          }
+          itemJsonArr = parseOnlineOrderItems(driver);
 
           orderJson.put("items", itemJsonArr);
           resJsonArr.add(orderJson);
@@ -272,6 +236,76 @@ public class Ssg extends MallSession implements PurchasedCollector {
         this.delayTime(1500);
       }
     }
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // 아래 두 메서드는 DOM 추출만 한다 — 페이지 이동·창 전환·지연을 포함하지 않는다.
+  // onlinePurchaseList 안에 뒤섞여 있던 것을 분리한 것이며 로직은 그대로다. 브라우저 없이 단위테스트
+  // 할 수 있는 지점을 만들기 위한 분리다(판단 대기 8). 검증 대상은 추출 후의 '변환 규칙'이다 —
+  // 셀렉터가 실제 사이트와 맞는지는 원리상 단위테스트로 알 수 없고 실사이트에서만 드러난다.
+  // ---------------------------------------------------------------------------------------------
+
+  /**
+   * 온라인 구매 목록의 한 행에서 주문 식별 정보를 뽑는다.
+   *
+   * <p>구매 내역이 없으면 SSG 는 "해당기간내에 온라인몰에서 구매하신 내역이 없습니다." 안내 행 하나를 렌더링한다. 이 행은 td 가 1개(colspan)뿐이라 데이터
+   * 행으로 파싱하면 {@code td[2]/p} 에서 예외가 나고 수집이 통째로 실패한다. td 가 4개 미만이면 데이터 행이 아니라고 보고 {@code null} 을
+   * 반환한다. (오프라인 목록을 다루는 {@code offlinePurchaseList} 는 이미 같은 방식으로 걸러낸다)
+   *
+   * <p>변환 규칙: 주문번호의 하이픈과 구매일자의 점을 제거한다. 수신측 계약은 {@code datetime} 이 {@code YYYYMMDD} 8자리일 것을 요구한다.
+   *
+   * @param onTrElem 온라인 구매 목록의 {@code tr}
+   * @return {@code serial}, {@code datetime}, {@code mallname} 이 담긴 JSON. 데이터 행이 아니면 null
+   */
+  @SuppressWarnings("unchecked")
+  JSONObject parseOnlineOrderRow(WebElement onTrElem) {
+    if (onTrElem.findElements(By.xpath("td")).size() < 4) {
+      log.debug("SSG 온라인 구매내역 없음 (안내 행) — 건너뜀: {}", onTrElem.getText());
+      return null;
+    }
+
+    String date = onTrElem.findElement(By.xpath("td[1]/p")).getText();
+    String orderNum = onTrElem.findElement(By.xpath("td[2]/p")).getText();
+    String mallName = onTrElem.findElement(By.xpath("td[3]/p[1]/span/i/span")).getText();
+
+    JSONObject orderJson = new JSONObject();
+    orderJson.put("serial", orderNum != null ? orderNum.replace("-", "") : null);
+    orderJson.put("datetime", date != null ? date.replace(".", "") : null);
+    orderJson.put("mallname", mallName);
+    return orderJson;
+  }
+
+  /**
+   * 열려 있는 주문 상세 페이지에서 상품 목록을 읽는다.
+   *
+   * @param driver 상세 페이지가 떠 있는 WebDriver
+   * @return {@code name}, {@code qty} 를 담은 상품 JSON 배열 (상품이 없으면 빈 배열)
+   */
+  @SuppressWarnings("unchecked")
+  JSONArray parseOnlineOrderItems(WebDriver driver) {
+    List<WebElement> elems_orderinfo_tr =
+        driver.findElements(
+            By.xpath("//div[@name='divShppUnit']/div[@class='codr_unit']/table/tbody/tr"));
+
+    JSONArray itemJsonArr = new JSONArray();
+    Iterator<WebElement> orderIter = elems_orderinfo_tr.iterator();
+    while (orderIter.hasNext()) {
+      WebElement orderElem = (WebElement) orderIter.next();
+      String itemName =
+          orderElem.findElement(By.xpath("td[@class='codr_unit_cont']/p/a/span/span")).getText();
+      String itemNum =
+          orderElem
+              .findElement(
+                  By.xpath(
+                      "td[@class='codr_unit_pricewrap']/span[@class='codr_unit_count']/em[@class='num notranslate']"))
+              .getText();
+
+      JSONObject itemJson = new JSONObject();
+      itemJson.put("name", itemName);
+      itemJson.put("qty", itemNum);
+      itemJsonArr.add(itemJson);
+    }
+    return itemJsonArr;
   }
 
   /**

@@ -215,11 +215,18 @@ public class Hanaro extends MallSession implements PurchasedCollector {
   /**
    * 상세 페이지에서 영수증 정보를 파싱한다.
    *
+   * <p>DOM 추출만 한다 — 페이지 이동·클릭·지연을 포함하지 않는다. 브라우저 없이 단위테스트할 수 있도록 package-private 로 열어 둔다(판단 대기 8).
+   * 검증 대상은 추출 후의 변환 규칙(구매금액 숫자만 남기기, 하이픈 제거, serial 합성, 헤더행 skip, td 3개 미만 무시)이며, 셀렉터가 실제 사이트와 맞는지는
+   * 원리상 단위테스트로 알 수 없다.
+   *
+   * <p>하나로마트는 주문번호를 주지 않는다. 그래서 {@code 구매일자_구매금액} 을 합성해 serial 로 쓴다 — 같은 날 같은 금액으로 두 번 사면 한 건으로
+   * 접힌다는 뜻이다. 이 성질은 의도된 것이며 {@link #isAlreadyCollected} 의 중복 판정도 이 값에 기댄다.
+   *
    * @param driver WebDriver 인스턴스
    * @return 파싱된 영수증 JSON (실패 시 null)
    */
   @SuppressWarnings("unchecked")
-  private JSONObject parseDetailPage(WebDriver driver) {
+  JSONObject parseDetailPage(WebDriver driver) {
     List<WebElement> tables = driver.findElements(By.tagName("table"));
 
     if (tables.size() < 2) {
