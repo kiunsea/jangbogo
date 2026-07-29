@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.11.4] - 2026-07-29
+
+수집 실패 진단 정보가 브라우저 대화상자 때문에 유실되던 문제를 고친 릴리스.
+
+### Fixed
+
+- **수집 실패 시 대화상자 문구와 URL 이 통째로 사라지던 문제**: 쇼핑몰이 `alert`/`confirm` 을 띄운 채 수집이 실패하면, 실패 원인이 적혀 있는 그 문구가 어디에도 기록되지 않았습니다.
+  - 원인은 순서입니다. Chrome 은 W3C 기본값 `unhandledPromptBehavior = "dismiss and notify"` 로 동작하므로, 대화상자가 떠 있을 때 `getCurrentUrl()` 같은 평범한 명령을 먼저 호출하면 드라이버가 **대화상자를 먼저 닫아 버리고** 예외를 던집니다. `CollectStep.wrap` 은 그 예외를 삼켜 URL 을 `null` 로 두었고, 문구는 그 시점에 이미 사라진 뒤였습니다. 뒤이은 스크린샷에도 대화상자는 찍히지 않습니다.
+  - 이제 `CollectStep.wrap` 이 **가장 먼저** 대화상자를 읽어 기록하고 닫습니다. 그 뒤에 URL·페이지 타이틀·스크린샷을 수집하므로 **셋 다 정상적으로 남습니다.** 문구는 수집 오류 로그의 메시지에 `(alert="…")` 로 붙습니다(여러 줄은 한 줄로 접고 300자에서 자릅니다).
+  - 닫을 때는 `accept()` 가 아니라 `dismiss()` 를 씁니다. `confirm` 에서 `accept` 는 "확인"을 누르는 것이라, 진단하려다 실제 동작을 일으킬 수 있습니다.
+- **대화상자가 떠 있으면 스크린샷이 저장되지 않던 문제**: `ScreenshotUtil.capture()` 가 `getScreenshotAs` 를 바로 호출해 `UnhandledAlertException` 으로 실패할 수 있었습니다. 캡처 전에 대화상자를 정리합니다.
+
+### Added
+
+- **대화상자 처리 테스트**(`AlertHandlingTest`, 10건): 문구 확보·`dismiss` 선택·URL 보존·**순서**(대화상자 처리가 URL 조회보다 먼저인지)를 검증합니다. Selenium 인터페이스를 Mockito 로 세우므로 브라우저를 띄우지 않습니다.
+
+### Changed
+
+- `ScreenshotUtil` 의 저장 기준 폴더를 시스템 프로퍼티 `jangbogo.screenshot.dir` 로 덮어쓸 수 있게 했습니다(기본값 `logs/screenshots`, 동작 변경 없음). 테스트가 개발 트리에 PNG 를 남기지 않도록 `test` 태스크가 `build/test-screenshots` 로 돌립니다 — `jangbogo.localdb.url` 격리와 같은 방식입니다.
+
+---
+
 ## [0.11.3] - 2026-07-29
 
 WinSW 서비스 정의의 JAR 버전 드리프트를 구조적으로 제거한 릴리스.

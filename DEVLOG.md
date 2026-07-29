@@ -10,6 +10,63 @@
 
 ## 주요 변경사항
 
+### [2026-07-29 12:35] Phase 3-7 — 수집 실패 시 대화상자 문구·URL 유실 (v0.11.4)
+
+#### 작업 개요
+
+계획서는 이 건을 "`ScreenshotUtil.capture()` 가 `getScreenshotAs` 를 바로 호출해 alert 이 뜨면 실패하고 null 을 반환한다 — 스크린샷이 가장 필요한 상황에서 아무것도 안 남는다"로 적었다. 착수 전에 코드를 다시 읽었더니 **실제 손실은 스크린샷이 아니었다.**
+
+#### 배경 — 손실은 순서에서 나온다
+
+`WebDriverManager` 는 `unhandledPromptBehavior` capability 를 지정하지 않는다. 그래서 chromedriver 는 W3C 기본값 `"dismiss and notify"` 로 동작한다. 이 모드에서는 대화상자가 떠 있을 때 들어온 명령이 **먼저 대화상자를 닫고** 그 다음 오류를 돌려준다.
+
+`CollectStep.wrap` 의 수집 순서는 이랬다.
+
+```java
+String url   = safe(() -> driver.getCurrentUrl());   // ← 여기서 대화상자가 닫힌다
+String title = safe(() -> driver.getTitle());
+String screenshot = ScreenshotUtil.capture(driver, mallName);
+```
+
+1. `getCurrentUrl()` 이 대화상자를 닫고 `UnhandledAlertException` 을 던진다.
+2. `safe()` 가 그 예외를 삼킨다 → **`url = null`**.
+3. 그 시점에 대화상자는 이미 사라졌으므로 `getTitle()` 과 `capture()` 는 오히려 **성공한다.**
+
+즉 계획서가 지목한 스크린샷은 대개 정상적으로 찍히고, 대신 **실패 원인이 적혀 있는 대화상자 문구가 아무 데도 기록되지 않은 채 소멸하며 URL 까지 함께 유실된다.** 찍힌 스크린샷에도 대화상자는 없다 — 이미 닫힌 뒤다.
+
+`ScreenshotUtil` 단독 수정으로는 이 손실을 못 막는다. 고칠 지점은 `wrap` 의 **순서**다.
+
+#### 수정
+
+`wrap` 의 맨 처음에 대화상자를 처리한다.
+
+```java
+String alertText = ScreenshotUtil.consumePendingAlert(driver);  // 문구 확보 + 닫기
+String url   = safe(() -> driver.getCurrentUrl());              // 이제 정상 동작
+String title = safe(() -> driver.getTitle());
+String screenshot = ScreenshotUtil.capture(driver, mallName);
+```
+
+문구는 예외 메시지에 `(alert="…")` 로 붙어 `jbg_collect_log` 에 남는다. 여러 줄은 한 줄로 접고 300자에서 자른다.
+
+`capture()` 에도 같은 처리를 방어적으로 넣었다. 통상은 `wrap` 이 이미 처리한 뒤라 두 번째 호출은 "대화상자 없음"으로 돌아온다. 직접 호출자와, `unhandledPromptBehavior` 가 `ignore` 인 환경·Edge 경로를 위한 것이다.
+
+#### dismiss 인가 accept 인가
+
+`dismiss()` 를 쓴다. 인자가 하나뿐인 `alert` 에서는 둘이 같지만, `confirm` 에서 `accept` 는 "확인"을 누르는 것이다. **진단하려다 실제 동작(주문 취소 등)을 일으켜서는 안 된다.** 테스트가 `accept()` 가 호출되지 않는 것까지 검증한다.
+
+기존에 의도적으로 `accept()` 를 쓰는 `Ssg.signout` 은 정상 경로라 영향이 없다.
+
+#### 테스트 격리
+
+`ScreenshotUtil` 의 기준 폴더를 시스템 프로퍼티 `jangbogo.screenshot.dir` 로 덮어쓸 수 있게 했다(기본값 불변). `test` 태스크가 `build/test-screenshots` 로 돌린다. `jangbogo.localdb.url` 격리와 같은 방식이며, 테스트가 개발 트리의 `logs/` 에 PNG 를 남기지 않는다. 실행 후 `git status` 로 오염 없음을 확인했다.
+
+#### 부수 확인 — Phase 3-11 선취
+
+같은 파일을 읽다 확인했다. `WebDriverManager.java:20` 의 `CHROME_DRIVER_PATH` / `CHROME_BINARY_PATH` 는 **선언만 있고 대입도 참조도 0회**다. 3-11 은 "실배선 또는 삭제"가 아니라 사실상 삭제 건이다. 이번 커밋 범위에는 넣지 않았다.
+
+---
+
 ### [2026-07-29 12:10] Phase 3-8 — WinSW 서비스 정의 버전 드리프트 제거 (v0.11.3)
 
 #### 작업 개요
