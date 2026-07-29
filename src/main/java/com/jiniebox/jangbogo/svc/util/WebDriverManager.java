@@ -17,8 +17,19 @@ public class WebDriverManager {
   public static String BROWSER_NAME_CHROME = "chrome";
   public static String BROWSER_NAME_EDGE = "edge";
 
-  protected String CHROME_DRIVER_ID, CHROME_DRIVER_PATH, CHROME_BINARY_PATH;
-  protected String EDGE_DRIVER_ID, EDGE_DRIVER_PATH;
+  // 여기 있던 CHROME_DRIVER_ID / CHROME_DRIVER_PATH / CHROME_BINARY_PATH /
+  // EDGE_DRIVER_ID / EDGE_DRIVER_PATH 5개 필드는 제거했다 (Phase 3-11).
+  // 선언만 되어 있고 대입도 참조도 한 번도 없었으며, 상속 클래스도 설정 키도 없었다.
+  //
+  // 드라이버 경로는 필드가 없어도 이미 지정할 수 있다 — Selenium 이 표준 시스템 프로퍼티
+  // webdriver.chrome.driver(ChromeDriverService.CHROME_DRIVER_EXE_PROPERTY)를 직접 읽고,
+  // 그 값이 있으면 Selenium Manager 의 자동 다운로드를 건너뛴다. 폐쇄망에서는
+  //     java -Dwebdriver.chrome.driver=D:\drivers\chromedriver.exe -jar jangbogo-x.y.z.jar
+  // 로 기동하면 된다. 죽은 필드는 "여기에 경로를 넣는 통로가 있다"는 인상만 주고 있었다.
+  //
+  // 브라우저 실행 파일(binary)은 사정이 다르다. Selenium 4 에 대응하는 표준 프로퍼티가 없고
+  // ChromeOptions.setBinary() 로만 지정할 수 있다. 이 배선은 Phase 5(프로필 재사용)의
+  // 바이너리 핀 고정과 같은 문제라 그쪽에서 함께 설계한다.
 
   /**
    * 설정 인스턴스를 반환한다.
@@ -51,16 +62,10 @@ public class WebDriverManager {
     WebDriver driver = null;
 
     if (this.BROWSER_NAME_CHROME.equals(browserName)) {
-      ChromeOptions options = new ChromeOptions();
-      options.addArguments("--remote-allow-origins=*");
-      options.addArguments(
-          "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.6367.91 Safari/537.3");
       // BROWSER_HEADLESS 가 true 일 때만 headless 로 띄운다.
       // (설정이 없거나 파싱 불가면 headless 를 켜지 않는다 — 로그인 화면을 눈으로 확인할 수 있어야 한다)
       boolean headless = Boolean.parseBoolean(config().get("BROWSER_HEADLESS"));
-      if (headless) {
-        options.addArguments("--headless=new"); // 크롬 브라우저를 화면에 출력하지 않고 실행한다
-      }
+      ChromeOptions options = buildChromeOptions(headless);
       log.info("ChromeDriver 기동 (headless={})", headless);
       driver = new ChromeDriver(options);
     } else if (this.BROWSER_NAME_EDGE.equals(browserName)) {
@@ -68,6 +73,26 @@ public class WebDriverManager {
     }
 
     return driver;
+  }
+
+  /**
+   * ChromeDriver 에 넘길 옵션을 조립한다.
+   *
+   * <p>브라우저를 띄우지 않고 옵션 구성만 검증할 수 있도록 분리했다(순수 코드 이동). {@code headless} 를 설정에서 읽지 않고 인자로 받는 이유도 같다 —
+   * 테스트가 설정 싱글턴에 의존하지 않는다.
+   *
+   * @param headless true 면 화면 출력 없이 실행한다
+   * @return 조립된 ChromeOptions
+   */
+  ChromeOptions buildChromeOptions(boolean headless) {
+    ChromeOptions options = new ChromeOptions();
+    options.addArguments("--remote-allow-origins=*");
+    options.addArguments(
+        "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.6367.91 Safari/537.3");
+    if (headless) {
+      options.addArguments("--headless=new"); // 크롬 브라우저를 화면에 출력하지 않고 실행한다
+    }
+    return options;
   }
 
   /**

@@ -10,6 +10,62 @@
 
 ## 주요 변경사항
 
+### [2026-07-29 14:05] Phase 3-11 — 죽은 드라이버 경로 필드 제거 (v0.11.7)
+
+#### 작업 개요
+
+계획서는 3-11 을 "실배선 **또는** 삭제"로 열어 두고 "미확인. 착수 시 먼저 실배선 여부 확인 필요"라고 적었다. 확인한 뒤 **둘로 갈라서** 처리했다.
+
+#### 사실 확인
+
+`WebDriverManager.java:20-21` 의 5개 필드 — `CHROME_DRIVER_ID` / `CHROME_DRIVER_PATH` / `CHROME_BINARY_PATH` / `EDGE_DRIVER_ID` / `EDGE_DRIVER_PATH`.
+
+| 확인 항목 | 결과 |
+|---|---|
+| 대입 | 0회 |
+| 참조 | 0회 |
+| `extends WebDriverManager` | 없음 (`protected` 인데 상속자가 없다) |
+| 대응 설정 키 | 없음 (`application.yml` 에는 `default_web_driver`·`browser_headless` 뿐) |
+
+#### 갈라지는 지점 — 드라이버와 바이너리는 사정이 다르다
+
+Gradle 캐시의 `selenium-chrome-driver-4.31.0.jar` 를 열어 상수를 직접 확인했다.
+
+```
+ChromeDriverService.CHROME_DRIVER_EXE_PROPERTY = "webdriver.chrome.driver"
+```
+
+**드라이버 경로는 필드가 없어도 이미 지정할 수 있다.** Selenium 이 이 표준 프로퍼티를 직접 읽고, 값이 있으면 Selenium Manager 의 자동 다운로드를 건너뛴다. 폐쇄망 대응은 코드 없이 기동 인자로 해결된다.
+
+```
+java -Dwebdriver.chrome.driver=D:\drivers\chromedriver.exe -jar jangbogo-x.y.z.jar
+```
+
+즉 `CHROME_DRIVER_PATH` 는 **완전 중복**이었다. 삭제로 잃는 기능이 없다.
+
+반면 브라우저 **실행 파일**은 다르다. 같은 방식으로 `ChromeOptions` 의 상수를 확인했더니 바이너리 경로에 대응하는 표준 시스템 프로퍼티가 **없다** — `setBinary()` 로만 지정할 수 있다. 그러니 `CHROME_BINARY_PATH` 는 중복이 아니라 **한 번도 구현되지 않은 기능**이다.
+
+그래서 이렇게 정리했다.
+
+- `CHROME_DRIVER_PATH` 외 4개 → **삭제.** 중복이거나 아무 의미가 없다.
+- 바이너리 핀 고정 → **Phase 5 로 명시 이관.** 계획서 §"이 Phase 에 넣지 않은 것"이 이미 "프로필 재사용의 `setBinary` 핀 고정과 묶이므로 Phase 5"로 적어 둔 것과 같은 판단이다. 지금 급조하면 Phase 5 에서 다시 설계하게 된다.
+
+삭제한 자리에는 위 근거를 주석으로 남겼다. 필드만 지우면 "왜 경로 지정 통로가 없지"라는 질문이 다시 돌아온다.
+
+#### 왜 죽은 필드가 해로웠나
+
+`CHROME_BINARY_PATH` 라는 이름이 보이면 "설정 어딘가에 값을 넣으면 되겠구나"라고 읽게 된다. 실제로는 아무 데도 연결돼 있지 않으므로, 폐쇄망에서 막힌 사람이 **없는 통로를 찾느라 시간을 쓴다.** 반대로 실제로 동작하는 표준 프로퍼티는 코드 어디에도 적혀 있지 않았다.
+
+#### 테스트 seam
+
+옵션 조립을 `buildChromeOptions(boolean)` 으로 분리했다(순수 코드 이동). `getWebDriver()` 는 실제 `ChromeDriver` 를 생성하므로 브라우저 없이 검증할 수 없지만, 옵션 조립만 떼면 `ChromeOptions` 객체를 그대로 들여다볼 수 있다.
+
+`headless` 를 설정에서 읽지 않고 인자로 받는다 — 테스트가 설정 싱글턴에 의존하지 않게 하기 위해서다.
+
+**headless 기본값을 특히 못 박았다.** Phase 1 에서 이 조건이 반대로 되어 있어 로그인 화면을 눈으로 확인할 수 없었고, 그것이 수집 장애 진단을 오래 막았다. 설정이 없으면 headless 를 켜지 않는다는 규칙이 이제 테스트로 고정돼 있다.
+
+---
+
 ### [2026-07-29 13:30] 판단 대기 8 — Oasis·Hanaro·SSG 파서 테스트 (v0.11.6)
 
 #### 결정

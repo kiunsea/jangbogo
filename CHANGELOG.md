@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.11.7] - 2026-07-29
+
+죽은 드라이버 경로 필드를 제거한 릴리스. 동작 변경은 없습니다.
+
+### Removed
+
+- **`WebDriverManager` 의 미사용 필드 5개**(`CHROME_DRIVER_ID` / `CHROME_DRIVER_PATH` / `CHROME_BINARY_PATH` / `EDGE_DRIVER_ID` / `EDGE_DRIVER_PATH`): 선언만 되어 있고 대입도 참조도 한 번도 없었습니다. 상속 클래스도 설정 키도 없었습니다. "여기에 드라이버 경로를 넣는 통로가 있다"는 인상만 주고 있었습니다.
+  - **드라이버 경로는 이 필드가 없어도 지정할 수 있습니다.** Selenium 이 표준 시스템 프로퍼티 `webdriver.chrome.driver` 를 직접 읽고, 값이 있으면 Selenium Manager 의 자동 다운로드를 건너뜁니다. 폐쇄망에서는 `java -Dwebdriver.chrome.driver=... -jar jangbogo-x.y.z.jar` 로 기동하면 됩니다. **제거로 잃는 기능은 없습니다.**
+  - 브라우저 실행 파일(binary) 지정은 사정이 다릅니다. Selenium 4 에 대응하는 표준 프로퍼티가 없고 `ChromeOptions.setBinary()` 로만 가능합니다. 이 배선은 Phase 5(프로필 재사용)의 바이너리 핀 고정과 같은 문제라 그쪽에서 함께 설계합니다. **아직 미구현이라는 점은 그대로입니다.**
+
+### Added
+
+- **ChromeDriver 기동 옵션 테스트**(`WebDriverOptionsTest`, 5건): headless 기본값(설정이 없으면 켜지 않음), `--headless=new` 적용, 공통 인자(`--remote-allow-origins`, user-agent) 유지를 검증합니다. 브라우저를 띄우지 않고 `ChromeOptions` 객체만 확인합니다.
+
+### Changed
+
+- ChromeDriver 옵션 조립을 `buildChromeOptions(boolean)` 으로 분리했습니다(순수 코드 이동). `headless` 를 설정에서 읽지 않고 인자로 받으므로 테스트가 설정 싱글턴에 의존하지 않습니다.
+
+---
+
 ## [0.11.6] - 2026-07-29
 
 Oasis·Hanaro·SSG 파서에 브라우저 없는 회귀 테스트를 붙인 릴리스. 동작 변경은 없습니다.
