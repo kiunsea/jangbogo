@@ -59,13 +59,35 @@ CREATE TABLE IF NOT EXISTS jbg_export_config (
 );
 
 --------------------------------------------------------
+-- 테이블 jbg_collect_breaker 구조 (수집기 서킷 브레이커 상태)
+--
+-- 차단 단위가 수집기인 이유: seq=1 은 수집기가 둘(SSG·Emart)이라 몰 단위로 세면
+-- 한쪽이 계속 죽어도 다른 쪽이 성공하는 한 몰 결과는 SUCCESS 로 남는다.
+--
+-- 상태를 테이블에 두는 이유: 트립은 재시작을 넘어 살아남아야 한다. 메모리에만 두면
+-- 재기동이 차단된 수집기를 되살려 다시 두드린다.
+--------------------------------------------------------
+CREATE TABLE IF NOT EXISTS jbg_collect_breaker (
+  seq_mall INTEGER NOT NULL, -- 쇼핑몰 seq
+  collector TEXT NOT NULL, -- 수집기 이름 (SSG / Emart / Oasis / Hanaro)
+  consecutive_failures INTEGER NOT NULL DEFAULT 0, -- 연속 실패 횟수 (성공 시 0)
+  streak_started_time INTEGER DEFAULT 0, -- 현재 연속 실패가 시작된 시각 (millisecond)
+  last_failure_time INTEGER DEFAULT 0, -- 마지막 실패 시각 (millisecond)
+  last_success_time INTEGER DEFAULT 0, -- 마지막 성공 시각 (millisecond)
+  tripped_time INTEGER DEFAULT 0, -- 브레이커가 열린 시각 (0이면 닫힘)
+  last_reason TEXT, -- 마지막 판정 사유 (사람이 읽는 용도)
+  PRIMARY KEY (seq_mall, collector)
+);
+
+--------------------------------------------------------
 -- 테이블 jbg_collect_log 구조 (수집 실행 로그)
 --------------------------------------------------------
 CREATE TABLE IF NOT EXISTS jbg_collect_log (
   seq INTEGER PRIMARY KEY AUTOINCREMENT,
   seq_mall INTEGER NOT NULL,                    -- 쇼핑몰 seq
   mall_name TEXT,                               -- 쇼핑몰 이름
-  status TEXT NOT NULL DEFAULT 'SUCCESS',       -- SUCCESS / FAIL
+  collector TEXT,                               -- 수집기 이름 (SSG/Emart/Oasis/Hanaro). NULL 이면 실행 단위 집계 행
+  status TEXT NOT NULL DEFAULT 'SUCCESS',       -- SUCCESS / FAIL / SKIPPED
   order_count INTEGER DEFAULT 0,                -- 수집된 주문 수
   item_count INTEGER DEFAULT 0,                 -- 수집된 아이템 수
   error_message TEXT,                           -- 오류 메시지 (실패 시)

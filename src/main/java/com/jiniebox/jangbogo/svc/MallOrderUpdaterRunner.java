@@ -50,9 +50,9 @@ public class MallOrderUpdaterRunner implements Runnable {
       JbgMallDataAccessObject jmDao = new JbgMallDataAccessObject();
       mallName = jmDao.getName(this.seqMall);
 
-      // 일부 수집기만 실패한 경우(예: SSG 실패 + Emart 성공) 각각을 FAIL 로 남긴다.
-      // 전체 수집은 계속 진행되므로 아래에서 SUCCESS 행이 따로 기록된다.
-      recordPartialFailures(mou.getPartialFailures(), mallName, startedAt);
+      // 수집기별 결과(성공·실패·브레이커 건너뜀)를 각각 한 행으로 남긴다.
+      // 실행 단위 집계 행은 아래에서 따로 기록된다.
+      recordCollectorOutcomes(mou.getOutcomes(), mallName, startedAt);
 
       logger.info("===========================================================================");
       logger.info("쇼핑몰: {} (seq={})", mallName, this.seqMall);
@@ -335,9 +335,9 @@ public class MallOrderUpdaterRunner implements Runnable {
    * @param mallName 쇼핑몰 이름
    * @param startedAt 실행 시작 시간
    */
-  private void recordPartialFailures(
-      List<MallOrderUpdater.CollectFailure> failures, String mallName, long startedAt) {
-    if (failures == null || failures.isEmpty()) {
+  private void recordCollectorOutcomes(
+      List<MallOrderUpdater.CollectOutcome> outcomes, String mallName, long startedAt) {
+    if (outcomes == null || outcomes.isEmpty()) {
       return;
     }
 
@@ -348,27 +348,30 @@ public class MallOrderUpdaterRunner implements Runnable {
     }
 
     JbgCollectLogDataAccessObject logDao = new JbgCollectLogDataAccessObject();
-    for (MallOrderUpdater.CollectFailure failure : failures) {
-      CollectException ce = failure.cause();
-      logger.warn("부분 실패 기록 - 수집기: {}, 단계: {}", failure.collector(), ce.getStepName());
+    for (MallOrderUpdater.CollectOutcome outcome : outcomes) {
+      CollectException ce = outcome.cause();
+      if (outcome.isFailure()) {
+        logger.warn("수집기 실패 기록 - 수집기: {}, 단계: {}", outcome.collector(), ce.getStepName());
+      }
       try {
         logDao.addLog(
             seqMallInt,
             mallName,
-            "FAIL",
+            outcome.collector(),
+            outcome.status(),
             0,
             0,
-            ce.getMessage(),
-            ExceptionUtil.getExceptionInfo(ce),
-            failure.collector() + ":" + ce.getStepName(),
-            ce.getCurrentUrl(),
-            ce.getPageTitle(),
-            ce.getTargetSelector(),
-            ce.getScreenshotPath(),
+            ce != null ? ce.getMessage() : outcome.reason(),
+            ce != null ? ExceptionUtil.getExceptionInfo(ce) : null,
+            ce != null ? ce.getStepName() : null,
+            ce != null ? ce.getCurrentUrl() : null,
+            ce != null ? ce.getPageTitle() : null,
+            ce != null ? ce.getTargetSelector() : null,
+            ce != null ? ce.getScreenshotPath() : null,
             startedAt,
             System.currentTimeMillis());
       } catch (Exception e) {
-        logger.warn("부분 실패 로그 저장 중 오류: {}", e.getMessage());
+        logger.warn("수집기 결과 로그 저장 중 오류: {}", e.getMessage());
       }
     }
   }
