@@ -511,9 +511,17 @@ public class MallSchedulerService {
       // 1. 지난 회차에 실패해 보류된 것부터 재전송한다. 신규분보다 먼저 보내 순서를 지킨다.
       FtpPendingQueue pendingQueue = new FtpPendingQueue(savePath);
       pendingQueue.drain(
-          file ->
-              com.jiniebox.jangbogo.util.FtpUploadUtil.uploadFile(
-                  ftpAddress, ftpId, ftpPass, file.getAbsolutePath()));
+          file -> {
+            boolean resent =
+                com.jiniebox.jangbogo.util.FtpUploadUtil.uploadFile(
+                    ftpAddress, ftpId, ftpPass, file.getAbsolutePath());
+            if (resent) {
+              // 보류분 재전송도 실제 도달이다. 이걸 빼면 "밀린 것만 나가는" 기간 동안
+              // 마지막 전송 시각이 멈춰 보인다. (판단 대기 10)
+              exportService.recordFtpUpload();
+            }
+            return resent;
+          });
 
       // 2. 이번 회차 전송분 생성
       boolean hasNewOrders = !newOrderSeqs.isEmpty();
@@ -559,6 +567,7 @@ public class MallSchedulerService {
         if (uploadSuccess) {
           logger.info(
               "쇼핑몰 seq={} 스케줄 수집 후 FTP 업로드 완료 - 서버: {}, 암호화: {}", seq, ftpAddress, fileEncrypted);
+          exportService.recordFtpUpload();
         } else {
           logger.warn("쇼핑몰 seq={} 스케줄 수집 후 FTP 업로드 실패 - 서버: {}", seq, ftpAddress);
         }

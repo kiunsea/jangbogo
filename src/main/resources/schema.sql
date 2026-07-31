@@ -55,7 +55,8 @@ CREATE TABLE IF NOT EXISTS jbg_export_config (
   public_key TEXT NOT NULL DEFAULT '', -- 페이로드 암호화용 공개키
   ftp_encrypt_enabled INTEGER NOT NULL DEFAULT 1, -- 전송 페이로드 암호화 (0:비활성, 1:활성)
   updated_time INTEGER, -- 마지막 업데이트 시간 (millisecond)
-  last_export_time INTEGER -- 마지막 파일 저장 시간 (millisecond)
+  last_export_time INTEGER, -- 마지막 로컬 파일 저장 성공 시간 (millisecond)
+  last_ftp_upload_time INTEGER -- 마지막 FTP 전송 성공 시간 (millisecond)
 );
 
 --------------------------------------------------------

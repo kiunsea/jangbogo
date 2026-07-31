@@ -320,8 +320,13 @@
                                             autoSaveCheck.checked = (exportConfig.auto_save_enabled == 1);
                                         }
                                         
+                                        // 마지막 내보내기·전송 시각 표시 (판단 대기 10)
+                                        // 두 값을 따로 보여 준다 — "파일은 저장되는데 전송만 죽은" 상태를
+                                        // 하나의 시각으로는 구분할 수 없다.
+                                        renderLastOutbound(exportConfig);
+
                                         // FTP 저장 설정 적용 (DB 컬럼: save_to_jiniebox)
-                                        const saveToJinieboxValue = 
+                                        const saveToJinieboxValue =
                                             (exportConfig.save_to_jiniebox !== undefined) ? exportConfig.save_to_jiniebox
                                             : exportConfig.save_to_ftp;
                                         if (saveToJinieboxValue != null) {
@@ -1450,6 +1455,8 @@
                                         </button>
                                     </div>
                                 </div>
+                                <!-- 마지막 내보내기·전송 시각 (판단 대기 10) -->
+                                <div id="last_outbound" class="mt-2 small text-muted"></div>
                             </li>
                             <li class="list-group-item">
                                 <div class="d-flex align-items-center justify-content-between">
@@ -1637,6 +1644,33 @@
         </div>
 
         <script>
+        // 마지막 내보내기·전송 시각 표시 (판단 대기 10)
+        //
+        // last_export_time 은 schema.sql 에 선언만 있고 아무도 읽거나 쓰지 않는 죽은 컬럼이었다.
+        // 그래서 내보내기 파일이 11개 쌓여 있어도 "내보낸 적 없음"으로 보였다.
+        function renderLastOutbound(exportConfig) {
+            var box = document.getElementById('last_outbound');
+            if (!box || !exportConfig) return;
+
+            function label(name, millis) {
+                if (!millis || Number(millis) <= 0) {
+                    return '<span class="me-3">' + name + ': <em>기록 없음</em></span>';
+                }
+                var d = new Date(Number(millis));
+                var text = d.getFullYear() + '-'
+                         + String(d.getMonth() + 1).padStart(2, '0') + '-'
+                         + String(d.getDate()).padStart(2, '0') + ' '
+                         + String(d.getHours()).padStart(2, '0') + ':'
+                         + String(d.getMinutes()).padStart(2, '0');
+                return '<span class="me-3">' + name + ': ' + text + '</span>';
+            }
+
+            box.innerHTML =
+                '<i class="bi bi-clock"></i> '
+                + label('마지막 저장', exportConfig.last_export_time)
+                + label('마지막 전송', exportConfig.last_ftp_upload_time);
+        }
+
         // 수집기 건강도 로드 (Phase 3-5)
         //
         // 조용히 멈춘 수집기를 드러내는 것이 목적이다. 정상일 때는 아무것도 표시하지 않는다 —

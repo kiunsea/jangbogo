@@ -80,6 +80,7 @@ public class ExportService {
     }
 
     logger.info("신규 주문 파일 저장 완료 - 파일: {}, 주문: {}개", filePath, orderSeqs.size());
+    recordLocalExport();
     return filePath;
   }
 
@@ -438,8 +439,40 @@ public class ExportService {
     }
 
     logger.info("jiniebox 형식 JSON export 완료: {} (크기: {} bytes)", outputPath, jsonContent.length());
+    recordLocalExport();
 
     return outputPath;
+  }
+
+  /**
+   * 로컬 파일 저장 성공 시각을 남긴다 (판단 대기 10).
+   *
+   * <p>호출 지점을 각 컨트롤러·스케줄러에 흩지 않고 <b>파일을 실제로 쓴 메서드 안</b>에 둔다. 저장 경로가 늘어나도 기록이 빠지지 않는다.
+   *
+   * <p>FTP 전송 준비 파일({@code exportToJinieboxFileBySeqList}, {@code createEmptyStatusFile})은 여기 해당하지
+   * 않는다 — 올린 뒤 지우는 임시 파일이라 "사용자가 보관하는 내보내기"가 아니다. 그쪽은 전송 성공 시각을 따로 센다.
+   */
+  private void recordLocalExport() {
+    try {
+      new com.jiniebox.jangbogo.dao.JbgExportConfigDataAccessObject()
+          .touchLastExportTime(System.currentTimeMillis());
+    } catch (Exception e) {
+      logger.warn("마지막 저장 시각 기록 실패: {}", e.getMessage());
+    }
+  }
+
+  /**
+   * FTP 전송 성공 시각을 남긴다 (판단 대기 10).
+   *
+   * <p>전송은 이 서비스 밖(컨트롤러·스케줄러)에서 일어나므로 호출측이 성공 직후에 불러 준다.
+   */
+  public void recordFtpUpload() {
+    try {
+      new com.jiniebox.jangbogo.dao.JbgExportConfigDataAccessObject()
+          .touchLastFtpUploadTime(System.currentTimeMillis());
+    } catch (Exception e) {
+      logger.warn("마지막 FTP 전송 시각 기록 실패: {}", e.getMessage());
+    }
   }
 
   /**

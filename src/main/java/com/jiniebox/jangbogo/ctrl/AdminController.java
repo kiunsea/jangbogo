@@ -949,6 +949,7 @@ public class AdminController {
                       response.put("autoFtpUploaded", true);
                       response.put("autoFtpEncrypted", fileEncrypted);
                       logger.info("자동 FTP 업로드 완료 - 서버: {}, 암호화: {}", ftpAddress, fileEncrypted);
+                      exportService.recordFtpUpload();
                     } else {
                       response.put("autoFtpUploaded", false);
                       response.put("autoFtpError", "FTP 업로드에 실패했습니다.");
@@ -1394,6 +1395,7 @@ public class AdminController {
                 response.put("ftpUploaded", true);
                 response.put("encrypted", fileEncrypted);
                 logger.info("FTP 업로드 완료 - 서버: {}, 암호화: {}", ftpAddress, fileEncrypted);
+                exportService.recordFtpUpload();
               } else {
                 String ftpWarning = "파일은 저장되었으나 FTP 업로드에 실패했습니다.";
                 response.put("message", ftpWarning);

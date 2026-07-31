@@ -38,7 +38,8 @@ public class JbgExportConfigDataAccessObject extends CommonDataAccessObject {
       StringBuffer querySb =
           new StringBuffer("SELECT id, save_path, save_format, auto_save_enabled, ");
       querySb.append(
-          "save_to_jiniebox, ftp_address, ftp_id, ftp_pass, public_key, ftp_encrypt_enabled");
+          "save_to_jiniebox, ftp_address, ftp_id, ftp_pass, public_key, ftp_encrypt_enabled, ");
+      querySb.append("last_export_time, last_ftp_upload_time");
       querySb.append(" FROM jbg_export_config WHERE id=1");
       log.debug(
           "LOCALDB-QUERY------------------------------------------------------------------------------");
@@ -63,6 +64,8 @@ public class JbgExportConfigDataAccessObject extends CommonDataAccessObject {
 
         config.put("public_key", rset.getString("public_key"));
         config.put("ftp_encrypt_enabled", rset.getInt("ftp_encrypt_enabled"));
+        config.put("last_export_time", rset.getLong("last_export_time"));
+        config.put("last_ftp_upload_time", rset.getLong("last_ftp_upload_time"));
       } else {
         // 설정이 없으면 기본값 생성
         config = createDefaultConfig();
@@ -189,6 +192,63 @@ public class JbgExportConfigDataAccessObject extends CommonDataAccessObject {
     }
   }
 
+  /**
+   * 로컬 파일 저장이 성공한 시각을 기록한다 (판단 대기 10).
+   *
+   * <p>{@code last_export_time} 은 {@code schema.sql} 에 선언만 되어 있고 <b>읽지도 쓰지도 표시하지도 않는 죽은 컬럼</b>이었다.
+   * 그래서 로컬 내보내기 파일이 11개나 쌓여 있는데도 값이 비어 있었다. "내보내기가 마지막으로 언제 됐나"를 확인할 방법이 없었다는 뜻이다.
+   *
+   * @param timeMillis 저장 성공 시각
+   */
+  public void touchLastExportTime(long timeMillis) {
+    touchTime("last_export_time", timeMillis);
+  }
+
+  /**
+   * FTP 전송이 성공한 시각을 기록한다 (판단 대기 10).
+   *
+   * <p>로컬 저장과 <b>따로</b> 센다. 두 경로는 각각의 설정 플래그({@code auto_save_enabled} / {@code save_to_jiniebox})로
+   * 켜고 끌 수 있어 한쪽만 도는 구성이 정상이다. 하나의 시각으로 뭉치면 "파일은 저장되는데 전송만 죽은" 상태를 구분할 수 없다.
+   *
+   * @param timeMillis 전송 성공 시각
+   */
+  public void touchLastFtpUploadTime(long timeMillis) {
+    touchTime("last_ftp_upload_time", timeMillis);
+  }
+
+  /** 시각 컬럼 하나를 갱신한다. 실패해도 예외를 밖으로 내지 않는다 — 기록 실패가 내보내기를 되돌릴 이유는 없다. */
+  private void touchTime(String column, long timeMillis) {
+    LocalDBConnection conn = null;
+    try {
+      conn = new LocalDBConnection();
+      conn.txOpen();
+      int updated =
+          conn.txPstmtExecuteUpdate(
+              "UPDATE jbg_export_config SET " + column + " = ? WHERE id = 1", timeMillis);
+      if (updated == 0) {
+        // 설정 행이 아직 없는 경우. 내보내기가 돌았다는 것은 경로 설정이 있었다는 뜻이라 드물지만,
+        // 행이 없으면 UPDATE 는 조용히 0을 반환하므로 명시적으로 남긴다.
+        log.debug("{} 갱신 대상 행이 없다 (jbg_export_config id=1 미생성)", column);
+      }
+      conn.txCommit();
+    } catch (Exception e) {
+      if (conn != null) {
+        try {
+          conn.txRollBack();
+        } catch (Exception ignore) {
+        }
+      }
+      log.warn("{} 갱신 실패: {}", column, e.getMessage());
+    } finally {
+      if (conn != null) {
+        try {
+          conn.close();
+        } catch (Exception ignore) {
+        }
+      }
+    }
+  }
+
   // 여기 있던 ensureExportConfigTable 은 제거했다 (Phase 3-10).
   //
   // 테이블 생성 + 컬럼 6개(save_to_jiniebox / ftp_address / ftp_id / ftp_pass / public_key /
@@ -211,6 +271,8 @@ public class JbgExportConfigDataAccessObject extends CommonDataAccessObject {
     config.put("has_ftp_password", false); // 비밀번호 없음
     config.put("public_key", "");
     config.put("ftp_encrypt_enabled", 1);
+    config.put("last_export_time", 0L);
+    config.put("last_ftp_upload_time", 0L);
 
     // DB에 기본값 삽입
     updateConfig("", "json", 0, 0, "", "", "", "", 1);
