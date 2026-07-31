@@ -7,6 +7,7 @@
 CREATE TABLE IF NOT EXISTS jbg_item (
   seq INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL DEFAULT '0',
+  qty TEXT DEFAULT '', -- 수량 (문자열로 저장 — 몰마다 표기가 다르다)
   seq_order INTEGER,
   insert_time INTEGER -- 등록시간(millisecond)
 );
@@ -23,6 +24,7 @@ CREATE TABLE IF NOT EXISTS jbg_mall (
   encrypt_iv TEXT, -- Encrypt IvParameterSpec
   account_status INTEGER NOT NULL DEFAULT 0, -- 서비스 이용 가능 여부(0:이용 불가, 1:이용 가능)
   last_signin_time INTEGER, -- 마지막 접속 시간 (millisecond)
+  auto_collect INTEGER DEFAULT 0, -- 자동수집 사용 여부 (0:안 함, 1:함)
   collect_interval_minutes INTEGER DEFAULT 0 -- 자동수집 주기 (분 단위, 0이면 주기적 실행 안 함)
 );
 
@@ -46,6 +48,12 @@ CREATE TABLE IF NOT EXISTS jbg_export_config (
   save_path TEXT NOT NULL DEFAULT '', -- 저장 경로
   save_format TEXT NOT NULL DEFAULT 'json', -- 저장 포맷 (json, yaml, csv)
   auto_save_enabled INTEGER NOT NULL DEFAULT 0, -- 자동수집시 함께 저장 (0:비활성, 1:활성)
+  save_to_jiniebox INTEGER NOT NULL DEFAULT 0, -- jiniebox 로 FTP 전송 (0:비활성, 1:활성)
+  ftp_address TEXT NOT NULL DEFAULT '', -- FTP 서버 주소
+  ftp_id TEXT NOT NULL DEFAULT '', -- FTP 계정
+  ftp_pass TEXT NOT NULL DEFAULT '', -- FTP 비밀번호 (암호화 저장)
+  public_key TEXT NOT NULL DEFAULT '', -- 페이로드 암호화용 공개키
+  ftp_encrypt_enabled INTEGER NOT NULL DEFAULT 1, -- 전송 페이로드 암호화 (0:비활성, 1:활성)
   updated_time INTEGER, -- 마지막 업데이트 시간 (millisecond)
   last_export_time INTEGER -- 마지막 파일 저장 시간 (millisecond)
 );

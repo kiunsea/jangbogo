@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.11.8] - 2026-07-29
+
+DB 스키마 선언을 `schema.sql` 한 곳으로 모은 릴리스.
+
+### Fixed
+
+- **신규 설치와 기존 설치가 서로 다른 경로로 같은 스키마에 도달하던 문제**: 컬럼 8개(`jbg_mall.auto_collect`, `jbg_item.qty`, `jbg_export_config` 의 FTP 관련 6개)가 `schema.sql` 에 **선언되어 있지 않고** DAO 의 런타임 `ALTER TABLE` 에만 있었습니다. 신규 설치는 그 컬럼들이 없는 테이블을 받고, DAO 가 처음 호출될 때 뒤늦게 메워지는 구조였습니다. 8개 전부 `schema.sql` 로 선언을 옮겼습니다.
+- **복제된 DDL 이 원본과 어긋나 있던 문제**: `JbgExportConfigDataAccessObject` 가 들고 있던 `CREATE TABLE jbg_export_config` 는 `schema.sql` 의 것과 달리 `updated_time` 과 `last_export_time` 두 컬럼이 빠져 있었습니다. `StartupTasks` 도 `jbg_collect_log` 의 DDL 을 자바 문자열로 복제해 두고 있었습니다. 두 복제본을 모두 제거했습니다.
+
+### Changed
+
+- **스키마 진화를 `SchemaMigrator` 한 곳이 소유합니다**(신규). `schema.sql` 을 읽어 실제 DB 와 `PRAGMA table_info` 로 대조하고, 없는 테이블은 그 파일의 DDL 로 만들고 없는 컬럼만 `ALTER TABLE ADD COLUMN` 으로 채웁니다. **컬럼 목록을 자바 코드에 다시 적지 않으므로 두 목록이 어긋날 수가 없습니다.**
+  - 흩어져 있던 마이그레이션 **5경로**를 흡수했습니다 — `StartupTasks.migrateCollectLogSchema`, `JbgMallDataAccessObject.ensureAutoCollectColumns`, `JbgExportConfigDataAccessObject.ensureExportConfigTable`, `JbgItemDataAccessObject.ensureQtyColumn`, 그리고 각 DAO 의 호출 지점 14곳. (계획서가 지목한 것은 3경로였고, 착수 후 2경로를 추가로 찾았습니다.)
+  - `ALTER` 로 안전하게 붙일 수 없는 컬럼(PRIMARY KEY / UNIQUE / 기본값 없는 NOT NULL)은 **시도하지 않고 경고만** 남깁니다. 테이블 재작성이 필요한 변경은 사람이 판단해야 합니다.
+- **조회 경로에서 예외 기반 컬럼 탐지가 사라졌습니다.** 이전에는 `jbg_mall` 조회 한 번에 `SELECT col` 을 던져 보고 예외를 잡는 탐지가 두 번, `jbg_item` 은 다섯 경로가 각각 한 번씩 돌았습니다. 이제 보정은 JVM 당 1회이고, 이후 호출은 `AtomicBoolean` 한 번 읽는 비용입니다.
+- 보정 시점은 두 곳입니다 — 기동 시 `StartupTasks`, 그리고 안전망으로 `CommonDataAccessObject` 생성자. 웹서버는 `ApplicationReadyEvent` 보다 먼저 뜨므로 그 사이 요청도 스키마가 보장됩니다.
+
+### Added
+
+- **스키마 마이그레이션 테스트**(`SchemaMigratorTest`, 16건): `schema.sql` 파싱(주석·괄호 안 콤마·테이블 제약), 빈 DB 전체 생성, 구버전 테이블 보정 시 **기존 행 보존**, 멱등성, JVM 당 1회 가드, `ALTER` 불가 컬럼 회피, DAO 생성만으로 보정이 걸리는지. 테스트마다 `@TempDir` 의 새 SQLite 파일을 쓰므로 기준선 DB 에 닿지 않습니다.
+
+---
+
 ## [0.11.7] - 2026-07-29
 
 죽은 드라이버 경로 필드를 제거한 릴리스. 동작 변경은 없습니다.

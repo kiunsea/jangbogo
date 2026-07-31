@@ -10,6 +10,84 @@
 
 ## 주요 변경사항
 
+### [2026-07-29 15:30] Phase 3-10 — 스키마 선언을 schema.sql 하나로 (v0.11.8)
+
+#### 작업 개요
+
+마이그레이션 3경로 통합이 과제였다. 착수해 보니 **5경로**였고, 진짜 문제는 경로 수가 아니라 **선언이 두 벌 있었다는 것**이었다.
+
+#### 계획서가 몰랐던 2경로
+
+계획서는 `schema.sql` + `JbgMallDAO.ensureAutoCollectColumns` + `StartupTasks.migrateCollectLogSchema` 셋을 지목했다. grep 해 보니 둘이 더 있었다.
+
+| 경로 | 내용 | 호출 지점 |
+|---|---|---|
+| `JbgMallDAO.ensureAutoCollectColumns` | 컬럼 2개 | 4곳 |
+| `StartupTasks.migrateCollectLogSchema` | 컬럼 5개 + CREATE TABLE 복제본 | 1곳 |
+| **`JbgExportConfigDAO.ensureExportConfigTable`** | 컬럼 6개 + CREATE TABLE 복제본 | **3곳** |
+| **`JbgItemDAO.ensureQtyColumn`** | 컬럼 1개 | **5곳** |
+
+호출 지점 합계 13곳. 전부 조회·저장 경로 안에 있어서 **DAO 를 한 번 쓸 때마다 컬럼 존재 확인이 돌았다.**
+
+#### 진짜 문제 — 선언이 두 벌이고 이미 갈라져 있었다
+
+컬럼 **8개**가 `schema.sql` 에 선언되어 있지 않고 런타임 ALTER 에만 있었다.
+
+| 테이블 | schema.sql 에 없던 컬럼 |
+|---|---|
+| `jbg_mall` | `auto_collect` |
+| `jbg_item` | `qty` |
+| `jbg_export_config` | `save_to_jiniebox`, `ftp_address`, `ftp_id`, `ftp_pass`, `public_key`, `ftp_encrypt_enabled` |
+
+즉 **신규 설치는 이 컬럼들이 없는 테이블을 받고**, DAO 가 처음 불릴 때 뒤늦게 메워졌다. 신규 설치와 기존 설치가 서로 다른 경로로 같은 스키마에 도달하고 있었다는 뜻이다.
+
+그리고 복제된 DDL 은 이미 갈라져 있었다. `JbgExportConfigDAO` 가 들고 있던 `CREATE TABLE jbg_export_config` 는 `schema.sql` 의 것과 달리 **`updated_time` 과 `last_export_time` 두 컬럼이 없다.** 어느 쪽이 먼저 테이블을 만드느냐에 따라 스키마가 달라진다. `StartupTasks` 도 `jbg_collect_log` DDL 을 자바 문자열로 복제하고 있었다.
+
+> 참고 — `last_export_time` 이 이 복제본에서 빠져 있다는 사실은 **판단 대기 10**(`last_export_time` 이 FTP 전송 경로에서 갱신되지 않는다)과 인접해 있다. 다만 같은 원인이라고 단정할 근거는 아직 없다. 그 건은 따로 본다.
+
+#### 채택안 — schema.sql 을 유일한 선언처로 두고, 코드가 그것을 강제한다
+
+`SchemaMigrator` 를 신설했다. 하는 일은 단순하다.
+
+1. 클래스패스에서 `schema.sql` 을 읽는다
+2. `CREATE TABLE` 선언을 테이블·컬럼 목록으로 파싱한다
+3. `PRAGMA table_info` 로 실제 DB 와 대조한다
+4. 없는 테이블은 **그 파일의 DDL 을 그대로** 실행하고, 없는 컬럼만 `ALTER TABLE ADD COLUMN` 한다
+
+핵심은 **컬럼 목록을 자바 코드에 다시 적지 않는다**는 것이다. 목록이 한 벌뿐이니 어긋날 수가 없다. 통합 전에는 "자바의 목록"과 "schema.sql 의 목록"이 각자 낡았다.
+
+파서는 SQL 전체 문법이 아니라 이 프로젝트가 실제로 쓰는 형태만 다룬다. `--` 행 주석 제거, 괄호 깊이를 세며 최상위 콤마에서만 분리(`DECIMAL(10,2)` 가 잘리지 않게), `PRIMARY KEY (...)` 같은 테이블 제약은 컬럼에서 제외.
+
+#### ALTER 로 못 붙이는 컬럼은 손대지 않는다
+
+SQLite 는 `ADD COLUMN` 으로 PRIMARY KEY·UNIQUE 를 거부하고, 기본값 없는 NOT NULL 도 기존 행을 채울 값이 없어 거부한다. 이런 컬럼은 **시도하지 않고 경고만 남긴다.** 테이블 재작성이 필요한 변경을 자동으로 하면 안 된다.
+
+#### 보정 시점 두 곳
+
+- 기동 시 `StartupTasks.onApplicationReady` — 명시적 진입점
+- `CommonDataAccessObject` 생성자 — **안전망.** 웹서버는 `ApplicationReadyEvent` 보다 먼저 뜨므로 그 사이에 들어온 요청도 스키마가 보장돼야 한다
+
+`ensureMigrated()` 는 `AtomicBoolean` 으로 JVM 당 1회를 보장한다(재진입도 이 플래그가 막는다). 그래서 생성자에 둬도 첫 호출 이후에는 플래그 한 번 읽는 비용뿐이다 — **조회마다 예외를 두 번 던지던 기존 방식보다 싸다.**
+
+#### 결정 4 를 지켰다
+
+`session_profile_*` 5개 컬럼은 넣지 않았다. 읽는 코드가 없는 컬럼을 미리 세우지 않는다. 통합이 끝났으므로 Phase 5 에서 `schema.sql` 에 5줄 더하면 끝난다.
+
+같은 이유로 결정 2 의 수집기 식별 컬럼도 넣지 않았다. 그것을 쓰는 3-3 이 통합된 경로로 추가한다.
+
+#### 검증
+
+- 자동 테스트 **128건** (실패 0 / 스킵 15). 신규 16건은 전부 `@TempDir` 의 새 SQLite 파일을 쓴다
+- 구버전 테이블 3종(v0.7.0 이전 `jbg_mall`, v0.8.0 이전 `jbg_collect_log`, FTP 컬럼 없는 `jbg_export_config`)을 만들어 보정 후 **기존 행이 남는지** 확인
+- `grep "ADD COLUMN\|CREATE TABLE"` 결과 `SchemaMigrator` 외 **0건**
+- 기준선 DB md5 `909dfe…073ac` 불변 — 실 DB 에 닿지 않았다
+
+#### 남은 것
+
+`spring.sql.init` 은 그대로 뒀다(`mode: always`, `continue-on-error: true`). 신규 설치의 선언적 DDL 경로로는 여전히 유효하고, 그것이 조용히 실패하더라도 이제 `SchemaMigrator` 가 같은 파일을 읽어 복구한다. 즉 **침묵이 더 이상 유실로 이어지지 않는다.** `data.sql` 의 시드까지 자바로 옮기는 것은 이번 범위에 넣지 않았다.
+
+---
+
 ### [2026-07-29 14:40] 차단 질문 4건 해소 — 조사 결과 세 건 모두 전제가 바뀜
 
 #### 작업 개요

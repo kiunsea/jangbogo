@@ -37,9 +37,6 @@ public class JbgItemDataAccessObject extends CommonDataAccessObject {
     try {
       conn = new LocalDBConnection();
 
-      // qty 컬럼 존재 여부 확인 및 자동 생성
-      ensureQtyColumn(conn);
-
       StringBuffer querySb = new StringBuffer("SELECT seq, name, seq_order, qty, insert_time");
       querySb.append(" FROM jbg_item");
       querySb.append(" ORDER BY seq DESC");
@@ -88,9 +85,6 @@ public class JbgItemDataAccessObject extends CommonDataAccessObject {
     try {
       conn = new LocalDBConnection();
 
-      // qty 컬럼 존재 여부 확인 및 자동 생성
-      ensureQtyColumn(conn);
-
       StringBuffer querySb = new StringBuffer("SELECT seq, name, seq_order, qty, insert_time");
       querySb.append(" FROM jbg_item");
       querySb.append(" WHERE seq=" + seq);
@@ -135,9 +129,6 @@ public class JbgItemDataAccessObject extends CommonDataAccessObject {
     LocalDBConnection conn = null;
     try {
       conn = new LocalDBConnection();
-
-      // qty 컬럼 존재 여부 확인 및 자동 생성
-      ensureQtyColumn(conn);
 
       StringBuffer querySb = new StringBuffer("SELECT seq, name, seq_order, qty, insert_time");
       querySb.append(" FROM jbg_item");
@@ -203,9 +194,6 @@ public class JbgItemDataAccessObject extends CommonDataAccessObject {
     LocalDBConnection conn = null;
     try {
       conn = new LocalDBConnection();
-
-      // qty 컬럼이 있는지 확인하고 없으면 추가
-      ensureQtyColumn(conn);
 
       conn.txOpen();
 
@@ -276,9 +264,6 @@ public class JbgItemDataAccessObject extends CommonDataAccessObject {
   public int addWithConnection(LocalDBConnection conn, String name, String seqOrder, String qty)
       throws Exception {
 
-    // qty 컬럼이 있는지 확인하고 없으면 추가
-    ensureQtyColumn(conn);
-
     // PreparedStatement 사용으로 SQL Injection 방지
     StringBuffer querySb = new StringBuffer();
     querySb.append("INSERT INTO jbg_item (");
@@ -322,27 +307,10 @@ public class JbgItemDataAccessObject extends CommonDataAccessObject {
     return seq;
   }
 
-  /** jbg_item 테이블에 qty 컬럼이 있는지 확인하고 없으면 추가 */
-  private void ensureQtyColumn(LocalDBConnection conn) {
-    try {
-      // qty 컬럼 존재 여부 확인
-      conn.executeQuery("SELECT qty FROM jbg_item LIMIT 1");
-    } catch (Exception e) {
-      // qty 컬럼이 없으면 추가
-      try {
-        conn.txOpen();
-        conn.txExecuteUpdate("ALTER TABLE jbg_item ADD COLUMN qty TEXT DEFAULT ''");
-        conn.txCommit();
-        log.info("jbg_item 테이블에 qty 컬럼 추가 완료");
-      } catch (Exception ex) {
-        try {
-          conn.txRollBack();
-        } catch (Exception ignore) {
-        }
-        log.debug("qty 컬럼 추가 체크: {}", ex.getMessage());
-      }
-    }
-  }
+  // 여기 있던 ensureQtyColumn 은 제거했다 (Phase 3-10).
+  //
+  // qty 컬럼 보정을 DAO 의 다섯 경로가 각자 호출하고 있었다. 선언은 schema.sql 로 옮겼고
+  // (그전에는 schema.sql 에 없이 런타임 ALTER 에만 있었다), 보정은 SchemaMigrator 가 한다.
 
   /**
    * 아이템 정보 업데이트

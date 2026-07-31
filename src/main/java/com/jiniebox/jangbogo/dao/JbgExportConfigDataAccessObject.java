@@ -34,7 +34,6 @@ public class JbgExportConfigDataAccessObject extends CommonDataAccessObject {
     LocalDBConnection conn = null;
     try {
       conn = new LocalDBConnection();
-      ensureExportConfigTable(conn);
 
       StringBuffer querySb =
           new StringBuffer("SELECT id, save_path, save_format, auto_save_enabled, ");
@@ -107,7 +106,6 @@ public class JbgExportConfigDataAccessObject extends CommonDataAccessObject {
     LocalDBConnection conn = null;
     try {
       conn = new LocalDBConnection();
-      ensureExportConfigTable(conn);
       conn.txOpen();
 
       // 기존 설정 확인
@@ -191,114 +189,14 @@ public class JbgExportConfigDataAccessObject extends CommonDataAccessObject {
     }
   }
 
-  /** jbg_export_config 테이블이 없으면 생성하고, 기존 테이블에 새 컬럼 추가 */
-  private void ensureExportConfigTable(LocalDBConnection conn) {
-    try {
-      conn.executeQuery("SELECT id FROM jbg_export_config LIMIT 1");
-
-      // 테이블이 존재하면 새 컬럼 추가 (마이그레이션)
-      try {
-        // save_to_jiniebox 컬럼 추가
-        try {
-          conn.executeQuery("SELECT save_to_jiniebox FROM jbg_export_config LIMIT 1");
-        } catch (Exception e1) {
-          conn.txOpen();
-          conn.txExecuteUpdate(
-              "ALTER TABLE jbg_export_config ADD COLUMN save_to_jiniebox INTEGER NOT NULL DEFAULT 0");
-          conn.txCommit();
-          log.info("jbg_export_config 테이블에 save_to_jiniebox 컬럼 추가");
-        }
-
-        // ftp_address 컬럼 추가
-        try {
-          conn.executeQuery("SELECT ftp_address FROM jbg_export_config LIMIT 1");
-        } catch (Exception e2) {
-          conn.txOpen();
-          conn.txExecuteUpdate(
-              "ALTER TABLE jbg_export_config ADD COLUMN ftp_address TEXT NOT NULL DEFAULT ''");
-          conn.txCommit();
-          log.info("jbg_export_config 테이블에 ftp_address 컬럼 추가");
-        }
-
-        // ftp_id 컬럼 추가
-        try {
-          conn.executeQuery("SELECT ftp_id FROM jbg_export_config LIMIT 1");
-        } catch (Exception e3) {
-          conn.txOpen();
-          conn.txExecuteUpdate(
-              "ALTER TABLE jbg_export_config ADD COLUMN ftp_id TEXT NOT NULL DEFAULT ''");
-          conn.txCommit();
-          log.info("jbg_export_config 테이블에 ftp_id 컬럼 추가");
-        }
-
-        // ftp_pass 컬럼 추가
-        try {
-          conn.executeQuery("SELECT ftp_pass FROM jbg_export_config LIMIT 1");
-        } catch (Exception e4) {
-          conn.txOpen();
-          conn.txExecuteUpdate(
-              "ALTER TABLE jbg_export_config ADD COLUMN ftp_pass TEXT NOT NULL DEFAULT ''");
-          conn.txCommit();
-          log.info("jbg_export_config 테이블에 ftp_pass 컬럼 추가");
-        }
-
-        // public_key 컬럼 추가
-        try {
-          conn.executeQuery("SELECT public_key FROM jbg_export_config LIMIT 1");
-        } catch (Exception e5) {
-          conn.txOpen();
-          conn.txExecuteUpdate(
-              "ALTER TABLE jbg_export_config ADD COLUMN public_key TEXT NOT NULL DEFAULT ''");
-          conn.txCommit();
-          log.info("jbg_export_config 테이블에 public_key 컬럼 추가");
-        }
-
-        // ftp_encrypt_enabled 컬럼 추가
-        try {
-          conn.executeQuery("SELECT ftp_encrypt_enabled FROM jbg_export_config LIMIT 1");
-        } catch (Exception e6) {
-          conn.txOpen();
-          conn.txExecuteUpdate(
-              "ALTER TABLE jbg_export_config ADD COLUMN ftp_encrypt_enabled INTEGER NOT NULL DEFAULT 1");
-          conn.txCommit();
-          log.info("jbg_export_config 테이블에 ftp_encrypt_enabled 컬럼 추가");
-        }
-      } catch (Exception migrationEx) {
-        try {
-          conn.txRollBack();
-        } catch (Exception ignore) {
-        }
-        log.debug("컬럼 마이그레이션 체크: {}", migrationEx.getMessage());
-      }
-
-    } catch (Exception e) {
-      // 테이블이 없으면 새로 생성
-      try {
-        conn.txOpen();
-        String createTable =
-            "CREATE TABLE IF NOT EXISTS jbg_export_config ("
-                + "id INTEGER PRIMARY KEY DEFAULT 1, "
-                + "save_path TEXT NOT NULL DEFAULT '', "
-                + "save_format TEXT NOT NULL DEFAULT 'json', "
-                + "auto_save_enabled INTEGER NOT NULL DEFAULT 0, "
-                + "save_to_jiniebox INTEGER NOT NULL DEFAULT 0, "
-                + "ftp_address TEXT NOT NULL DEFAULT '', "
-                + "ftp_id TEXT NOT NULL DEFAULT '', "
-                + "ftp_pass TEXT NOT NULL DEFAULT '', "
-                + "public_key TEXT NOT NULL DEFAULT '', "
-                + "ftp_encrypt_enabled INTEGER NOT NULL DEFAULT 1)";
-        conn.txExecuteUpdate(createTable);
-        conn.txCommit();
-        log.info("jbg_export_config 테이블 생성 완료");
-      } catch (Exception ex) {
-        try {
-          conn.txRollBack();
-        } catch (Exception ignore) {
-        }
-        log.debug("jbg_export_config 테이블 확인: {}", ex.getMessage());
-      }
-    }
-  }
+  // 여기 있던 ensureExportConfigTable 은 제거했다 (Phase 3-10).
+  //
+  // 테이블 생성 + 컬럼 6개(save_to_jiniebox / ftp_address / ftp_id / ftp_pass / public_key /
+  // ftp_encrypt_enabled) 보정을 DAO 의 세 경로가 각자 호출하고 있었다. 게다가 여기 있던
+  // CREATE TABLE 은 schema.sql 의 것과 이미 어긋나 있었다 — updated_time 과 last_export_time
+  // 두 컬럼이 빠져 있었다. 복제된 DDL 은 이렇게 조용히 갈라진다.
+  //
+  // 6개 컬럼은 schema.sql 에 선언을 옮겼고, 보정은 SchemaMigrator 가 그 선언을 읽어 수행한다.
 
   /** 기본 설정 생성 및 반환 */
   private JSONObject createDefaultConfig() throws Exception {
@@ -330,7 +228,6 @@ public class JbgExportConfigDataAccessObject extends CommonDataAccessObject {
     LocalDBConnection conn = null;
     try {
       conn = new LocalDBConnection();
-      ensureExportConfigTable(conn);
 
       StringBuffer querySb = new StringBuffer("SELECT ftp_pass FROM jbg_export_config WHERE id=1");
       log.debug(

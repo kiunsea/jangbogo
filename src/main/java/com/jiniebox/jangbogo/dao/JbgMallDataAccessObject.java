@@ -37,7 +37,6 @@ public class JbgMallDataAccessObject extends CommonDataAccessObject {
     LocalDBConnection conn = null;
     try {
       conn = new LocalDBConnection();
-      ensureAutoCollectColumns(conn);
       StringBuffer querySb = new StringBuffer("SELECT seq, id, name, details");
       if (addEncField) {
         querySb.append(", encrypt_key, encrypt_iv");
@@ -95,7 +94,6 @@ public class JbgMallDataAccessObject extends CommonDataAccessObject {
     LocalDBConnection conn = null;
     try {
       conn = new LocalDBConnection();
-      ensureAutoCollectColumns(conn);
       StringBuffer querySb = new StringBuffer("SELECT seq, id, name, details, ");
       querySb.append(
           "encrypt_key, encrypt_iv, account_status, last_signin_time, auto_collect, collect_interval_minutes");
@@ -138,44 +136,19 @@ public class JbgMallDataAccessObject extends CommonDataAccessObject {
 
   // ========== Auto-collect flag helpers ==========
 
-  private void ensureAutoCollectColumns(LocalDBConnection conn) {
-    // auto_collect 컬럼 확인 및 추가
-    try {
-      conn.executeQuery("SELECT auto_collect FROM jbg_mall LIMIT 1");
-    } catch (Exception e) {
-      try {
-        conn.txOpen();
-        conn.txExecuteUpdate("ALTER TABLE jbg_mall ADD COLUMN auto_collect INTEGER DEFAULT 0");
-        conn.txCommit();
-        log.info("jbg_mall 테이블에 auto_collect 컬럼 추가 완료");
-      } catch (Exception ex) {
-        try {
-          conn.txRollBack();
-        } catch (Exception ignore) {
-        }
-        log.debug("auto_collect 컬럼 확인: {}", ex.getMessage());
-      }
-    }
-
-    // collect_interval_minutes 컬럼 확인 및 추가
-    try {
-      conn.executeQuery("SELECT collect_interval_minutes FROM jbg_mall LIMIT 1");
-    } catch (Exception e) {
-      try {
-        conn.txOpen();
-        conn.txExecuteUpdate(
-            "ALTER TABLE jbg_mall ADD COLUMN collect_interval_minutes INTEGER DEFAULT 0");
-        conn.txCommit();
-        log.info("jbg_mall 테이블에 collect_interval_minutes 컬럼 추가 완료");
-      } catch (Exception ex) {
-        try {
-          conn.txRollBack();
-        } catch (Exception ignore) {
-        }
-        log.debug("collect_interval_minutes 컬럼 확인: {}", ex.getMessage());
-      }
-    }
-  }
+  // 여기 있던 ensureAutoCollectColumns 는 제거했다 (Phase 3-10).
+  //
+  // auto_collect / collect_interval_minutes 컬럼 보정을 DAO 의 네 경로(getAllMalls, getAccessInfo,
+  // saveAutoCollectFlags, updateCollectInterval)가 각자 호출하고 있었다. 즉 조회 한 번마다
+  // "SELECT col 을 던져 보고 예외를 잡는" 탐지가 두 번씩 돌았다.
+  //
+  // 이제 스키마 진화는 SchemaMigrator 한 곳이 소유한다. 선언은 schema.sql 에만 두고
+  // (auto_collect 는 이 통합에서 schema.sql 에 추가했다 — 그전에는 런타임 ALTER 에만 있어
+  // 신규 설치와 기존 설치가 서로 다른 경로로 같은 스키마에 도달하고 있었다),
+  // 마이그레이터가 PRAGMA table_info 로 대조해 없는 것만 채운다.
+  //
+  // 보정 시점은 CommonDataAccessObject 생성자다 — 모든 DAO 가 상속하므로 이 클래스가
+  // 직접 부를 필요가 없고, JVM 당 1회 보장이라 매 호출 비용도 사라진다.
 
   private int safeGetInt(ResultSet rset, String col, int defVal) {
     try {
@@ -196,7 +169,6 @@ public class JbgMallDataAccessObject extends CommonDataAccessObject {
     LocalDBConnection conn = null;
     try {
       conn = new LocalDBConnection();
-      ensureAutoCollectColumns(conn);
       conn.txOpen();
 
       // 모든 쇼핑몰의 auto_collect를 0으로 초기화
@@ -258,7 +230,6 @@ public class JbgMallDataAccessObject extends CommonDataAccessObject {
     LocalDBConnection conn = null;
     try {
       conn = new LocalDBConnection();
-      ensureAutoCollectColumns(conn);
       conn.txOpen();
 
       String cleanSeq = seq.replaceAll("[^0-9]", "");

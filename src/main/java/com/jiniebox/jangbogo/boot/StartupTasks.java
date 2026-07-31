@@ -1,13 +1,10 @@
 package com.jiniebox.jangbogo.boot;
 
 import com.jiniebox.jangbogo.dao.JbgMallDataAccessObject;
-import com.jiniebox.jangbogo.dao.LocalDBConnection;
+import com.jiniebox.jangbogo.dao.SchemaMigrator;
 import com.jiniebox.jangbogo.svc.MallSchedulerService;
 import com.jiniebox.jangbogo.svc.util.ScreenshotUtil;
-import java.sql.ResultSet;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.simple.JSONObject;
@@ -39,9 +36,13 @@ public class StartupTasks {
     try {
       logger.info("장보고 애플리케이션 시작 - 초기화 작업 시작");
 
-      // 0. DB 스키마 마이그레이션 (기존 사용자 데이터 보존하며 컬럼 추가)
+      // 0. DB 스키마 보정 (기존 사용자 데이터 보존하며 없는 테이블·컬럼만 채운다)
       //    수집 가드 밖에 둔다. "앱은 띄우되 수집만 끈다" 를 해도 스키마는 최신이어야 한다.
-      migrateCollectLogSchema();
+      //
+      //    이전에는 이 자리에 jbg_collect_log 전용 마이그레이션이 있었고, 그 안에 schema.sql 의
+      //    CREATE TABLE 을 자바 문자열로 복제해 두고 있었다. 복제본은 원본과 어긋나기 마련이다.
+      //    이제 SchemaMigrator 가 schema.sql 을 직접 읽어 대조하므로 선언은 한 곳뿐이다. (Phase 3-10)
+      SchemaMigrator.ensureMigrated();
 
       if (startupCollectEnabled) {
         // 1. 스케줄링 대상 쇼핑몰에 대해 1회 수집 실행
@@ -61,87 +62,6 @@ public class StartupTasks {
       }
     } catch (Exception e) {
       logger.error("시작 시 초기화 작업 실패", e);
-    }
-  }
-
-  /**
-   * jbg_collect_log 테이블을 보장한다. 테이블이 없으면 생성하고, 신규 컬럼이 없으면 ALTER TABLE로 추가한다. SQLite 기준, 기존 데이터는 보존되며
-   * nullable로 추가된다.
-   *
-   * <p>v0.8.0에서 추가된 컬럼: step_name, current_url, page_title, target_selector, screenshot_path
-   *
-   * <p>테이블 생성 자체는 {@code schema.sql} + {@code spring.sql.init} 이 담당하지만, 그 경로는 {@code
-   * continue-on-error: true} 라 실패해도 조용히 넘어간다. 실제로 개발 트리 DB 에는 테이블이 없는 채로 남아 있었고, 이 메서드는 컬럼 추가만 하므로
-   * '테이블 없음' 을 '컬럼 추가 실패' 경고로만 남기고 지나갔다. 수집 이력이 통째로 유실되는 경로이므로 여기서 직접 보장한다.
-   */
-  private void migrateCollectLogSchema() {
-    String[] requiredColumns = {
-      "step_name", "current_url", "page_title", "target_selector", "screenshot_path"
-    };
-
-    LocalDBConnection conn = null;
-    try {
-      conn = new LocalDBConnection();
-
-      ensureCollectLogTable(conn);
-
-      Set<String> existing = new HashSet<>();
-      ResultSet rs = conn.executeQuery("PRAGMA table_info(jbg_collect_log)");
-      while (rs != null && rs.next()) {
-        existing.add(rs.getString("name"));
-      }
-
-      for (String col : requiredColumns) {
-        if (!existing.contains(col)) {
-          try {
-            conn.txPstmtExecuteUpdate("ALTER TABLE jbg_collect_log ADD COLUMN " + col + " TEXT");
-            logger.info("jbg_collect_log 컬럼 추가: {}", col);
-          } catch (Exception alterEx) {
-            logger.warn("jbg_collect_log 컬럼 {} 추가 실패: {}", col, alterEx.getMessage());
-          }
-        }
-      }
-    } catch (Exception e) {
-      logger.warn("jbg_collect_log 스키마 마이그레이션 실패: {}", e.getMessage());
-    } finally {
-      if (conn != null) {
-        try {
-          conn.close();
-        } catch (Exception ignore) {
-        }
-      }
-    }
-  }
-
-  /**
-   * jbg_collect_log 테이블이 없으면 생성한다. 컬럼 구성은 {@code src/main/resources/schema.sql} 과 동일하게 유지해야 한다.
-   *
-   * @param conn 로컬 DB 커넥션
-   */
-  private void ensureCollectLogTable(LocalDBConnection conn) {
-    String createTable =
-        "CREATE TABLE IF NOT EXISTS jbg_collect_log ("
-            + "seq INTEGER PRIMARY KEY AUTOINCREMENT, "
-            + "seq_mall INTEGER NOT NULL, "
-            + "mall_name TEXT, "
-            + "status TEXT NOT NULL DEFAULT 'SUCCESS', "
-            + "order_count INTEGER DEFAULT 0, "
-            + "item_count INTEGER DEFAULT 0, "
-            + "error_message TEXT, "
-            + "error_detail TEXT, "
-            + "step_name TEXT, "
-            + "current_url TEXT, "
-            + "page_title TEXT, "
-            + "target_selector TEXT, "
-            + "screenshot_path TEXT, "
-            + "started_at INTEGER, "
-            + "finished_at INTEGER, "
-            + "insert_time INTEGER)";
-    try {
-      conn.txPstmtExecuteUpdate(createTable);
-      logger.info("jbg_collect_log 테이블 확인/생성 완료");
-    } catch (Exception e) {
-      logger.warn("jbg_collect_log 테이블 생성 실패: {}", e.getMessage());
     }
   }
 

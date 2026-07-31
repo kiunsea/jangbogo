@@ -15,6 +15,20 @@ public class CommonDataAccessObject {
   @Autowired private JangbogoConfig jangbogoConfig;
 
   /**
+   * DAO 를 만들기 전에 스키마가 최신 선언에 맞는지 보장한다 (Phase 3-10).
+   *
+   * <p>{@link SchemaMigrator#ensureMigrated()} 는 JVM 당 한 번만 실제 작업을 하므로, 여기 두어도 첫 호출 이후에는 {@code
+   * AtomicBoolean} 한 번 읽는 비용뿐이다. 통합 전 {@code JbgMallDataAccessObject} 가 조회마다 예외 기반 컬럼 탐지를 두 번씩 돌리던
+   * 것보다 싸다.
+   *
+   * <p>기동 시 {@code StartupTasks} 도 같은 메서드를 부른다. 이쪽은 <b>안전망</b>이다 — 웹서버는 {@code
+   * ApplicationReadyEvent} 보다 먼저 뜨므로 그 사이에 들어온 요청도 스키마가 보장돼야 한다.
+   */
+  protected CommonDataAccessObject() {
+    SchemaMigrator.ensureMigrated();
+  }
+
+  /**
    * AUTO_INCREMENT 컬럼의 다음 시퀀스
    *
    * @param tableName
