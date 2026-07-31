@@ -7,6 +7,7 @@ import com.jiniebox.jangbogo.dao.JbgItemDataAccessObject;
 import com.jiniebox.jangbogo.dao.JbgMallDataAccessObject;
 import com.jiniebox.jangbogo.dao.JbgOrderDataAccessObject;
 // CollectException import (svc 패키지 동일이라 불필요하지만 명시)
+import com.jiniebox.jangbogo.svc.util.ErrorSummary;
 import com.jiniebox.jangbogo.util.ExceptionUtil;
 import com.jiniebox.jangbogo.util.JSONUtil;
 import java.util.ArrayList;
@@ -269,7 +270,7 @@ public class MallOrderUpdaterRunner implements Runnable {
             "FAIL",
             0,
             0,
-            e.getMessage(),
+            ErrorSummary.summarize(e),
             ExceptionUtil.getExceptionInfo(e),
             startedAt);
       }
@@ -290,7 +291,7 @@ public class MallOrderUpdaterRunner implements Runnable {
           "FAIL",
           0,
           0,
-          e.getMessage(),
+          ErrorSummary.summarize(e),
           ExceptionUtil.getExceptionInfo(e),
           ce != null ? ce.getStepName() : "unknown",
           ce != null ? ce.getCurrentUrl() : null,

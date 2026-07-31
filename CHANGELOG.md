@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.13.3] - 2026-08-01
+
+실전 수집에서 발견한 오류 메시지 오염을 고친 릴리스.
+
+### Fixed
+
+- **Selenium 진단 블록이 요약 칸에 통째로 저장되던 문제**: 실제 수집 중 Emart 타임아웃 한 건의 `getMessage()` 가 **1,293자**였습니다. Selenium 이 메시지 뒤에 `Build info` / `System info` / `Driver info` / `Command` / `Capabilities` / `Session ID` 를 붙이기 때문입니다.
+  - 그 값이 두 곳에 그대로 들어갔습니다 — `jbg_collect_log.error_message`(화면 목록·상세 모달에 표시)와 `jbg_collect_breaker.last_reason`("사람이 읽을 사유" 칸).
+  - 전체 스택은 `error_detail` 이 따로 갖고 있고(같은 사례 15,314자), 실패 컨텍스트는 단계명·URL·스크린샷으로 이미 잡힙니다. 요약 칸까지 원문을 담을 이유가 없습니다.
+
+### Added
+
+- **`ErrorSummary`**: 예외 메시지를 한 줄 요약으로 줄입니다. 글자 수로만 자르면 잘린 자리에 진단 블록 앞머리가 남으므로, **Selenium 정형 문구를 먼저 잘라낸 뒤** 줄바꿈을 접고 300자에 맞춥니다.
+  - 적용 지점 4곳 — `CollectStep.wrap`(모든 수집 실패의 발원지), `MallOrderUpdaterRunner` 2곳, `MallSchedulerService` 1곳.
+  - `CollectStep` 이 alert 문구에 쓰던 사설 `oneLine` 을 이걸로 대체했습니다. 셀렉터 추론값(`inferSelector`)도 긴 XPath 대비 같은 처리를 겁니다.
+- **`ErrorSummaryTest`(10건)**: 실전에서 관측된 형태의 Selenium 메시지를 그대로 입력으로 씁니다. 정형 블록 제거, 300자 컷, null·공백 안전, 그리고 `CollectStep.wrap` 결과물에도 진단 블록이 안 남는지.
+
+---
+
 ## [0.13.2] - 2026-07-31
 
 내보내기·전송이 마지막으로 언제 됐는지 알 수 있게 한 릴리스.

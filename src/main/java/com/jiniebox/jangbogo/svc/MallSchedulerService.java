@@ -4,6 +4,7 @@ import com.jiniebox.jangbogo.dao.JbgCollectLogDataAccessObject;
 import com.jiniebox.jangbogo.dao.JbgMallDataAccessObject;
 import com.jiniebox.jangbogo.dto.MallAccount;
 import com.jiniebox.jangbogo.svc.util.CollectIntervalPolicy;
+import com.jiniebox.jangbogo.svc.util.ErrorSummary;
 import com.jiniebox.jangbogo.svc.util.FtpPendingQueue;
 import com.jiniebox.jangbogo.util.ExceptionUtil;
 import com.jiniebox.jangbogo.util.JinieboxUtil;
@@ -300,7 +301,7 @@ public class MallSchedulerService {
           "FAIL",
           0,
           0,
-          e.getMessage(),
+          ErrorSummary.summarize(e),
           ExceptionUtil.getExceptionInfo(e),
           ce != null ? ce.getStepName() : "scheduler",
           ce != null ? ce.getCurrentUrl() : null,

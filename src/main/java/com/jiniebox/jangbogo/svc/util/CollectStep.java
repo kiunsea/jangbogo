@@ -82,23 +82,20 @@ public final class CollectStep {
     String inferredSelector = (selector != null) ? selector : inferSelector(cause);
     String screenshot = ScreenshotUtil.capture(driver, mallName);
 
-    String causeMsg =
-        cause != null ? cause.getClass().getSimpleName() + ": " + cause.getMessage() : "unknown";
+    // 예외 메시지는 요약해서 담는다. Selenium 은 getMessage() 뒤에 Build/System/Driver info 와
+    // Capabilities 블록을 통째로 붙이는데(실측 1,293자), 이 메시지는 jbg_collect_log.error_message 와
+    // jbg_collect_breaker.last_reason 에 그대로 저장되고 화면에도 뿌려진다. 전체 스택은
+    // error_detail 이 따로 갖고 있으므로 요약 칸까지 원문을 담을 이유가 없다.
+    String causeMsg = ErrorSummary.summarize(cause);
     String message =
         "[step="
             + stepName
             + "] "
             + causeMsg
             + (inferredSelector != null ? " (target=" + inferredSelector + ")" : "")
-            + (alertText != null ? " (alert=\"" + oneLine(alertText) + "\")" : "");
+            + (alertText != null ? " (alert=\"" + ErrorSummary.summarize(alertText) + "\")" : "");
 
     return new CollectException(stepName, url, title, inferredSelector, screenshot, message, cause);
-  }
-
-  /** 대화상자 문구는 여러 줄일 수 있다. 로그 한 줄·DB 한 칸에 들어가도록 접는다. */
-  private static String oneLine(String text) {
-    String flat = text.replaceAll("\\s*\\R\\s*", " ").trim();
-    return flat.length() > 300 ? flat.substring(0, 300) + "…" : flat;
   }
 
   /** Selenium NoSuchElementException / TimeoutException 메시지에서 selector 정보 추출 시도. */
@@ -109,7 +106,9 @@ public final class CollectStep {
     if (t instanceof NoSuchElementException || t instanceof TimeoutException) {
       // 메시지의 첫 줄 정도만 사용
       int nl = msg.indexOf('\n');
-      return nl > 0 ? msg.substring(0, nl).trim() : msg.trim();
+      String firstLine = nl > 0 ? msg.substring(0, nl).trim() : msg.trim();
+      // 첫 줄만으로도 길 수 있다 (셀렉터가 긴 XPath 인 경우). 저장·표시 칸에 맞춘다.
+      return ErrorSummary.summarize(firstLine);
     }
     return null;
   }
