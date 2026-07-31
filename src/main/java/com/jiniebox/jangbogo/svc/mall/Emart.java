@@ -284,13 +284,18 @@ public class Emart extends MallSession implements ReceiptCollector {
                 // 팝업창으로 스위치
                 driver.switchTo().window(handle);
 
-                // 영수증 바코드 출력 (id가 'barcodeTargetRec'인 div 요소의 하위 div 요소들 선택)
+                // 영수증 바코드 추출 (id가 'barcodeTargetRec' 인 div 의 하위 div 들)
                 List<WebElement> divElements =
                     driver.findElements(By.cssSelector("#barcodeTargetRec div"));
-                if (divElements.size() > 1) {
-                  // 마지막 div 요소의 텍스트 값 가져오기
-                  receiptBarcode = divElements.get(divElements.size() - 1).getText();
+                List<String> barcodeTexts = new ArrayList<>();
+                for (WebElement div : divElements) {
+                  try {
+                    barcodeTexts.add(div.getText());
+                  } catch (Exception e) {
+                    barcodeTexts.add(null); // 개별 요소를 못 읽어도 나머지 후보는 살린다
+                  }
                 }
+                receiptBarcode = extractReceiptBarcode(barcodeTexts);
 
                 // 상품 구매내역 추출
                 WebElement preElem = driver.findElement(By.tagName("pre"));
@@ -299,6 +304,14 @@ public class Emart extends MallSession implements ReceiptCollector {
                 if (receiptBarcode != null) {
                   detailJo.put("serial", receiptBarcode);
                   detailJo.put("datetime", receiptBarcode.substring(0, 8));
+                } else {
+                  // serial·datetime 이 없으면 저장 단계에서 조용히 버려진다(MallOrderUpdaterRunner 가
+                  // datetime 없는 주문을 skippedOrders 로 세고 건너뛴다). 왜 버려졌는지는 남긴다.
+                  logger.warn(
+                      "영수증 바코드를 읽지 못했다 — serial·datetime 없이 수집되어 저장 단계에서 버려진다."
+                          + " mall={}, 후보 div={}개",
+                      mallName,
+                      divElements.size());
                 }
                 detailJo.put("mallname", mallName);
 
@@ -320,6 +333,66 @@ public class Emart extends MallSession implements ReceiptCollector {
     }
 
     return resJsonArr;
+  }
+
+  /**
+   * 바코드 후보 텍스트들 중에서 실제 영수증 바코드를 골라낸다 (판단 대기 B-3).
+   *
+   * <h2>왜 필요했나</h2>
+   *
+   * <p>이전 코드는 {@code #barcodeTargetRec div} 중 <b>마지막 것의 텍스트를 무조건</b> 바코드로 썼다. 실측에서 17건 중 2건(12%)이
+   * 바코드 미인식이었고, 코드에는 결함이 세 개 겹쳐 있었다.
+   *
+   * <ul>
+   *   <li><b>조용한 유실</b> — div 가 1개 이하면 바코드가 {@code null} 이 되고, 그 영수증은 serial·datetime 없이 수집돼 저장
+   *       단계에서 말없이 버려진다({@code skippedOrders} 로만 세어진다).
+   *   <li><b>크래시 위험</b> — 마지막 div 의 텍스트가 비었거나 8자 미만이면 호출측의 {@code substring(0, 8)} 이 {@code
+   *       StringIndexOutOfBoundsException} 을 던진다. 영수증 하나 때문에 Emart 수집 전체가 무너진다.
+   *   <li><b>위치 가정</b> — "마지막 div" 는 렌더링 구조에 대한 가정일 뿐이다. 뒤에 라벨이나 래퍼 div 가 하나 붙으면 엉뚱한 값이 serial 로
+   *       들어간다.
+   * </ul>
+   *
+   * <h2>고른 방식</h2>
+   *
+   * <p>뒤에서부터 훑되 <b>바코드처럼 생긴 것만</b> 받는다. 호출측이 앞 8자리를 {@code YYYYMMDD} 로 쓰므로, 그 용도가 성립하는지를 그대로 판정
+   * 기준으로 삼는다 — 공백 제거 후 8자 이상이고, 앞 8자가 숫자이며, 그 8자가 실제 날짜 범위(월 01~12, 일 01~31)여야 한다.
+   *
+   * <p>못 찾으면 <b>추측하지 않고 {@code null}</b> 을 돌려준다. 틀린 serial 로 저장하는 것보다 낫다.
+   *
+   * @param candidateTexts 후보 div 들의 텍스트 (null 원소 허용)
+   * @return 바코드 문자열 (공백 제거됨). 없으면 null
+   */
+  static String extractReceiptBarcode(List<String> candidateTexts) {
+    if (candidateTexts == null) {
+      return null;
+    }
+    for (int i = candidateTexts.size() - 1; i >= 0; i--) {
+      String raw = candidateTexts.get(i);
+      if (raw == null) {
+        continue;
+      }
+      String normalized = raw.replaceAll("\\s", "");
+      if (looksLikeReceiptBarcode(normalized)) {
+        return normalized;
+      }
+    }
+    return null;
+  }
+
+  /** 앞 8자리를 {@code YYYYMMDD} 로 쓸 수 있는 형태인지. */
+  private static boolean looksLikeReceiptBarcode(String value) {
+    if (value.length() < 8) {
+      return false;
+    }
+    String head = value.substring(0, 8);
+    for (int i = 0; i < 8; i++) {
+      if (!Character.isDigit(head.charAt(i))) {
+        return false;
+      }
+    }
+    int month = Integer.parseInt(head.substring(4, 6));
+    int day = Integer.parseInt(head.substring(6, 8));
+    return month >= 1 && month <= 12 && day >= 1 && day <= 31;
   }
 
   @Override
