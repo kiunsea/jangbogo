@@ -503,17 +503,16 @@ public class ExportService {
    * @return 쇼핑몰 ID (emart, ssg, oasis, unknown)
    */
   private String getMallIdFromSeq(int seqMall) {
-    switch (seqMall) {
-      case 1:
-        return "emart"; // 이마트/SSG 그룹
-      case 2:
-        return "oasis"; // 오아시스
-      case 3:
-        return "hanaro"; // 하나로마트
-      default:
-        logger.warn("알 수 없는 쇼핑몰 seq: {}", seqMall);
-        return "unknown";
-    }
+    // seq 로 분기하던 하드코딩 사슬을 MallRegistry 로 옮겼다 (Phase 3-12).
+    // 값은 통합 전과 동일하다 — seq=1 은 여전히 "emart" 다. 수신측은 emart 와 ssg 를 둘 다 seq 1 로
+    // 받으므로 어느 쪽이든 동작하지만, 검증할 수 없는 전송 포맷 변경을 리팩터링에 끼워 넣지 않는다.
+    return com.jiniebox.jangbogo.svc.mall.MallRegistry.bySeq(seqMall)
+        .map(com.jiniebox.jangbogo.svc.mall.MallRegistry::exportId)
+        .orElseGet(
+            () -> {
+              logger.warn("알 수 없는 쇼핑몰 seq: {}", seqMall);
+              return com.jiniebox.jangbogo.svc.mall.MallRegistry.UNKNOWN_EXPORT_ID;
+            });
   }
 
   private String buildJinieboxJsonFromOrders(List<JSONObject> orders) throws Exception {

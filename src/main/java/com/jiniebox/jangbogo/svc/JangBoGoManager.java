@@ -3,13 +3,10 @@ package com.jiniebox.jangbogo.svc;
 import com.jiniebox.jangbogo.dao.JbgMallDataAccessObject;
 import com.jiniebox.jangbogo.dto.JangbogoConfig;
 import com.jiniebox.jangbogo.svc.ifc.MallSession;
-import com.jiniebox.jangbogo.svc.mall.Emart;
-import com.jiniebox.jangbogo.svc.mall.Hanaro;
-import com.jiniebox.jangbogo.svc.mall.Oasis;
+import com.jiniebox.jangbogo.svc.mall.MallRegistry;
 import com.jiniebox.jangbogo.svc.util.WebDriverManager;
 import com.jiniebox.jangbogo.sys.UserSession;
 import com.jiniebox.jangbogo.util.JinieboxUtil;
-import com.jiniebox.jangbogo.util.NumberUtil;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
@@ -230,27 +227,20 @@ public class JangBoGoManager {
   }
 
   /**
-   * mall sequence 에 따라 mall instance 를 생성하여 반환
+   * mall sequence 에 따라 <b>자격증명 검증용</b> mall instance 를 생성하여 반환.
    *
-   * @param seqMall
-   * @param usrid
-   * @param usrpw
-   * @return
+   * <p>seq 로 분기하던 하드코딩 사슬을 {@link MallRegistry} 로 옮겼다 (Phase 3-12). 수집기가 여럿인 몰(seq=1)이라도 검증은 하나로만
+   * 한다 — 연결 한 번에 두 사이트로 로그인하면 이 프로젝트가 줄이려는 반복 로그인을 스스로 늘리게 된다.
+   *
+   * @param seqMall 쇼핑몰 seq
+   * @param usrid 아이디
+   * @param usrpw 비밀번호
+   * @return 검증용 수집기. 등록되지 않은 seq 면 null
    */
   private MallSession getMallSession(String seqMall, String usrid, String usrpw) {
-    int seqMallInt = NumberUtil.isNumber(seqMall) ? Integer.parseInt(seqMall) : -1;
-    if (seqMallInt > 0) {
-      MallSession mallMgn = null;
-      if (seqMallInt == 1) {
-        mallMgn = new Emart(usrid, usrpw);
-      } else if (seqMallInt == 2) {
-        mallMgn = new Oasis(usrid, usrpw);
-      } else if (seqMallInt == 3) {
-        mallMgn = new Hanaro(usrid, usrpw);
-      }
-      return mallMgn;
-    }
-    return null;
+    return MallRegistry.bySeq(seqMall)
+        .map(mall -> mall.verificationCollector().create(usrid, usrpw))
+        .orElse(null);
   }
 
   /**

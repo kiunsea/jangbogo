@@ -2,10 +2,7 @@ package com.jiniebox.jangbogo.svc;
 
 import com.jiniebox.jangbogo.dao.JbgCollectBreakerDataAccessObject;
 import com.jiniebox.jangbogo.dao.JbgMallDataAccessObject;
-import com.jiniebox.jangbogo.svc.mall.Emart;
-import com.jiniebox.jangbogo.svc.mall.Hanaro;
-import com.jiniebox.jangbogo.svc.mall.Oasis;
-import com.jiniebox.jangbogo.svc.mall.Ssg;
+import com.jiniebox.jangbogo.svc.mall.MallRegistry;
 import com.jiniebox.jangbogo.svc.util.CollectBreakerPolicy;
 import com.jiniebox.jangbogo.svc.util.CollectStep;
 import java.util.ArrayList;
@@ -132,23 +129,21 @@ public class MallOrderUpdater {
 
     JSONArray itemArr = new JSONArray();
     int seqMallInt = Integer.parseInt(seqMall);
-    int attempted = 0;
-    if (seqMallInt == 1) {
-      // seq=1 은 수집기가 둘이다. 한쪽이 실패해도 다른 쪽은 반드시 시도한다.
-      // (SSG 온라인몰과 Emart 오프라인 영수증은 서로 독립적인 데이터원이라, 하나의 실패가 다른 하나를 막을 이유가 없다)
-      attempted = 2;
+
+    // 어떤 수집기를 돌릴지는 MallRegistry 한 곳이 선언한다 (Phase 3-12).
+    // 수집기가 여럿인 몰(seq=1)에서 한쪽이 실패해도 다른 쪽은 반드시 시도한다 — SSG 온라인몰과
+    // Emart 오프라인 영수증은 서로 독립적인 데이터원이라 하나의 실패가 다른 하나를 막을 이유가 없다.
+    List<MallRegistry.CollectorSpec> specs =
+        MallRegistry.bySeq(seqMallInt).map(MallRegistry::collectors).orElseGet(List::of);
+    if (specs.isEmpty()) {
+      logger.warn("등록되지 않은 쇼핑몰 seq={} — 수집기가 없다", seqMall);
+    }
+
+    int attempted = specs.size();
+    for (MallRegistry.CollectorSpec spec : specs) {
       itemArr.addAll(
-          collectFrom("SSG", seqMallInt, interval, () -> new Ssg(mallId, mallPw).getItems()));
-      itemArr.addAll(
-          collectFrom("Emart", seqMallInt, interval, () -> new Emart(mallId, mallPw).getItems()));
-    } else if (seqMallInt == 2) {
-      attempted = 1;
-      itemArr.addAll(
-          collectFrom("Oasis", seqMallInt, interval, () -> new Oasis(mallId, mallPw).getItems()));
-    } else if (seqMallInt == 3) {
-      attempted = 1;
-      itemArr.addAll(
-          collectFrom("Hanaro", seqMallInt, interval, () -> new Hanaro(mallId, mallPw).getItems()));
+          collectFrom(
+              spec.name(), seqMallInt, interval, () -> spec.create(mallId, mallPw).getItems()));
     }
 
     List<CollectFailure> failures = getPartialFailures();
