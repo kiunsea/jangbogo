@@ -46,12 +46,28 @@ public class MallOrderUpdater {
     public static final String FAIL = "FAIL";
     public static final String SKIPPED = "SKIPPED";
 
+    /**
+     * 예외 없이 0건을 받았다.
+     *
+     * <p>{@code SUCCESS} 와 구분하는 이유는 <b>0건이 두 가지를 뜻하기 때문</b>이다 — 정말 안 샀거나, 셀렉터가 깨져 아무것도 못 읽었거나. 한
+     * 회차만 봐서는 구분할 수 없으므로 추측하지 않고 구분해 기록만 한다. 얼마나 오래 이어지는지는 {@code CollectHealthPolicy} 가 본다. (Phase
+     * 3-4)
+     *
+     * <p>실패는 아니므로 브레이커의 연속 실패 카운트는 초기화한다 — 로그인도 됐고 예외도 없었으니 사이트는 살아 있다.
+     */
+    public static final String EMPTY = "EMPTY";
+
     public boolean isFailure() {
       return FAIL.equals(status);
     }
 
     public boolean isSuccess() {
       return SUCCESS.equals(status);
+    }
+
+    /** 브레이커 관점에서 '실패가 아닌 완주'인가. {@code SUCCESS} 와 {@code EMPTY} 가 여기 해당한다. */
+    public boolean isCompleted() {
+      return SUCCESS.equals(status) || EMPTY.equals(status);
     }
   }
 
@@ -198,38 +214,61 @@ public class MallOrderUpdater {
     logger.info("{} 구매 내역 수집 시작", name);
     try {
       JSONArray items = collector.get();
-      logger.info("{} 수집 완료 - {} 건", name, items != null ? items.size() : 0);
+      int count = (items != null) ? items.size() : 0;
+
+      if (count == 0) {
+        // 예외도 없고 로그인도 됐는데 0건이다. 성공으로 뭉뚱그리지 않는다 (Phase 3-4).
+        logger.warn("{} 수집 0건 — 조회 기간에 구매가 없었거나 셀렉터가 어긋났다. 한 회차로는 구분할 수 없어 EMPTY 로 기록한다.", name);
+        outcomes.add(new CollectOutcome(name, CollectOutcome.EMPTY, null, "수집 0건"));
+        recordBreaker(seqMall, name, CollectOutcome.EMPTY, null);
+        return new JSONArray();
+      }
+
+      logger.info("{} 수집 완료 - {} 건", name, count);
       outcomes.add(new CollectOutcome(name, CollectOutcome.SUCCESS, null, null));
-      recordBreaker(seqMall, name, true, null);
-      return items != null ? items : new JSONArray();
+      recordBreaker(seqMall, name, CollectOutcome.SUCCESS, null);
+      return items;
     } catch (Exception e) {
       CollectException ce = unwrapCollectException(e);
       if (ce == null) {
         ce = CollectStep.wrap(null, name, "collect", null, e);
       }
       outcomes.add(new CollectOutcome(name, CollectOutcome.FAIL, ce, null));
-      recordBreaker(seqMall, name, false, ce.getMessage());
+      recordBreaker(seqMall, name, CollectOutcome.FAIL, ce.getMessage());
       logger.error(
           "{} 수집 실패 (다른 수집기는 계속 진행) - 단계: {}, 원인: {}", name, ce.getStepName(), e.getMessage());
       return new JSONArray();
     }
   }
 
-  /** 브레이커 상태를 갱신한다. 트립이 새로 발생하면 경보를 남긴다. */
-  private void recordBreaker(int seqMall, String name, boolean success, String reason) {
+  /**
+   * 브레이커 상태를 갱신한다. 트립이 새로 발생하면 경보를 남긴다.
+   *
+   * <p>{@code EMPTY} 는 실패가 아니므로 연속 실패 카운트를 초기화한다 — 로그인도 됐고 예외도 없었으니 사이트는 살아 있다. 다만 {@code
+   * last_nonempty_time} 은 갱신하지 않는다. 0건이 오래 이어지는 것이 조용한 실패의 유일한 신호라, 그 시각이 그대로 멈춰 있어야 {@code
+   * CollectHealthPolicy} 가 알아챌 수 있다. (Phase 3-4)
+   */
+  private void recordBreaker(int seqMall, String name, String status, String reason) {
     if (seqMall <= 0) {
       return;
     }
     try {
       long now = System.currentTimeMillis();
-      if (success) {
-        breakerDao.saveState(seqMall, name, CollectBreakerPolicy.onSuccess(), now, "성공");
+      if (!CollectOutcome.FAIL.equals(status)) {
+        boolean gotData = CollectOutcome.SUCCESS.equals(status);
+        breakerDao.saveState(
+            seqMall,
+            name,
+            CollectBreakerPolicy.onSuccess(),
+            now,
+            gotData ? now : 0,
+            gotData ? "성공" : "수집 0건");
         return;
       }
 
       CollectBreakerPolicy.State before = breakerDao.getState(seqMall, name);
       CollectBreakerPolicy.State after = CollectBreakerPolicy.onFailure(before, now);
-      breakerDao.saveState(seqMall, name, after, 0, reason);
+      breakerDao.saveState(seqMall, name, after, 0, 0, reason);
 
       if (after.isTripped() && !before.isTripped()) {
         // 경보. 결정 1 의 "스케줄 일시중단 + 경보" 중 경보에 해당한다.

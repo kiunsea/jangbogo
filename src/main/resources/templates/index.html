@@ -1625,6 +1625,9 @@
                         </div>
                     </div>
                 </div>
+                <!-- 수집기 건강도 (Phase 3-5). 이상이 없으면 아무것도 그리지 않는다. -->
+                <div id="collector_health" class="mb-3" style="display:none;"></div>
+
                 <div class="d-grid">
                     <a href="/collect-logs" class="btn btn-outline-danger">
                         <i class="bi bi-exclamation-triangle"></i> 실행 실패 오류 조회
@@ -1634,6 +1637,59 @@
         </div>
 
         <script>
+        // 수집기 건강도 로드 (Phase 3-5)
+        //
+        // 조용히 멈춘 수집기를 드러내는 것이 목적이다. 정상일 때는 아무것도 표시하지 않는다 —
+        // 늘 떠 있는 배너는 아무도 읽지 않게 되고, 정작 문제가 생겼을 때도 눈에 띄지 않는다.
+        var HEALTH_STYLE = {
+            TRIPPED:   { cls: 'alert-danger',  icon: 'bi-slash-circle',        label: '자동 차단됨' },
+            STALE:     { cls: 'alert-warning', icon: 'bi-clock-history',       label: '수집 지연' },
+            NO_DATA:   { cls: 'alert-warning', icon: 'bi-inbox',               label: '0건 지속' },
+            NEVER_RAN: { cls: 'alert-secondary', icon: 'bi-question-circle',   label: '미실행' }
+        };
+
+        function loadCollectorHealth() {
+            var xhr = new XMLHttpRequest();
+            xhr.onreadystatechange = function() {
+                if (xhr.readyState !== 4 || xhr.status !== 200) return;
+                var box = document.getElementById('collector_health');
+                try {
+                    var data = JSON.parse(xhr.responseText);
+                    if (!data.success || !data.collectors) return;
+
+                    var rows = data.collectors.filter(function(c) { return c.health !== 'OK'; });
+                    if (rows.length === 0) {
+                        box.style.display = 'none';
+                        box.innerHTML = '';
+                        return;
+                    }
+
+                    var html = '';
+                    rows.forEach(function(c) {
+                        var style = HEALTH_STYLE[c.health] || HEALTH_STYLE.NEVER_RAN;
+                        html += '<div class="alert ' + style.cls + ' py-2 px-3 mb-2">'
+                              + '<i class="bi ' + style.icon + '"></i> '
+                              + '<strong>' + escapeHtml(c.collector) + '</strong> '
+                              + '<span class="badge bg-secondary">' + style.label + '</span><br>'
+                              + '<small>' + escapeHtml(c.message) + '</small>'
+                              + '</div>';
+                    });
+                    box.innerHTML = html;
+                    box.style.display = 'block';
+                } catch(e) {
+                    console.error('건강도 데이터 파싱 오류', e);
+                }
+            };
+            xhr.open('GET', '/api/collect-health', true);
+            xhr.send();
+        }
+
+        function escapeHtml(s) {
+            return String(s == null ? '' : s).replace(/[&<>"']/g, function(ch) {
+                return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[ch];
+            });
+        }
+
         // 실행 결과 요약 로드
         function loadCollectSummary() {
             var xhr = new XMLHttpRequest();
@@ -1657,6 +1713,7 @@
         // 페이지 로드 시 요약 데이터 호출
         document.addEventListener('DOMContentLoaded', function() {
             loadCollectSummary();
+            loadCollectorHealth();
         });
         </script>
 

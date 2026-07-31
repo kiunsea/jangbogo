@@ -65,6 +65,8 @@ public class JbgCollectBreakerDataAccessObject extends CommonDataAccessObject {
    * @param collector 수집기 이름
    * @param state 저장할 상태
    * @param lastSuccessTime 마지막 성공 시각. {@code 0} 이면 기존 값을 유지한다
+   * @param lastNonEmptyTime 마지막으로 실제 데이터를 받은 시각. {@code 0} 이면 기존 값을 유지한다 — 0건 수집이 이 시각을 밀어 버리면 조용한
+   *     실패를 알아챌 신호가 사라진다 (Phase 3-4)
    * @param reason 사람이 읽을 사유
    */
   public void saveState(
@@ -72,6 +74,7 @@ public class JbgCollectBreakerDataAccessObject extends CommonDataAccessObject {
       String collector,
       CollectBreakerPolicy.State state,
       long lastSuccessTime,
+      long lastNonEmptyTime,
       String reason) {
     LocalDBConnection conn = null;
     try {
@@ -80,16 +83,20 @@ public class JbgCollectBreakerDataAccessObject extends CommonDataAccessObject {
       conn.txPstmtExecuteUpdate(
           "INSERT INTO jbg_collect_breaker"
               + " (seq_mall, collector, consecutive_failures, streak_started_time,"
-              + "  last_failure_time, last_success_time, tripped_time, last_reason)"
-              + " VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+              + "  last_failure_time, last_success_time, last_nonempty_time, tripped_time,"
+              + "  last_reason)"
+              + " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
               + " ON CONFLICT(seq_mall, collector) DO UPDATE SET"
               + "  consecutive_failures = excluded.consecutive_failures,"
               + "  streak_started_time = excluded.streak_started_time,"
               + "  last_failure_time = excluded.last_failure_time,"
-              // 성공 시각은 0 을 넘기면 기존 값을 지우지 않고 유지한다.
+              // 시각 두 개는 0 을 넘기면 기존 값을 지우지 않고 유지한다.
               + "  last_success_time = CASE WHEN excluded.last_success_time > 0"
               + "                           THEN excluded.last_success_time"
               + "                           ELSE jbg_collect_breaker.last_success_time END,"
+              + "  last_nonempty_time = CASE WHEN excluded.last_nonempty_time > 0"
+              + "                            THEN excluded.last_nonempty_time"
+              + "                            ELSE jbg_collect_breaker.last_nonempty_time END,"
               + "  tripped_time = excluded.tripped_time,"
               + "  last_reason = excluded.last_reason",
           seqMall,
@@ -98,6 +105,7 @@ public class JbgCollectBreakerDataAccessObject extends CommonDataAccessObject {
           state.streakStartedTime,
           state.lastFailureTime,
           lastSuccessTime,
+          lastNonEmptyTime,
           state.trippedTime,
           reason);
       conn.txCommit();
@@ -136,6 +144,51 @@ public class JbgCollectBreakerDataAccessObject extends CommonDataAccessObject {
       }
     } catch (Exception e) {
       log.warn("트립된 수집기 조회 실패: {}", e.getMessage());
+    } finally {
+      close(conn);
+    }
+    return result;
+  }
+
+  /**
+   * 모든 수집기의 하트비트 행을 반환한다 (Phase 3-5).
+   *
+   * <p>몰의 수집 주기를 함께 붙여 준다 — 건강도 판정이 "마지막 성공 이후 주기의 N배"라 주기 없이는 판정할 수 없다.
+   *
+   * @return {@code seq_mall}, {@code mall_name}, {@code collector}, {@code
+   *     collect_interval_minutes}, {@code last_success_time}, {@code last_nonempty_time}, {@code
+   *     consecutive_failures}, {@code tripped_time}, {@code last_reason} 을 담은 JSON 목록
+   */
+  @SuppressWarnings("unchecked")
+  public List<JSONObject> getHeartbeats() {
+    List<JSONObject> result = new ArrayList<>();
+    LocalDBConnection conn = null;
+    try {
+      conn = new LocalDBConnection();
+      ResultSet rset =
+          conn.executeQuery(
+              "SELECT b.seq_mall, m.name AS mall_name, b.collector,"
+                  + " COALESCE(m.collect_interval_minutes, 0) AS collect_interval_minutes,"
+                  + " b.last_success_time, b.last_nonempty_time, b.consecutive_failures,"
+                  + " b.tripped_time, b.last_reason"
+                  + " FROM jbg_collect_breaker b"
+                  + " LEFT JOIN jbg_mall m ON m.seq = b.seq_mall"
+                  + " ORDER BY b.seq_mall, b.collector");
+      while (rset != null && rset.next()) {
+        JSONObject row = new JSONObject();
+        row.put("seq_mall", rset.getInt("seq_mall"));
+        row.put("mall_name", rset.getString("mall_name"));
+        row.put("collector", rset.getString("collector"));
+        row.put("collect_interval_minutes", rset.getInt("collect_interval_minutes"));
+        row.put("last_success_time", rset.getLong("last_success_time"));
+        row.put("last_nonempty_time", rset.getLong("last_nonempty_time"));
+        row.put("consecutive_failures", rset.getInt("consecutive_failures"));
+        row.put("tripped_time", rset.getLong("tripped_time"));
+        row.put("last_reason", rset.getString("last_reason"));
+        result.add(row);
+      }
+    } catch (Exception e) {
+      log.warn("하트비트 조회 실패: {}", e.getMessage());
     } finally {
       close(conn);
     }

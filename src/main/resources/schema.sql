@@ -73,7 +73,8 @@ CREATE TABLE IF NOT EXISTS jbg_collect_breaker (
   consecutive_failures INTEGER NOT NULL DEFAULT 0, -- 연속 실패 횟수 (성공 시 0)
   streak_started_time INTEGER DEFAULT 0, -- 현재 연속 실패가 시작된 시각 (millisecond)
   last_failure_time INTEGER DEFAULT 0, -- 마지막 실패 시각 (millisecond)
-  last_success_time INTEGER DEFAULT 0, -- 마지막 성공 시각 (millisecond)
+  last_success_time INTEGER DEFAULT 0, -- 마지막 성공 시각 (millisecond). 0건 수집도 성공에 포함
+  last_nonempty_time INTEGER DEFAULT 0, -- 마지막으로 실제 데이터를 받은 시각 (millisecond)
   tripped_time INTEGER DEFAULT 0, -- 브레이커가 열린 시각 (0이면 닫힘)
   last_reason TEXT, -- 마지막 판정 사유 (사람이 읽는 용도)
   PRIMARY KEY (seq_mall, collector)

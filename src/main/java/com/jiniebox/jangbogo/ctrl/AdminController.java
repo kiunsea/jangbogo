@@ -2,7 +2,9 @@ package com.jiniebox.jangbogo.ctrl;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.jiniebox.jangbogo.dao.JbgCollectBreakerDataAccessObject;
 import com.jiniebox.jangbogo.dao.JbgCollectLogDataAccessObject;
 import com.jiniebox.jangbogo.dao.JbgItemDataAccessObject;
 import com.jiniebox.jangbogo.dao.JbgMallDataAccessObject;
@@ -10,6 +12,7 @@ import com.jiniebox.jangbogo.dao.JbgOrderDataAccessObject;
 import com.jiniebox.jangbogo.dto.JangbogoConfig;
 import com.jiniebox.jangbogo.svc.JangBoGoManager;
 import com.jiniebox.jangbogo.svc.MallAccountYmlService;
+import com.jiniebox.jangbogo.svc.util.CollectHealthPolicy;
 import com.jiniebox.jangbogo.sys.EnvSYS;
 import com.jiniebox.jangbogo.sys.SessionConstants;
 import com.jiniebox.jangbogo.util.StringEncrypter;
@@ -1550,6 +1553,71 @@ public class AdminController {
   // ========================================================================
   // 수집 실행 로그 API
   // ========================================================================
+
+  /**
+   * 수집기 건강도 조회 GET /api/collect-health (Phase 3-5)
+   *
+   * <p>수집기마다 마지막 성공·마지막 실제 데이터·브레이커 상태를 판정해 돌려준다. 대시보드가 "조용히 멈춘" 수집기를 드러내는 데 쓴다.
+   */
+  @GetMapping("/api/collect-health")
+  @ResponseBody
+  public JsonNode getCollectHealth() {
+    ObjectMapper objectMapper = new ObjectMapper();
+    ObjectNode response = objectMapper.createObjectNode();
+    try {
+      JbgCollectBreakerDataAccessObject breakerDao = new JbgCollectBreakerDataAccessObject();
+      List<org.json.simple.JSONObject> beats = breakerDao.getHeartbeats();
+
+      long now = System.currentTimeMillis();
+      ArrayNode items = objectMapper.createArrayNode();
+      int attention = 0;
+
+      for (org.json.simple.JSONObject beat : beats) {
+        long lastSuccess = asLong(beat.get("last_success_time"));
+        long lastNonEmpty = asLong(beat.get("last_nonempty_time"));
+        long tripped = asLong(beat.get("tripped_time"));
+        int interval = (int) asLong(beat.get("collect_interval_minutes"));
+
+        CollectHealthPolicy.Verdict verdict =
+            CollectHealthPolicy.judge(lastSuccess, lastNonEmpty, tripped > 0, interval, now);
+        if (verdict.needsAttention()) {
+          attention++;
+        }
+
+        ObjectNode node = objectMapper.createObjectNode();
+        node.put("seqMall", (int) asLong(beat.get("seq_mall")));
+        node.put("mallName", beat.get("mall_name") != null ? beat.get("mall_name").toString() : "");
+        node.put(
+            "collector", beat.get("collector") != null ? beat.get("collector").toString() : "");
+        node.put("health", verdict.health.name());
+        node.put("message", verdict.message);
+        node.put("lastSuccessTime", lastSuccess);
+        node.put("lastNonEmptyTime", lastNonEmpty);
+        node.put("consecutiveFailures", (int) asLong(beat.get("consecutive_failures")));
+        node.put("trippedTime", tripped);
+        items.add(node);
+      }
+
+      response.put("success", true);
+      response.put("attentionCount", attention);
+      response.set("collectors", items);
+    } catch (Exception e) {
+      response.put("success", false);
+      response.put("message", "건강도 조회 실패: " + e.getMessage());
+    }
+    return response;
+  }
+
+  private static long asLong(Object value) {
+    if (value instanceof Number) {
+      return ((Number) value).longValue();
+    }
+    try {
+      return value != null ? Long.parseLong(value.toString()) : 0L;
+    } catch (NumberFormatException e) {
+      return 0L;
+    }
+  }
 
   /** 수집 실행 결과 요약 조회 GET /api/collect-logs/summary */
   @GetMapping("/api/collect-logs/summary")
