@@ -1,6 +1,7 @@
 package com.jiniebox.jangbogo.svc.util;
 
 import com.jiniebox.jangbogo.dto.JangbogoConfig;
+import java.time.Duration;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.openqa.selenium.Capabilities;
@@ -16,6 +17,12 @@ public class WebDriverManager {
 
   public static String BROWSER_NAME_CHROME = "chrome";
   public static String BROWSER_NAME_EDGE = "edge";
+
+  /** 페이지 로드 타임아웃 기본값(초). Selenium 기본값 300초는 너무 길다 — B-2 참조. */
+  public static final int DEFAULT_PAGE_LOAD_TIMEOUT_SECONDS = 60;
+
+  /** 페이지 로드 타임아웃 재정의 시스템 프로퍼티. */
+  public static final String PAGE_LOAD_TIMEOUT_PROPERTY = "jangbogo.browser.page-load-timeout-sec";
 
   // 여기 있던 CHROME_DRIVER_ID / CHROME_DRIVER_PATH / CHROME_BINARY_PATH /
   // EDGE_DRIVER_ID / EDGE_DRIVER_PATH 5개 필드는 제거했다 (Phase 3-11).
@@ -92,7 +99,33 @@ public class WebDriverManager {
     if (headless) {
       options.addArguments("--headless=new"); // 크롬 브라우저를 화면에 출력하지 않고 실행한다
     }
+
+    // 페이지 로드 타임아웃을 명시한다 (B-2).
+    //
+    // 설정한 적이 없어 Selenium 기본값 300초가 그대로 적용되고 있었다. 실측 사례:
+    // Emart 트레이더스 영수증 페이지가 응답하지 않자 수집 한 회차가 약 6분(준비 45초 + 300초)을
+    // 통째로 붙잡혔다. capabilities 덤프에 timeouts={implicit:0, pageLoad:300000, script:30000} 로
+    // 찍혀 있었다.
+    //
+    // 60초면 정상 페이지에 넉넉하고, 죽은 페이지는 6분이 아니라 1분 안에 드러난다. 느린 회선을
+    // 만나면 시스템 프로퍼티로 올릴 수 있다.
+    options.setPageLoadTimeout(Duration.ofSeconds(pageLoadTimeoutSeconds()));
+
     return options;
+  }
+
+  /** 페이지 로드 타임아웃(초). {@value #PAGE_LOAD_TIMEOUT_PROPERTY} 로 덮어쓸 수 있다. */
+  static int pageLoadTimeoutSeconds() {
+    String raw = System.getProperty(PAGE_LOAD_TIMEOUT_PROPERTY);
+    if (raw == null || raw.isBlank()) {
+      return DEFAULT_PAGE_LOAD_TIMEOUT_SECONDS;
+    }
+    try {
+      int parsed = Integer.parseInt(raw.trim());
+      return parsed > 0 ? parsed : DEFAULT_PAGE_LOAD_TIMEOUT_SECONDS;
+    } catch (NumberFormatException e) {
+      return DEFAULT_PAGE_LOAD_TIMEOUT_SECONDS;
+    }
   }
 
   /**

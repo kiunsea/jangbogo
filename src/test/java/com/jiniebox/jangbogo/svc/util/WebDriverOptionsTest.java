@@ -2,6 +2,7 @@ package com.jiniebox.jangbogo.svc.util;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
@@ -68,6 +69,53 @@ class WebDriverOptionsTest {
   @DisplayName("브라우저 이름은 chrome 이다")
   void targetsChrome() {
     assertEquals("chrome", manager.buildChromeOptions(false).getBrowserName());
+  }
+
+  @Test
+  @DisplayName("페이지 로드 타임아웃을 명시한다 — Selenium 기본값 300초를 쓰지 않는다")
+  void pinsPageLoadTimeout() {
+    // 실측: Emart 트레이더스 페이지가 응답하지 않아 수집 한 회차가 약 6분 붙잡혔다.
+    // capabilities 에 timeouts={pageLoad:300000} 으로 찍혀 있었다 — 설정한 적이 없어서다.
+    @SuppressWarnings("unchecked")
+    Map<String, Object> timeouts =
+        (Map<String, Object>) manager.buildChromeOptions(false).asMap().get("timeouts");
+
+    assertNotNull(timeouts, "timeouts capability 가 없다 — 기본값 300초가 그대로 적용된다.");
+    long pageLoadMs = ((Number) timeouts.get("pageLoad")).longValue();
+
+    assertEquals(
+        WebDriverManager.DEFAULT_PAGE_LOAD_TIMEOUT_SECONDS * 1000L,
+        pageLoadMs,
+        "기본 페이지 로드 타임아웃이 60초가 아니다.");
+    assertTrue(pageLoadMs < 300_000L, "Selenium 기본값(300초)보다 짧아야 한다.");
+  }
+
+  @Test
+  @DisplayName("타임아웃은 시스템 프로퍼티로 올릴 수 있다")
+  void pageLoadTimeoutIsOverridable() {
+    String previous = System.getProperty(WebDriverManager.PAGE_LOAD_TIMEOUT_PROPERTY);
+    try {
+      // 느린 회선을 만나면 늘릴 수 있어야 한다. 안전장치라 화면에는 노출하지 않는다.
+      System.setProperty(WebDriverManager.PAGE_LOAD_TIMEOUT_PROPERTY, "120");
+      assertEquals(120, WebDriverManager.pageLoadTimeoutSeconds());
+
+      System.setProperty(WebDriverManager.PAGE_LOAD_TIMEOUT_PROPERTY, "0");
+      assertEquals(
+          WebDriverManager.DEFAULT_PAGE_LOAD_TIMEOUT_SECONDS,
+          WebDriverManager.pageLoadTimeoutSeconds(),
+          "0 이하는 무시하고 기본값을 쓴다.");
+
+      System.setProperty(WebDriverManager.PAGE_LOAD_TIMEOUT_PROPERTY, "이상한값");
+      assertEquals(
+          WebDriverManager.DEFAULT_PAGE_LOAD_TIMEOUT_SECONDS,
+          WebDriverManager.pageLoadTimeoutSeconds());
+    } finally {
+      if (previous == null) {
+        System.clearProperty(WebDriverManager.PAGE_LOAD_TIMEOUT_PROPERTY);
+      } else {
+        System.setProperty(WebDriverManager.PAGE_LOAD_TIMEOUT_PROPERTY, previous);
+      }
+    }
   }
 
   @Test

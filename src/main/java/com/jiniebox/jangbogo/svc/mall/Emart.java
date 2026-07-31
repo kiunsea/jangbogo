@@ -4,6 +4,7 @@ import com.jiniebox.jangbogo.svc.ifc.MallSession;
 import com.jiniebox.jangbogo.svc.ifc.ReceiptCollector;
 import com.jiniebox.jangbogo.svc.util.ClickUtil;
 import com.jiniebox.jangbogo.svc.util.CollectStep;
+import com.jiniebox.jangbogo.svc.util.ErrorSummary;
 import com.jiniebox.jangbogo.svc.util.WebDriverManager;
 import com.jiniebox.jangbogo.util.NumberUtil;
 import java.util.ArrayList;
@@ -161,6 +162,9 @@ public class Emart extends MallSession implements ReceiptCollector {
     alert.accept(); // 확인 버튼 클릭
   }
 
+  /** 모바일 영수증 페이지. {@code jornalGbn} 이 E 면 이마트, T 면 트레이더스다. */
+  private static final String JOURNAL_URL = "https://eapp.emart.com/myemart/jornalV3.do?jornalGbn=";
+
   @Override
   public JSONArray navigateReceipt(WebDriver driver) {
 
@@ -170,17 +174,53 @@ public class Emart extends MallSession implements ReceiptCollector {
     JavascriptExecutor js = (JavascriptExecutor) driver;
     this.delayTime(2000);
 
-    // 이마트 모바일 영수증
-    driver.navigate().to("https://eapp.emart.com/myemart/jornalV3.do?jornalGbn=E");
-    this.delayTime(2000);
-    resJsonArr.addAll(this.inspectReceipts(driver, mainWindowHandle, js));
+    // 두 영수증 원본은 서로 독립적이다. 한쪽이 죽어도 다른 쪽 결과는 살린다 (B-2).
+    //
+    // 이전에는 두 호출이 한 줄로 이어져 있어서, 트레이더스 페이지가 응답하지 않으면 그 예외가
+    // 그대로 올라가며 <b>이미 모아 둔 이마트 결과가 통째로 버려졌다.</b> resJsonArr 이 반환되지
+    // 못하기 때문이다. MallOrderUpdater 가 SSG·Emart 사이에 이미 적용해 둔 부분 실패 격리가
+    // 이 한 겹 아래에는 없었다.
+    List<RuntimeException> failures = new ArrayList<>();
+    resJsonArr.addAll(collectJournal(driver, mainWindowHandle, js, "E", "이마트", failures));
+    resJsonArr.addAll(collectJournal(driver, mainWindowHandle, js, "T", "트레이더스", failures));
 
-    // 트레이더스 모바일 영수증
-    driver.navigate().to("https://eapp.emart.com/myemart/jornalV3.do?jornalGbn=T");
-    this.delayTime(2000);
-    resJsonArr.addAll(this.inspectReceipts(driver, mainWindowHandle, js));
+    // 둘 다 실패했을 때만 이번 수집을 실패로 올린다. 한쪽이라도 건졌으면 그건 결과다.
+    if (failures.size() == 2) {
+      throw failures.get(0);
+    }
 
     return resJsonArr;
+  }
+
+  /**
+   * 영수증 원본 하나(이마트 또는 트레이더스)를 수집한다. 실패해도 예외를 전파하지 않고 {@code failures} 에 쌓는다.
+   *
+   * <p>실패를 삼키는 것이 아니다 — 호출측이 둘 다 실패했는지 보고 판단하며, 부분 실패는 로그에 남는다.
+   *
+   * @param gbn {@code jornalGbn} 값 (E / T)
+   * @param label 로그용 이름
+   * @param failures 실패 누적 목록
+   * @return 수집 결과 (실패 시 빈 배열)
+   */
+  private JSONArray collectJournal(
+      WebDriver driver,
+      String mainWindowHandle,
+      JavascriptExecutor js,
+      String gbn,
+      String label,
+      List<RuntimeException> failures) {
+    try {
+      driver.navigate().to(JOURNAL_URL + gbn);
+      this.delayTime(2000);
+      return this.inspectReceipts(driver, mainWindowHandle, js);
+    } catch (Exception e) {
+      logger.error("{} 영수증 수집 실패 (다른 쪽은 계속 진행) - 원인: {}", label, ErrorSummary.summarize(e));
+      failures.add(
+          e instanceof RuntimeException re
+              ? re
+              : new IllegalStateException(label + " 영수증 수집 실패", e));
+      return new JSONArray();
+    }
   }
 
   /**
