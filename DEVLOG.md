@@ -10,6 +10,55 @@
 
 ## 주요 변경사항
 
+### [2026-07-31 16:00] 미결 3 종결 — session_profile_* 컬럼 ALTER 시점
+
+#### 작업 개요
+
+**코드 변경 없음.** 이미 결정된 사항을 한 곳에 모아 닫는 기록이다. Phase 5 착수 시 같은 질문을 다시 하지 않기 위해서다.
+
+#### 왜 코드 작업이 없나
+
+미결 3 은 "`jbg_mall` 의 `session_profile_*` 5개 컬럼 ALTER 시점 (SQLite 특성상 편도)"였다. 착수 전에 확인해 보니 구성요소 셋이 전부 이미 결정돼 있었다.
+
+| 구성요소 | 상태 |
+|---|---|
+| 컬럼명 | **확정** — 새 질문 1 에서 `session_profile_enabled` / `_name` / `_status` / `_last_login` / `_owner` 채택 |
+| "편도" 전제 | **틀렸음이 확인됨** (아래) |
+| ALTER 시점 | **결정됨** — 차단 질문 해소 라운드의 결정 4: "3-10 통합만 먼저, 컬럼은 Phase 5" |
+
+`grep session_profile` 결과 코드·스키마 어디에도 없다. 지금 컬럼을 넣는 것은 **결정 4를 뒤집는 일**이고, 그 결정 이후 새로 바뀐 사실이 없다(3-10 완료는 결정 당시 이미 전제였다). 사용자 확인을 거쳐 **해소로 닫는다.**
+
+#### 전제 정정 — "SQLite 특성상 편도"는 낡았다
+
+이 문구가 미결 3 을 오래 붙잡아 둔 원인이다. `ALTER TABLE ... DROP COLUMN` 은 **SQLite 3.35.0(2021)부터 지원**되고, `sqlite-jdbc 3.45.3.0` 이 싣고 있는 엔진은 **3.45.3** 이다.
+
+임시 DB 로 실측했다 — plain nullable 컬럼을 ADD 한 뒤 DROP 했고 기존 행이 보존됐다. **인덱스·PK·UNIQUE 를 걸지 않는 한 되돌릴 수 있다.**
+
+그래서 이 결정은 원래 생각했던 것만큼 무겁지 않다. 잘못 넣어도, 늦게 넣어도 복구된다.
+
+#### Phase 5 착수 시 해야 할 일 — 5줄
+
+3-10 통합 덕분에 남은 작업이 이것뿐이다.
+
+```sql
+-- schema.sql 의 jbg_mall 에 추가
+session_profile_enabled INTEGER DEFAULT 0,
+session_profile_name TEXT,
+session_profile_status TEXT,
+session_profile_last_login INTEGER DEFAULT 0,
+session_profile_owner TEXT,
+```
+
+`SchemaMigrator` 가 `schema.sql` 을 읽어 기존 DB 에도 자동 반영한다. 자바 코드에 컬럼 목록을 따로 적을 필요가 없고, `addableByAlter()` 가 위 다섯을 전부 안전한 컬럼으로 판정한다(PK·UNIQUE·기본값 없는 NOT NULL 이 아니다).
+
+DAO 접근자(`ensureSessionProfileColumns` 같은 것)는 **만들지 않는다.** 그 패턴이 3-10 에서 걷어낸 부채다.
+
+#### 남은 미결
+
+1(release.yml jlink AGPL)과 4(문서 커밋 / PUBLIC↔PRIVATE) 둘이다. 2와 3은 해소됐다.
+
+---
+
 ### [2026-07-31 15:20] 판단 대기 10 — 내보내기·전송 시각 기록 (v0.13.2)
 
 #### 작업 개요
