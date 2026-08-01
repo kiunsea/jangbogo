@@ -38,6 +38,7 @@ class ServiceDescriptorTest {
   private static final Path SERVICE_XML = Path.of("packaging/winsw/jangbogo-service.xml");
   private static final Path SERVICE_README = Path.of("packaging/winsw/README.md");
   private static final Path INSTALL_BAT = Path.of("packaging/distribution/install.bat");
+  private static final Path CLEAN_BUILD_BAT = Path.of("bat/clean_build.bat");
 
   /** 예: jangbogo-0.8.1.jar — 버전이 박힌 JAR 참조. */
   private static final Pattern VERSIONED_JAR =
@@ -118,6 +119,23 @@ class ServiceDescriptorTest {
     assertTrue(
         bat.contains("jangbogo-*.jar"),
         "install.bat 이 폴더의 실제 JAR 을 탐지하지 않는다 (dir /b /o:-d jangbogo-*.jar).");
+  }
+
+  @Test
+  @DisplayName("clean_build.bat 은 버전이 박힌 JAR 이름 대신 와일드카드로 산출물을 찾는다")
+  void cleanBuildBatDetectsTheJarInsteadOfPinningAVersion() throws Exception {
+    // 이 파일은 packageDist 를 거치지 않고 저장소에서 직접 실행된다. 토큰 치환(3-8 방식)은
+    // '복사하는 빌드 단계'가 있어야 성립하므로 여기서는 쓸 수 없다 — install.bat 과 같은
+    // 실행 시점 와일드카드 탐지가 맞다. 실제로 0.5.0 참조가 8개 버전 동안 방치돼 있었다.
+    String bat = read(CLEAN_BUILD_BAT);
+
+    Matcher m = VERSIONED_JAR.matcher(bat);
+    assertFalse(
+        m.find(),
+        "clean_build.bat 에 버전이 박힌 JAR 참조가 있다: "
+            + (m.reset().find() ? m.group() : "")
+            + " — 버전의 단일 출처는 build.gradle 의 version 하나뿐이다.");
+    assertTrue(bat.contains("jangbogo-*.jar"), "clean_build.bat 이 빌드 산출물을 와일드카드로 탐지하지 않는다.");
   }
 
   @Test

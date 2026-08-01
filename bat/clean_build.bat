@@ -48,16 +48,19 @@ echo ========================================================
 echo   클린 빌드 완료!
 echo ========================================================
 echo.
+REM 버전을 적지 않는다 — 버전의 단일 출처는 build.gradle 의 version 하나다.
+REM 실제 산출물은 실행 시점에 와일드카드로 찾는다 (install.bat 과 같은 방식).
+REM plain JAR 은 build.gradle 에서 꺼져 있어 bootJar 산출물 하나만 잡힌다.
 echo 생성된 파일:
-echo   - build\libs\jangbogo-0.5.0.jar
-echo.
-
-if exist "build\libs\jangbogo-0.5.0.jar" (
-    for %%A in ("build\libs\jangbogo-0.5.0.jar") do (
-        set size=%%~zA
-        set /a sizeMB=!size! / 1048576
-        echo   - JAR 크기: !sizeMB! MB
-    )
+set JAR_FOUND=0
+for %%A in ("build\libs\jangbogo-*.jar") do (
+    set JAR_FOUND=1
+    set size=%%~zA
+    set /a sizeMB=!size! / 1048576
+    echo   - %%A ^(!sizeMB! MB^)
+)
+if !JAR_FOUND! EQU 0 (
+    echo   [경고] build\libs\ 에 jangbogo-*.jar 가 없습니다.
 )
 
 echo.

@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.13.6] - 2026-08-01
+
+앱 기동 없이 되는 잔여 정리 2건. 브라우저·네트워크·DB 를 쓰지 않는 단위테스트 4건 추가 (총 210건).
+
+### Fixed
+
+- **Edge 분기에 페이지 로드 타임아웃이 없던 문제**: v0.13.4(B-2)가 Chrome 분기만 60초로 낮추고, Edge 분기는 `new EdgeDriver()` 로 옵션 없이 기동되어 Selenium 기본값 **300초**가 그대로 남아 있었습니다. Edge 도 같은 기본값(60초)·같은 재정의 프로퍼티(`jangbogo.browser.page-load-timeout-sec`)를 따릅니다.
+- **`bat\clean_build.bat` 이 `jangbogo-0.5.0.jar` 를 참조하던 문제**: 8개 버전 동안 방치된 드리프트였습니다. 이 파일은 `packageDist` 를 거치지 않고 저장소에서 직접 실행되므로 토큰 치환(3-8 방식)이 성립하지 않아, `install.bat` 과 같은 **실행 시점 와일드카드 탐지**(`jangbogo-*.jar`)로 고쳤습니다. 산출물이 없으면 이제 경고를 냅니다.
+
+### Added (테스트)
+
+- `WebDriverOptionsTest` 3건: Edge 타임아웃 명시, 재정의 프로퍼티 공유, 브라우저 이름.
+- `ServiceDescriptorTest` 1건: `clean_build.bat` 의 버전 드리프트 감시(버전 박힌 JAR 참조 금지 + 와일드카드 탐지 확인).
+
+### Notes
+
+- Edge 타임아웃 부재는 doribox 측에도 적용 검토 대상으로 전파됨(대장 P3-1).
+
+---
+
 ## [0.13.5] - 2026-08-01
 
 영수증 바코드 미인식(17건 중 2건, 12%)의 원인 세 가지를 고친 릴리스. (판단 대기 B-3)

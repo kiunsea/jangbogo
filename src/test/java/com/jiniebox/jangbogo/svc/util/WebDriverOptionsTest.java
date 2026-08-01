@@ -119,6 +119,54 @@ class WebDriverOptionsTest {
   }
 
   @Test
+  @DisplayName("Edge 도 페이지 로드 타임아웃을 명시한다 — Chrome 만 낮추고 Edge 를 300초로 두지 않는다")
+  void pinsPageLoadTimeoutForEdgeToo() {
+    // Chrome 분기만 60초로 낮추면 Edge 분기는 Selenium 기본값 300초가 그대로 남는다.
+    // 두 분기의 타임아웃은 같은 상수·같은 재정의 프로퍼티를 공유해야 한다.
+    @SuppressWarnings("unchecked")
+    Map<String, Object> timeouts =
+        (Map<String, Object>) manager.buildEdgeOptions().asMap().get("timeouts");
+
+    assertNotNull(timeouts, "Edge 에 timeouts capability 가 없다 — 기본값 300초가 그대로 적용된다.");
+    long pageLoadMs = ((Number) timeouts.get("pageLoad")).longValue();
+
+    assertEquals(
+        WebDriverManager.DEFAULT_PAGE_LOAD_TIMEOUT_SECONDS * 1000L,
+        pageLoadMs,
+        "Edge 의 기본 페이지 로드 타임아웃이 Chrome 과 다르다.");
+  }
+
+  @Test
+  @DisplayName("Edge 타임아웃도 같은 시스템 프로퍼티를 따른다")
+  void edgePageLoadTimeoutFollowsTheSameProperty() {
+    String previous = System.getProperty(WebDriverManager.PAGE_LOAD_TIMEOUT_PROPERTY);
+    try {
+      System.setProperty(WebDriverManager.PAGE_LOAD_TIMEOUT_PROPERTY, "90");
+
+      @SuppressWarnings("unchecked")
+      Map<String, Object> timeouts =
+          (Map<String, Object>) manager.buildEdgeOptions().asMap().get("timeouts");
+
+      assertEquals(
+          90_000L,
+          ((Number) timeouts.get("pageLoad")).longValue(),
+          "Chrome 용 재정의 프로퍼티가 Edge 에는 적용되지 않는다 — 두 분기가 갈라졌다.");
+    } finally {
+      if (previous == null) {
+        System.clearProperty(WebDriverManager.PAGE_LOAD_TIMEOUT_PROPERTY);
+      } else {
+        System.setProperty(WebDriverManager.PAGE_LOAD_TIMEOUT_PROPERTY, previous);
+      }
+    }
+  }
+
+  @Test
+  @DisplayName("Edge 옵션의 브라우저 이름은 MicrosoftEdge 다")
+  void edgeOptionsTargetEdge() {
+    assertEquals("MicrosoftEdge", manager.buildEdgeOptions().getBrowserName());
+  }
+
+  @Test
   @DisplayName("드라이버 경로는 Selenium 표준 프로퍼티로 지정한다")
   void driverPathIsGivenByTheStandardSeleniumProperty() {
     // Phase 3-11 에서 지운 CHROME_DRIVER_PATH 필드가 없어도 잃는 것이 없다는 근거.

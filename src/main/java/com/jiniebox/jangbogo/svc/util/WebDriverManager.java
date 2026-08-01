@@ -9,6 +9,7 @@ import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.chrome.ChromeDriver;
 import org.openqa.selenium.chrome.ChromeOptions;
 import org.openqa.selenium.edge.EdgeDriver;
+import org.openqa.selenium.edge.EdgeOptions;
 import org.openqa.selenium.remote.RemoteWebDriver;
 
 public class WebDriverManager {
@@ -76,7 +77,8 @@ public class WebDriverManager {
       log.info("ChromeDriver 기동 (headless={})", headless);
       driver = new ChromeDriver(options);
     } else if (this.BROWSER_NAME_EDGE.equals(browserName)) {
-      driver = new EdgeDriver();
+      log.info("EdgeDriver 기동");
+      driver = new EdgeDriver(buildEdgeOptions());
     }
 
     return driver;
@@ -111,6 +113,23 @@ public class WebDriverManager {
     // 만나면 시스템 프로퍼티로 올릴 수 있다.
     options.setPageLoadTimeout(Duration.ofSeconds(pageLoadTimeoutSeconds()));
 
+    return options;
+  }
+
+  /**
+   * EdgeDriver 에 넘길 옵션을 조립한다.
+   *
+   * <p>Edge 분기는 페이지 로드 타임아웃 없이 기동되고 있었다 — Chrome 만 60초로 낮추고 Edge 는 Selenium 기본값 300초가 그대로 남아, 죽은
+   * 페이지를 만나면 Edge 수집만 6분씩 붙잡히는 비대칭이 있었다(B-2 와 같은 결). 타임아웃 값과 재정의 프로퍼티는 Chrome 과 공유한다.
+   *
+   * <p>headless·user-agent 는 넣지 않는다 — Edge 분기는 설정 {@code DEFAULT_WEB_DRIVER=edge} 일 때만 타는 예비 경로로, 그
+   * 두 옵션을 읽어 온 적이 없다. 필요해지면 Chrome 과 같은 방식으로 배선한다.
+   *
+   * @return 조립된 EdgeOptions
+   */
+  EdgeOptions buildEdgeOptions() {
+    EdgeOptions options = new EdgeOptions();
+    options.setPageLoadTimeout(Duration.ofSeconds(pageLoadTimeoutSeconds()));
     return options;
   }
 
