@@ -109,6 +109,120 @@ class EmartBarcodeProbeTest {
     assertFalse(Emart.describeBarcodeContainer(true, "   ", "td", List.of(), 0).contains("class="));
   }
 
+  // ---------------------------------------------------------------
+  // 2차 프로브 — 대체 컨테이너 탐색과 본문 날짜 추출 가능성 (B-3 후속)
+  // ---------------------------------------------------------------
+
+  @Test
+  @DisplayName("팝업 구조는 태그 집계와 id 목록을 함께 준다")
+  void describesPopupStructure() {
+    String summary =
+        Emart.describePopupStructure(
+            Arrays.asList("DIV", "SPAN", "DIV", "PRE"), Arrays.asList("receiptArea", "printBtn"));
+
+    assertTrue(summary.contains("태그 4개"), summary);
+    assertTrue(summary.contains("div=2"), summary);
+    assertTrue(summary.contains("id 2종"), summary);
+    assertTrue(summary.contains("printBtn"), summary);
+    assertTrue(summary.contains("receiptArea"), summary);
+  }
+
+  @Test
+  @DisplayName("id 의 숫자는 가린다 — 주문번호가 섞여 있을 수 있다")
+  void masksDigitsInsideIds() {
+    String summary =
+        Emart.describePopupStructure(
+            List.of("DIV"), Arrays.asList("order_20991231123", "barcode1"));
+
+    assertFalse(summary.contains("20991231"), "id 에 박힌 주문번호가 그대로 남았다: " + summary);
+    assertTrue(summary.contains("order_NNNNNNNNNNN"), summary);
+    assertTrue(summary.contains("barcodeN"), summary);
+  }
+
+  @Test
+  @DisplayName("같은 형태의 id 는 한 종으로 묶는다")
+  void collapsesIdsThatDifferOnlyByDigits() {
+    // 반복 렌더링되는 행 id(item_1, item_2, …)가 목록을 가득 채우면 정작 볼 것이 밀린다.
+    String summary =
+        Emart.describePopupStructure(
+            List.of("DIV"), Arrays.asList("item_1", "item_2", "item_3", "barcodeTargetRec"));
+
+    assertTrue(summary.contains("id 2종"), summary);
+    assertTrue(summary.contains("barcodeTargetRec"), summary);
+  }
+
+  @Test
+  @DisplayName("id 가 너무 많으면 잘라내고 말줄임을 붙인다")
+  void truncatesLongIdLists() {
+    // 숫자를 쓰지 않는다 — 마스킹이 서로 다른 id 를 한 종으로 합쳐 버리면 상한에 닿지 않는다.
+    List<String> many = new java.util.ArrayList<>();
+    for (int i = 0; i < Emart.ID_SAMPLE_LIMIT + 5; i++) {
+      many.add("box" + (char) ('a' + i / 26) + (char) ('a' + i % 26));
+    }
+    String summary = Emart.describePopupStructure(List.of("DIV"), many);
+
+    assertTrue(summary.contains("id 45종"), "마스킹이 id 를 합쳐 버렸다: " + summary);
+    assertTrue(summary.endsWith("…]"), "상한을 넘겼는데 말줄임이 없다: " + summary);
+  }
+
+  @Test
+  @DisplayName("본문이 비면 그 사실만 남긴다")
+  void reportsMissingBody() {
+    assertEquals("본문 없음", Emart.describeReceiptDatePatterns(null));
+    assertEquals("본문 없음", Emart.describeReceiptDatePatterns(""));
+  }
+
+  @Test
+  @DisplayName("본문의 날짜는 형식과 위치만 보고한다 — 값은 싣지 않는다")
+  void reportsDateFormatWithoutTheValue() {
+    // 이 판정이 이 프로브의 존재 이유다. 본문에서 구매일시를 뽑을 수 있으면
+    // serial·datetime 을 바코드에 의존하지 않아도 되고, 결함이 해결된다.
+    String body = String.join("\n", "이마트 테스트점", "거래일시: 2099-12-31 14:32", "테스트상품가 1,000 2 2,000");
+
+    String summary = Emart.describeReceiptDatePatterns(body);
+
+    assertTrue(summary.contains("줄수=3"), summary);
+    assertTrue(summary.contains("YYYY-MM-DD=1(줄2)"), summary);
+    assertTrue(summary.contains("HH:MM=1(줄2)"), summary);
+    assertFalse(summary.contains("2099-12-31"), "날짜 값이 그대로 실렸다: " + summary);
+    assertFalse(summary.contains("14:32"), "시각 값이 그대로 실렸다: " + summary);
+    assertFalse(summary.contains("테스트상품가"), "본문 내용이 실렸다: " + summary);
+    assertFalse(summary.contains("거래일시"), "본문 라벨이 실렸다: " + summary);
+  }
+
+  @Test
+  @DisplayName("날짜가 없으면 전부 0 으로 보고한다")
+  void reportsZeroWhenNoDateIsPresent() {
+    String summary = Emart.describeReceiptDatePatterns("상 품 명 단 가 수량 금 액\n합계 5,500");
+
+    assertTrue(summary.contains("YYYY-MM-DD=0"), summary);
+    assertTrue(summary.contains("8연속숫자=0"), summary);
+    assertFalse(summary.contains("(줄"), "매치가 없는데 위치가 붙었다: " + summary);
+  }
+
+  @Test
+  @DisplayName("금액의 자릿수를 8연속숫자로 오인하지 않는다")
+  void doesNotMistakeAmountsForDates() {
+    // 1,000 처럼 쉼표가 있는 금액은 연속 8자리가 아니다. 쉼표 없는 큰 수만 걸린다.
+    String summary = Emart.describeReceiptDatePatterns("합 계 1,234,567\n포인트 12345");
+
+    assertTrue(summary.contains("8연속숫자=0"), summary);
+  }
+
+  @Test
+  @DisplayName("여러 형식이 섞여 있으면 각각 세고 첫 위치를 준다")
+  void countsEachFormatSeparately() {
+    String body =
+        String.join("\n", "머리말", "2099/12/31", "유효 2099년 8월 24일 까지", "20991231001234567890");
+
+    String summary = Emart.describeReceiptDatePatterns(body);
+
+    assertTrue(summary.contains("YYYY/MM/DD=1(줄2)"), summary);
+    assertTrue(summary.contains("YYYY년MM월DD일=1(줄3)"), summary);
+    // 20자리 연속 숫자는 8자리 경계 조건에 걸리지 않는다 — 바코드를 날짜로 오인하지 않는다
+    assertTrue(summary.contains("8연속숫자=0"), summary);
+  }
+
   @Test
   @DisplayName("요약에는 구매 정보가 섞이지 않는다 — 텍스트 내용을 받지 않는다")
   void neverCarriesReceiptContent() {

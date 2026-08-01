@@ -321,6 +321,14 @@ public class Emart extends MallSession implements ReceiptCollector {
                       divElements.size(),
                       structureAtRead,
                       structureAfterWait);
+
+                  // 2차 프로브: #barcodeTargetRec 이 없다는 것까지는 확정됐으므로, 이제
+                  // (1) 그 자리에 대신 무엇이 있는지 (2) 본문에서 날짜를 얻을 수 있는지를 본다.
+                  // (2)가 되면 바코드에 의존하지 않고 serial·datetime 을 만들 수 있어 결함이 해결된다.
+                  logger.warn(
+                      "  └ 팝업 구조: {} | 본문 날짜 패턴: {}",
+                      probePopupStructure(driver),
+                      describeReceiptDatePatterns(receiptDetail));
                 }
                 detailJo.put("mallname", mallName);
 
@@ -457,6 +465,144 @@ public class Emart extends MallSession implements ReceiptCollector {
     }
 
     sb.append(", 텍스트 ").append(textLength < 0 ? "읽기 실패" : textLength + "자");
+    return sb.toString();
+  }
+
+  /** 요약에 싣는 id 개수 상한. 넘으면 잘라내고 말줄임을 붙인다. */
+  static final int ID_SAMPLE_LIMIT = 40;
+
+  /**
+   * 영수증 팝업 전체의 구조를 뜬다 (B-3 후속 2차 프로브).
+   *
+   * <p>{@code #barcodeTargetRec} 이 없다는 것은 확정됐다. 그렇다면 <b>그 자리에 대신 무엇이 있는가</b>가 다음 질문이고, 답은 문서에 실제로
+   * 존재하는 id 목록에 있다. 대체 컨테이너를 찾으면 셀렉터를 고칠 수 있다.
+   *
+   * <p>요소마다 왕복하면 수백 번이 되므로 JS 한 번으로 모은다. 실패해도 예외를 내보내지 않는다.
+   *
+   * @param driver 영수증 팝업으로 switch 된 드라이버
+   * @return 한 줄 요약
+   */
+  private static String probePopupStructure(WebDriver driver) {
+    try {
+      Object raw =
+          ((JavascriptExecutor) driver)
+              .executeScript(
+                  "var els=document.body.getElementsByTagName('*');var t=[],i=[];"
+                      + "for(var k=0;k<els.length;k++){t.push(els[k].tagName);"
+                      + "if(els[k].id){i.push(els[k].id);}}"
+                      + "return t.join(',')+'|'+i.join(',');");
+      // 구분자는 '|' — 태그명과 id 에는 나타나지 않는다
+      String[] parts = String.valueOf(raw).split("\\|", -1);
+      return describePopupStructure(
+          splitCsv(parts.length > 0 ? parts[0] : ""), splitCsv(parts.length > 1 ? parts[1] : ""));
+    } catch (Exception e) {
+      return "팝업 구조 프로브 실패(" + e.getClass().getSimpleName() + ")";
+    }
+  }
+
+  private static List<String> splitCsv(String joined) {
+    List<String> out = new ArrayList<>();
+    if (joined == null || joined.isEmpty()) {
+      return out;
+    }
+    for (String token : joined.split(",")) {
+      if (!token.isBlank()) {
+        out.add(token.trim());
+      }
+    }
+    return out;
+  }
+
+  /**
+   * 팝업 문서의 태그 집계와 id 목록을 한 줄로 조립한다 (B-3 후속). 순수 함수라 브라우저 없이 검증한다.
+   *
+   * <p><b>id 의 숫자는 가린다.</b> id 는 대개 템플릿 식별자지만 {@code order_20991231123} 처럼 주문번호가 섞이는 형태가 있을 수 있다.
+   * 숫자를 {@code N} 으로 바꾸면 구조는 그대로 읽히면서 값은 남지 않는다.
+   *
+   * @param tagNames 문서 내 모든 요소의 태그명
+   * @param idAttributes 비어 있지 않은 id 속성값 전부
+   * @return 한 줄 요약
+   */
+  static String describePopupStructure(List<String> tagNames, List<String> idAttributes) {
+    List<String> tags = tagNames == null ? List.of() : tagNames;
+    List<String> ids = idAttributes == null ? List.of() : idAttributes;
+
+    StringBuilder sb = new StringBuilder("태그 ").append(tags.size()).append("개");
+    if (!tags.isEmpty()) {
+      sb.append(" [").append(tagCensus(tags)).append("]");
+    }
+
+    List<String> masked =
+        ids.stream()
+            .map(Emart::maskDigits)
+            .distinct()
+            .sorted()
+            .collect(java.util.stream.Collectors.toList());
+    sb.append(", id ").append(masked.size()).append("종");
+    if (!masked.isEmpty()) {
+      sb.append(" [")
+          .append(String.join(", ", masked.subList(0, Math.min(ID_SAMPLE_LIMIT, masked.size()))));
+      if (masked.size() > ID_SAMPLE_LIMIT) {
+        sb.append(", …");
+      }
+      sb.append("]");
+    }
+    return sb.toString();
+  }
+
+  /** 숫자를 전부 {@code N} 으로 바꾼다. 형식은 남기고 값은 지운다. */
+  static String maskDigits(String value) {
+    return value == null ? null : value.replaceAll("\\d", "N");
+  }
+
+  /** 본문에서 찾아볼 날짜·시각 표기. 이름은 로그에 쓰는 라벨이다. */
+  private static final String[][] DATE_PATTERNS = {
+    {"YYYY-MM-DD", "\\d{4}-\\d{2}-\\d{2}"},
+    {"YYYY/MM/DD", "\\d{4}/\\d{2}/\\d{2}"},
+    {"YYYY.MM.DD", "\\d{4}\\.\\d{2}\\.\\d{2}"},
+    {"YYYY년MM월DD일", "\\d{4}\\s*년\\s*\\d{1,2}\\s*월\\s*\\d{1,2}\\s*일"},
+    {"8연속숫자", "(?<!\\d)\\d{8}(?!\\d)"},
+    {"HH:MM", "(?<!\\d)\\d{2}:\\d{2}(?!\\d)"},
+  };
+
+  /**
+   * 영수증 본문에 날짜가 들어 있는지, 있다면 어떤 <b>형식</b>인지만 보고한다 (B-3 후속 2차 프로브).
+   *
+   * <h2>왜 값을 싣지 않는가</h2>
+   *
+   * <p>알아야 할 것은 "본문에서 구매일시를 뽑을 수 있는가, 뽑는다면 어떤 형식인가"다. 그 판단에는 <b>매치 수와 위치</b>면 충분하고, 날짜 값 자체는 구매
+   * 이력이라 PUBLIC 저장소의 로그에 남길 것이 아니다. 본문 줄을 그대로 싣는 방법도 쓰지 않는다 — 숫자를 가려도 같은 줄의 상품명이 남는다.
+   *
+   * <p>매치가 정확히 1건인 패턴이 있으면 그 형식으로 파싱하면 되고, 여러 건이면 라벨을 봐야 하므로 다음 프로브가 필요하다.
+   *
+   * @param body 영수증 본문({@code <pre>} 텍스트). null 허용
+   * @return 한 줄 요약. 날짜 값은 담기지 않는다
+   */
+  static String describeReceiptDatePatterns(String body) {
+    if (body == null || body.isEmpty()) {
+      return "본문 없음";
+    }
+    String[] lines = body.split("\\r?\\n", -1);
+
+    StringBuilder sb = new StringBuilder("줄수=").append(lines.length);
+    for (String[] pattern : DATE_PATTERNS) {
+      java.util.regex.Pattern compiled = java.util.regex.Pattern.compile(pattern[1]);
+      int matches = 0;
+      int firstLine = -1;
+      for (int i = 0; i < lines.length; i++) {
+        java.util.regex.Matcher m = compiled.matcher(lines[i]);
+        while (m.find()) {
+          matches++;
+          if (firstLine < 0) {
+            firstLine = i + 1;
+          }
+        }
+      }
+      sb.append(", ").append(pattern[0]).append("=").append(matches);
+      if (matches > 0) {
+        sb.append("(줄").append(firstLine).append(")");
+      }
+    }
     return sb.toString();
   }
 
