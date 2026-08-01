@@ -307,11 +307,20 @@ public class Emart extends MallSession implements ReceiptCollector {
                 } else {
                   // serial·datetime 이 없으면 저장 단계에서 조용히 버려진다(MallOrderUpdaterRunner 가
                   // datetime 없는 주문을 skippedOrders 로 세고 건너뛴다). 왜 버려졌는지는 남긴다.
+                  //
+                  // 구조 프로브(B-3 후속): 실측에서 "후보 div=0개" 로 원인이 좁혀졌으나, 그것만으로는
+                  // 바코드가 canvas/svg/img 로 그려지는 것인지, 컨테이너가 정말 비어 있는 것인지,
+                  // 아니면 2초 대기가 짧아 아직 안 그려진 것인지를 가를 수 없다. 두 시점을 떠서 비교한다.
+                  String structureAtRead = probeBarcodeContainer(driver);
+                  this.delayTime(1500);
+                  String structureAfterWait = probeBarcodeContainer(driver);
                   logger.warn(
                       "영수증 바코드를 읽지 못했다 — serial·datetime 없이 수집되어 저장 단계에서 버려진다."
-                          + " mall={}, 후보 div={}개",
+                          + " mall={}, 후보 div={}개, 구조=[읽은 시점] {} / [+1.5s] {}",
                       mallName,
-                      divElements.size());
+                      divElements.size(),
+                      structureAtRead,
+                      structureAfterWait);
                 }
                 detailJo.put("mallname", mallName);
 
@@ -333,6 +342,143 @@ public class Emart extends MallSession implements ReceiptCollector {
     }
 
     return resJsonArr;
+  }
+
+  /**
+   * 바코드를 못 읽었을 때 {@code #barcodeTargetRec} 의 <b>구조만</b> 떠서 한 줄로 요약한다 (B-3 후속 진단).
+   *
+   * <h2>왜 구조만 보는가</h2>
+   *
+   * <p>이 저장소는 PUBLIC 이고 로그는 배포본에 남는다. 영수증 DOM 을 통째로 덤프하면 상품명·금액·구매일시가 그대로 남는다. 답해야 할 질문은 "바코드가
+   * canvas/svg/이미지로 렌더링되는가, 아니면 그 영수증만 바코드가 없는가" 뿐이고, 그 답에는 <b>태그 이름과 개수</b>면 충분하다. 그래서 텍스트는 내용이
+   * 아니라 길이만 센다.
+   *
+   * <p>진단이 수집을 깨뜨리면 원래 결함보다 나쁘다. 어떤 예외도 밖으로 내보내지 않는다.
+   *
+   * @param driver 영수증 팝업으로 이미 switch 된 드라이버
+   * @return 한 줄 요약. 실패해도 문자열을 돌려준다
+   */
+  private static String probeBarcodeContainer(WebDriver driver) {
+    try {
+      List<WebElement> containers = driver.findElements(By.id("barcodeTargetRec"));
+      if (containers.isEmpty()) {
+        return describeBarcodeContainer(false, null, null, null, 0);
+      }
+      WebElement container = containers.get(0);
+
+      List<String> descendantTags = new ArrayList<>();
+      try {
+        for (WebElement descendant : container.findElements(By.cssSelector("*"))) {
+          descendantTags.add(readTagName(descendant));
+        }
+      } catch (Exception e) {
+        // 자손 조회 자체가 실패해도 나머지 신호는 살린다
+      }
+
+      return describeBarcodeContainer(
+          true,
+          readAttribute(container, "class"),
+          readParentTagName(container),
+          descendantTags,
+          readTextLength(container));
+    } catch (Exception e) {
+      return "구조 프로브 실패(" + e.getClass().getSimpleName() + ")";
+    }
+  }
+
+  private static String readTagName(WebElement element) {
+    try {
+      String tagName = element.getTagName();
+      return tagName == null || tagName.isBlank() ? "?" : tagName.toLowerCase();
+    } catch (Exception e) {
+      return "?";
+    }
+  }
+
+  private static String readParentTagName(WebElement element) {
+    try {
+      return readTagName(element.findElement(By.xpath("..")));
+    } catch (Exception e) {
+      return null;
+    }
+  }
+
+  private static String readAttribute(WebElement element, String name) {
+    try {
+      return element.getAttribute(name);
+    } catch (Exception e) {
+      return null;
+    }
+  }
+
+  private static int readTextLength(WebElement element) {
+    try {
+      String text = element.getText();
+      return text == null ? 0 : text.trim().length();
+    } catch (Exception e) {
+      return -1; // 못 읽은 것과 0자를 구분한다
+    }
+  }
+
+  /**
+   * 구조 프로브가 모은 신호를 한 줄로 조립한다 (B-3 후속). 순수 함수라 브라우저 없이 검증한다.
+   *
+   * <p>판독법 — {@code canvas}/{@code svg}/{@code img} 가 잡히면 바코드는 <b>그려지는</b> 것이고 텍스트 추출로는 영원히 못 읽는다.
+   * 자손 0개에 텍스트 0자면 그 영수증에 바코드가 <b>없는</b> 것이다. 컨테이너 자체가 없으면 셀렉터나 팝업 전환이 어긋난 것이다. 두 시점의 요약이 다르면 렌더링이
+   * 늦은 것이다.
+   *
+   * @param containerFound {@code #barcodeTargetRec} 존재 여부
+   * @param classAttribute 컨테이너의 class 속성 (구조 식별자. 없으면 null)
+   * @param parentTagName 부모 태그명 (못 읽었으면 null)
+   * @param descendantTagNames 자손 태그명 전부 (null 허용)
+   * @param textLength 컨테이너 텍스트 길이. {@code -1} 은 못 읽음
+   * @return 한 줄 요약
+   */
+  static String describeBarcodeContainer(
+      boolean containerFound,
+      String classAttribute,
+      String parentTagName,
+      List<String> descendantTagNames,
+      int textLength) {
+    if (!containerFound) {
+      return "#barcodeTargetRec 없음";
+    }
+
+    StringBuilder sb = new StringBuilder("#barcodeTargetRec 있음");
+    if (classAttribute != null && !classAttribute.isBlank()) {
+      sb.append("(class=").append(classAttribute.trim()).append(")");
+    }
+    sb.append(", 부모=").append(parentTagName == null ? "?" : parentTagName);
+
+    List<String> tags = descendantTagNames == null ? List.of() : descendantTagNames;
+    sb.append(", 자손 ").append(tags.size()).append("개");
+    if (!tags.isEmpty()) {
+      sb.append(" [").append(tagCensus(tags)).append("]");
+    }
+
+    sb.append(", 텍스트 ").append(textLength < 0 ? "읽기 실패" : textLength + "자");
+    return sb.toString();
+  }
+
+  /**
+   * 태그 이름을 세어 {@code canvas=1, div=2} 형태로 만든다. 많은 것부터, 같으면 이름순.
+   *
+   * @param tagNames 태그명 목록 (null 원소 허용)
+   * @return 집계 문자열
+   */
+  static String tagCensus(List<String> tagNames) {
+    java.util.Map<String, Integer> counts = new java.util.TreeMap<>();
+    for (String tagName : tagNames) {
+      String key = tagName == null || tagName.isBlank() ? "?" : tagName.trim().toLowerCase();
+      counts.merge(key, 1, Integer::sum);
+    }
+    return counts.entrySet().stream()
+        .sorted(
+            java.util.Comparator.<java.util.Map.Entry<String, Integer>>comparingInt(
+                    e -> -e.getValue())
+                .thenComparing(java.util.Map.Entry::getKey))
+        .map(e -> e.getKey() + "=" + e.getValue())
+        .collect(java.util.stream.Collectors.joining(", "));
   }
 
   /**
