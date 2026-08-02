@@ -305,6 +305,47 @@ public class Emart extends MallSession implements ReceiptCollector {
                   detailJo.put("serial", receiptBarcode);
                   detailJo.put("datetime", receiptBarcode.substring(0, 8));
                 } else {
+                  // 구 템플릿(A)에서 못 읽었다. 신 템플릿 경로를 차례로 시도한다 (B-3 해결).
+                  //
+                  // 이마트가 영수증 화면을 개편해 ern- 접두 템플릿이 섞여 내려온다. 그 템플릿에는
+                  // #barcodeTargetRec 이 아예 없고, 대신 바코드 요소(#barcode-no / #ern-barcode)와
+                  // 분해된 식별 필드(biz_date / pos_str_code / pos_no / tran_no)가 있다.
+                  List<String> newTemplateTexts = new ArrayList<>();
+                  for (String selector : NEW_TEMPLATE_BARCODE_SELECTORS) {
+                    newTemplateTexts.add(readElementValue(driver, selector));
+                  }
+                  String fromNewBarcode = extractReceiptBarcode(newTemplateTexts); // 경로 A2
+                  receiptBarcode = fromNewBarcode;
+
+                  String[] fields = new String[NEW_TEMPLATE_FIELD_SELECTORS.length];
+                  for (int f = 0; f < NEW_TEMPLATE_FIELD_SELECTORS.length; f++) {
+                    fields[f] = readElementValue(driver, NEW_TEMPLATE_FIELD_SELECTORS[f]);
+                  }
+                  String composed =
+                      composeSerialFromFields(fields[0], fields[1], fields[2], fields[3]); // 경로 B
+
+                  String source = null;
+                  if (receiptBarcode != null) {
+                    source = "A2(신 템플릿 바코드 요소)";
+                  } else if (composed != null) {
+                    receiptBarcode = composed;
+                    source = "B(필드 조합)";
+                  }
+
+                  if (receiptBarcode != null) {
+                    detailJo.put("serial", receiptBarcode);
+                    detailJo.put("datetime", receiptBarcode.substring(0, 8));
+                    // 값은 남기지 않는다 — 자릿수와 출처만 남겨 회귀를 알아볼 수 있게 한다.
+                    logger.info(
+                        "구 템플릿 바코드 부재 — {} 로 복구했다. mall={}, serial 자릿수={}, 경로 대조={}",
+                        source,
+                        mallName,
+                        receiptBarcode.length(),
+                        describeRecoveryAgreement(fromNewBarcode, composed));
+                  }
+                }
+
+                if (receiptBarcode == null) {
                   // serial·datetime 이 없으면 저장 단계에서 조용히 버려진다(MallOrderUpdaterRunner 가
                   // datetime 없는 주문을 skippedOrders 로 세고 건너뛴다). 왜 버려졌는지는 남긴다.
                   //
@@ -329,6 +370,28 @@ public class Emart extends MallSession implements ReceiptCollector {
                       "  └ 팝업 구조: {} | 본문 날짜 패턴: {}",
                       probePopupStructure(driver),
                       describeReceiptDatePatterns(receiptDetail));
+
+                  // A2·B 가 왜 실패했는지 — 요소가 없는지, 있는데 형식이 안 맞는지.
+                  // 값이 아니라 자릿수만 남긴다.
+                  StringBuilder paths = new StringBuilder();
+                  for (String selector : NEW_TEMPLATE_BARCODE_SELECTORS) {
+                    paths
+                        .append(selector)
+                        .append("=")
+                        .append(shapeOf(readElementValue(driver, selector)))
+                        .append(" ");
+                  }
+                  for (String selector : NEW_TEMPLATE_FIELD_SELECTORS) {
+                    paths
+                        .append(selector)
+                        .append("=")
+                        .append(shapeOf(readElementValue(driver, selector)))
+                        .append(" ");
+                  }
+                  logger.warn(
+                      "  └ 복구 경로 판독: {}| 본문 날짜={}",
+                      paths,
+                      extractDateFromBody(receiptDetail) == null ? "없음" : "있음(값 미기록)");
                 }
                 detailJo.put("mallname", mallName);
 
@@ -666,6 +729,152 @@ public class Emart extends MallSession implements ReceiptCollector {
       String normalized = raw.replaceAll("\\s", "");
       if (looksLikeReceiptBarcode(normalized)) {
         return normalized;
+      }
+    }
+    return null;
+  }
+
+  /** 신 템플릿(ern-)의 바코드 요소 셀렉터. 구 템플릿에는 없다. */
+  private static final String[] NEW_TEMPLATE_BARCODE_SELECTORS = {"#barcode-no", "#ern-barcode"};
+
+  /** 신 템플릿이 영수증 식별자를 분해해 담아 두는 요소들. 순서가 곧 serial 의 조립 순서다. */
+  private static final String[] NEW_TEMPLATE_FIELD_SELECTORS = {
+    "#biz_date", "#pos_str_code", "#pos_no", "#tran_no"
+  };
+
+  /**
+   * 요소의 값을 읽는다. {@code <input>} 이면 텍스트가 비므로 {@code value} 속성을 본다.
+   *
+   * @return 값. 요소가 없거나 못 읽으면 null
+   */
+  private static String readElementValue(WebDriver driver, String cssSelector) {
+    try {
+      List<WebElement> found = driver.findElements(By.cssSelector(cssSelector));
+      if (found.isEmpty()) {
+        return null;
+      }
+      WebElement element = found.get(0);
+      String text = null;
+      try {
+        text = element.getText();
+      } catch (Exception ignore) {
+        // 아래에서 value 속성으로 재시도한다
+      }
+      if (text != null && !text.isBlank()) {
+        return text;
+      }
+      return readAttribute(element, "value");
+    } catch (Exception e) {
+      return null;
+    }
+  }
+
+  /** 숫자만 남긴다. null 은 빈 문자열로 본다. */
+  static String digitsOnly(String value) {
+    return value == null ? "" : value.replaceAll("\\D", "");
+  }
+
+  /**
+   * 두 복구 경로가 서로 무엇을 말했는지 한 마디로 남긴다 (B-3).
+   *
+   * <p>둘 다 값을 냈는데 <b>서로 다르면</b> 어느 쪽이 진짜 바코드인지 확정되지 않았다는 뜻이고, 그때 채택 우선순위(A2 우선)가 틀렸다면 재수집 시 serial
+   * 이 흔들려 중복 주문이 생긴다. 그 신호를 놓치지 않으려고 남긴다.
+   *
+   * <p>주의: "채택된 값과 같은가"를 묻는 것이 아니다. B 를 채택한 경우 채택값과 B 는 당연히 같아서 아무것도 알려주지 않는다.
+   *
+   * @param fromNewBarcode 경로 A2 결과 (null 허용)
+   * @param composed 경로 B 결과 (null 허용)
+   * @return 대조 결과
+   */
+  static String describeRecoveryAgreement(String fromNewBarcode, String composed) {
+    if (fromNewBarcode == null && composed == null) {
+      return "둘 다 실패";
+    }
+    if (fromNewBarcode == null) {
+      return "B만 성공";
+    }
+    if (composed == null) {
+      return "A2만 성공";
+    }
+    return fromNewBarcode.equals(composed) ? "A2=B" : "A2≠B(A2 채택)";
+  }
+
+  /**
+   * 값의 <b>형태</b>만 기술한다 — 요소가 없는지, 비었는지, 몇 자리 숫자인지.
+   *
+   * <p>진단에는 자릿수면 충분하고 값은 구매 이력이다. {@code 없음} / {@code 빈값} / {@code 숫자8자} / {@code 18자(숫자14)} 형태로
+   * 준다.
+   *
+   * @param value 읽어 온 값 (null 허용)
+   * @return 형태 설명
+   */
+  static String shapeOf(String value) {
+    if (value == null) {
+      return "없음";
+    }
+    String trimmed = value.trim();
+    if (trimmed.isEmpty()) {
+      return "빈값";
+    }
+    int digits = digitsOnly(trimmed).length();
+    return digits == trimmed.length()
+        ? "숫자" + digits + "자"
+        : trimmed.length() + "자(숫자" + digits + ")";
+  }
+
+  /**
+   * 신 템플릿의 분해된 필드로 {@code serial} 을 조립한다 (B-3 해결 경로 B).
+   *
+   * <h2>왜 꼬리가 반드시 있어야 하는가</h2>
+   *
+   * <p>중복 판정이 {@code serial_num} + {@code date_time} <b>조합</b>이다({@code
+   * JbgOrderDataAccessObject.getOrder}). 날짜만으로 serial 을 만들면 <b>같은 날 산 영수증이 전부 한 건으로 뭉개진다</b> — 첫 건만
+   * 저장되고 나머지는 "기존 주문"으로 스킵된다. 실제로 같은 날짜에 3건이 저장된 이력이 있으므로 가상의 위험이 아니다.
+   *
+   * <p>그래서 매장·POS·거래번호 중 <b>하나라도 읽히지 않으면 null 을 돌려준다.</b> 틀린 키로 저장해 데이터를 잃는 것보다 낫다.
+   *
+   * <p>앞 8자리를 {@code YYYYMMDD} 로 두는 것은 호출측이 {@code substring(0, 8)} 을 그대로 쓰기 때문이다 — 구 템플릿 바코드와 같은
+   * 규약이다.
+   *
+   * @return 조립된 serial. 날짜가 유효하지 않거나 꼬리가 비면 null
+   */
+  static String composeSerialFromFields(
+      String bizDate, String storeCode, String posNo, String tranNo) {
+    String date = digitsOnly(bizDate);
+    if (date.length() < 8) {
+      return null;
+    }
+    date = date.substring(0, 8);
+
+    String tail = digitsOnly(storeCode) + digitsOnly(posNo) + digitsOnly(tranNo);
+    if (tail.isEmpty()) {
+      return null; // 날짜만으로는 같은 날 여러 영수증을 구분할 수 없다
+    }
+
+    String serial = date + tail;
+    return looksLikeReceiptBarcode(serial) ? serial : null;
+  }
+
+  /**
+   * 본문에서 구매일자를 뽑는다 (B-3 경로 C). <b>저장에는 쓰지 않는다.</b>
+   *
+   * <p>2차 프로브 실측에서 본문 10줄째에 {@code YYYY-MM-DD HH:MM} 이 정확히 1건 있음을 확인했다. 다만 이것만으로는 {@code serial} 을
+   * 만들 수 없고, serial 없이 저장하면 위 {@link #composeSerialFromFields} 의 주석과 같은 이유로 <b>같은 날 영수증이 뭉개진다.</b>
+   * 그래서 진단용으로만 남긴다 — "날짜는 있는데 식별자가 없다"와 "아무것도 없다"를 구분하기 위한 것이다.
+   *
+   * @param body 영수증 본문
+   * @return {@code YYYYMMDD}. 없으면 null
+   */
+  static String extractDateFromBody(String body) {
+    if (body == null || body.isEmpty()) {
+      return null;
+    }
+    java.util.regex.Matcher m =
+        java.util.regex.Pattern.compile("(\\d{4})[-/.](\\d{2})[-/.](\\d{2})").matcher(body);
+    while (m.find()) {
+      String candidate = m.group(1) + m.group(2) + m.group(3);
+      if (looksLikeReceiptBarcode(candidate + "0")) { // 8자리 날짜 유효성만 본다
+        return candidate;
       }
     }
     return null;
