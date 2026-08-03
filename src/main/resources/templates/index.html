@@ -1682,19 +1682,36 @@
             NEVER_RAN: { cls: 'alert-secondary', icon: 'bi-question-circle',   label: '미실행' }
         };
 
+        // 배너를 비우고 감춘다. 실패 분기가 전부 이걸 거쳐야 한다 —
+        // 응답을 못 받았는데 직전 경고가 그대로 떠 있으면 "지금도 문제가 있다"로 읽힌다.
+        // 주기 갱신을 붙이면 그 오독이 실제로 발생한다(1회 호출일 때는 표시할 낡은 내용이 없었다).
+        function clearCollectorHealth() {
+            var box = document.getElementById('collector_health');
+            if (box) {
+                box.innerHTML = '';
+                box.style.display = 'none';
+            }
+        }
+
         function loadCollectorHealth() {
             var xhr = new XMLHttpRequest();
             xhr.onreadystatechange = function() {
-                if (xhr.readyState !== 4 || xhr.status !== 200) return;
+                if (xhr.readyState !== 4) return;
+                if (xhr.status !== 200) {
+                    clearCollectorHealth();
+                    return;
+                }
                 var box = document.getElementById('collector_health');
                 try {
                     var data = JSON.parse(xhr.responseText);
-                    if (!data.success || !data.collectors) return;
+                    if (!data.success || !data.collectors) {
+                        clearCollectorHealth();
+                        return;
+                    }
 
                     var rows = data.collectors.filter(function(c) { return c.health !== 'OK'; });
                     if (rows.length === 0) {
-                        box.style.display = 'none';
-                        box.innerHTML = '';
+                        clearCollectorHealth();
                         return;
                     }
 
@@ -1712,8 +1729,10 @@
                     box.style.display = 'block';
                 } catch(e) {
                     console.error('건강도 데이터 파싱 오류', e);
+                    clearCollectorHealth();
                 }
             };
+            xhr.onerror = function() { clearCollectorHealth(); };
             xhr.open('GET', '/api/collect-health', true);
             xhr.send();
         }

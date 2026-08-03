@@ -27,11 +27,10 @@ public class AuthInterceptor implements HandlerInterceptor {
   // 인증 제외 경로 목록 (화이트리스트)
   private static final List<String> EXCLUDE_PATHS =
       Arrays.asList(
-          "/signin",
-          "/api/login",
-          "/api/session-check",
-          "/error",
-          "/actuator" // Spring Boot Actuator 엔드포인트
+          "/signin", "/api/login", "/api/session-check", "/error"
+          // "/actuator" 는 제거했다 (B-4). actuator 의존성이 없어 매핑조차 되지 않는데(404),
+          // 무인증 예외만 남아 있었다. 나중에 actuator 를 넣으면 health·env·beans 가 인증 없이
+          // 열린 채로 시작하게 된다. 필요해지면 그때 엔드포인트별로 판단해서 연다.
           );
 
   // 정적 리소스 경로 패턴

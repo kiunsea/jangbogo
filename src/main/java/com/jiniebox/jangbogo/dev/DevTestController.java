@@ -1,6 +1,7 @@
 package com.jiniebox.jangbogo.dev;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Profile;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -17,6 +18,10 @@ import org.springframework.web.bind.annotation.RestController;
  * account = mallAccountService.getAccount("coupang"); // 모든 계정 조회 List<MallAccount> accounts =
  * mallAccountService.getAllAccounts(); // 계정 삭제 mallAccountService.removeAccount("coupang");
  */
+// 운영 JAR 에는 등록되지 않는다 (B-2). 이 컨트롤러의 /dev/reset-database 는 주문·아이템을 통째로
+// 지우는 파괴적 엔드포인트인데, 프로파일 가드가 없어 배포본에 그대로 실려 있었다.
+// 인증(AuthInterceptor)이 앞을 막고 있었으나, 파괴적 기능을 운영 산출물에 두는 것 자체가 문제다.
+@Profile("dev")
 @RestController
 @RequestMapping("/dev")
 public class DevTestController {

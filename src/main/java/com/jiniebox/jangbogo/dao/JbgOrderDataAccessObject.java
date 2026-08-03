@@ -39,25 +39,14 @@ public class JbgOrderDataAccessObject extends CommonDataAccessObject {
 
     int seqOrder = -1;
 
-    StringBuffer querySb = new StringBuffer();
-    querySb.append("INSERT INTO jbg_order (");
-    querySb.append("serial_num,");
-    querySb.append("date_time,");
-    querySb.append("mall_name,");
-    querySb.append("seq_mall");
-    querySb.append(") values (");
-    querySb.append("'" + serialNum + "'");
-    querySb.append(", " + dateTime);
-    if (mallName != null && !mallName.isEmpty()) {
-      querySb.append(", '" + mallName + "'");
-    } else {
-      querySb.append(", NULL");
-    }
-    querySb.append(", " + seqMall);
-    querySb.append(")");
+    // 값을 문자열로 이어 붙이지 않는다 (B-3). serial_num·mall_name 은 수집한 웹페이지에서
+    // 온 값이라 우리가 통제하지 못한다. 매장명에 작은따옴표 하나만 있어도 INSERT 가 깨지고,
+    // 그 자리는 그대로 SQL 주입 지점이 된다.
+    String query =
+        "INSERT INTO jbg_order (serial_num, date_time, mall_name, seq_mall) VALUES (?, ?, ?, ?)";
     log.debug(
         "LOCALDB-QUERY------------------------------------------------------------------------------");
-    log.debug(querySb);
+    log.debug(query);
 
     LocalDBConnection conn = null;
     try {
@@ -71,7 +60,7 @@ public class JbgOrderDataAccessObject extends CommonDataAccessObject {
           mallName,
           seqMall);
 
-      conn.txExecuteUpdate(querySb.toString());
+      conn.txPstmtExecuteUpdate(query, serialNum, dateTime, mallName, seqMall);
 
       // SQLite에서는 last_insert_rowid() 사용
       ResultSet rset = conn.executeQuery("SELECT last_insert_rowid() id");

@@ -1,4 +1,4 @@
-﻿# JANGBOGO (장보고) v0.8.1 🛒
+﻿# JANGBOGO (장보고) 🛒
 
 **온라인 쇼핑몰 구매내역 자동 수집·관리 프로그램**
 
@@ -101,7 +101,7 @@ Jangbogo.bat
 ```
 Jangbogo/
 ├─ Jangbogo.bat          # 실행 파일
-├─ jangbogo-0.8.1.jar    # 애플리케이션
+├─ jangbogo-x.y.z.jar    # 애플리케이션 (실제 파일명은 dir 로 확인)
 ├─ jre/                  # Java 런타임
 ├─ service/              # Windows 서비스
 ├─ db/                   # 데이터베이스 (자동 생성)

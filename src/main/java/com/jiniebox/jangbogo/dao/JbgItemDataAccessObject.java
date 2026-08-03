@@ -197,34 +197,13 @@ public class JbgItemDataAccessObject extends CommonDataAccessObject {
 
       conn.txOpen();
 
-      StringBuffer querySb = new StringBuffer();
-      querySb.append("INSERT INTO jbg_item (");
-      querySb.append("name");
-      if (seqOrder != null && !seqOrder.isEmpty()) {
-        querySb.append(", seq_order");
-      }
-      if (qty != null && !qty.isEmpty()) {
-        querySb.append(", qty");
-      }
-      querySb.append(", insert_time");
-      querySb.append(") values (");
-      querySb.append("'" + name + "'");
-      if (seqOrder != null && !seqOrder.isEmpty()) {
-        querySb.append(", " + seqOrder);
-      }
-      if (qty != null && !qty.isEmpty()) {
-        querySb.append(", '" + qty + "'");
-      }
-      querySb.append(", " + System.currentTimeMillis());
-      querySb.append(")");
-
-      String query = querySb.toString();
-      log.debug(
-          "LOCALDB-QUERY------------------------------------------------------------------------------");
-      log.debug(query);
-      conn.txExecuteUpdate(query);
-
-      int seq = this.getLastInsertSeq(conn);
+      // 값을 문자열로 이어 붙이지 않는다 (B-3). 상품명은 수집한 웹페이지에서 온 값이라 우리가
+      // 통제하지 못한다 — 따옴표 하나로 INSERT 가 깨지고 그 자리가 곧 주입 지점이다.
+      //
+      // 구현은 addWithConnection 하나로 모은다. 같은 INSERT 를 두 벌 두면 한쪽만 고쳐지는데,
+      // 실제로 그랬다 — 수집기가 쓰는 addWithConnection 은 진작 PreparedStatement 였고
+      // 이 오버로드만 문자열 조립으로 남아 있었다.
+      int seq = this.addWithConnection(conn, name, seqOrder, qty);
       conn.txCommit();
 
       return seq;

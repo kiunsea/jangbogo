@@ -28,7 +28,7 @@ public class WebMvcConfig implements WebMvcConfigurer {
 
             // 시스템
             "/error",
-            "/actuator/**",
+            // "/actuator/**" 제거 (B-4) — AuthInterceptor 의 화이트리스트와 같은 이유다.
 
             // 정적 리소스
             "/css/**",

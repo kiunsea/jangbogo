@@ -1,10 +1,12 @@
 package com.jiniebox.jangbogo.dev;
 
 import java.util.Map;
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ResponseBody;
 
+@Profile("dev") // 운영 JAR 에는 등록되지 않는다 (B-2)
 @Controller
 public class HelloController {
 

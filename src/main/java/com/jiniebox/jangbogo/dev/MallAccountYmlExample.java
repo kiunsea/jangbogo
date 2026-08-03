@@ -5,6 +5,7 @@ import com.jiniebox.jangbogo.svc.MallAccountYmlService;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
 /**
@@ -12,6 +13,7 @@ import org.springframework.stereotype.Component;
  *
  * <p>내부 관리용으로 쇼핑몰 계정 정보를 YAML 파일에 저장하고 조회하는 예제
  */
+@Profile("dev") // 운영 JAR 에는 등록되지 않는다 (B-2)
 @Component
 public class MallAccountYmlExample {
 
