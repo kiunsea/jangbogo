@@ -1,5 +1,6 @@
 package com.jiniebox.jangbogo;
 
+import com.jiniebox.jangbogo.svc.util.ExecutionContextDetector;
 import com.jiniebox.jangbogo.util.BrowserLauncher;
 import java.util.Arrays;
 import java.util.List;
@@ -71,6 +72,16 @@ public class JangbogoLauncher {
   /** 서비스 모드로 실행 (OS 재시작 시 자동 실행) - Spring Boot 애플리케이션 시작 - 브라우저 자동 실행 안 함 - 트레이 아이콘 없음 */
   private static void launchServiceMode(String[] args) {
     logger.info("서비스 모드로 실행 - 브라우저 자동 실행 안 함");
+
+    // 서비스로 떴다는 사실을 프로퍼티에 남긴다 (Phase 5-1).
+    //
+    // 바로 아래 filterModeArguments 가 --service 를 걸러내므로, 이 신호를 여기서 심지 않으면
+    // Spring 컨텍스트 안의 코드는 자기가 서비스로 떴는지 알 방법이 없다. 세션 0 에는 데스크톱이
+    // 없어 headed 브라우저를 띄울 수 없고, 그걸 모르면 수집이 실패가 아니라 '로그인 화면에서
+    // 멈춘 채 타임아웃' 으로 나타난다 — 로그만으로는 원인을 가릴 수 없는 증상이다.
+    System.setProperty(
+        ExecutionContextDetector.LAUNCH_MODE_PROPERTY,
+        ExecutionContextDetector.LAUNCH_MODE_SERVICE);
 
     // Spring Boot 애플리케이션 시작
     String[] filteredArgs = filterModeArguments(args);
