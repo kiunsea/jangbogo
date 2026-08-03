@@ -25,7 +25,15 @@ CREATE TABLE IF NOT EXISTS jbg_mall (
   account_status INTEGER NOT NULL DEFAULT 0, -- 서비스 이용 가능 여부(0:이용 불가, 1:이용 가능)
   last_signin_time INTEGER, -- 마지막 접속 시간 (millisecond)
   auto_collect INTEGER DEFAULT 0, -- 자동수집 사용 여부 (0:안 함, 1:함)
-  collect_interval_minutes INTEGER DEFAULT 0 -- 자동수집 주기 (분 단위, 0이면 주기적 실행 안 함)
+  collect_interval_minutes INTEGER DEFAULT 0, -- 자동수집 주기 (분 단위, 0이면 주기적 실행 안 함)
+  -- 세션 프로필 재사용 (Phase 5). 사람이 한 번 로그인한 Chrome 프로필을 무인 수집이 재사용한다.
+  -- 몰마다 켜고 끈다 — 전부에 적용하지 않는다.
+  -- 이름은 확정값이다. SQLite 에서 DROP COLUMN 은 가능하지만(3.35+) 인덱스·제약을 걸지 않는 한에서다.
+  session_profile_enabled INTEGER DEFAULT 0, -- 이 몰에 프로필 재사용을 쓸지 (0:안 씀, 1:씀)
+  session_profile_name TEXT, -- 프로필 디렉터리 이름 (프로필 루트 하위)
+  session_profile_status TEXT, -- NONE / READY / EXPIRED / LOCKED
+  session_profile_last_login INTEGER, -- 사람이 마지막으로 로그인한 시각 (millisecond)
+  session_profile_owner TEXT -- 프로필을 만든 OS 계정. 다르면 세션이 열리지 않으므로 게이트로 쓴다
 );
 
 --------------------------------------------------------

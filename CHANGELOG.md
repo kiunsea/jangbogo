@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.15.0] - 2026-08-03
+
+Phase 5(세션 프로필 재사용)의 **선행 코드**. 기능은 아직 꺼져 있고 동작은 바뀌지 않습니다.
+
+### Added
+
+- **`jbg_mall` 에 세션 프로필 컬럼 5개** (5-2): `session_profile_enabled` / `_name` / `_status` / `_last_login` / `_owner`. `schema.sql` 에 선언만 하면 `SchemaMigrator` 가 신규 설치와 기존 DB 양쪽에 반영합니다 — 실제 DB 에서 자동 ALTER 를 확인했습니다.
+- **`SessionProfilePolicy`** (5-12 · 5-14) — 마스터 킬스위치와 프로필 경로 정책.
+  - `jangbogo.session-profile.enabled` 가 **기본 꺼짐**입니다. 몰별 옵트인이 켜져 있어도 이 스위치가 꺼져 있으면 아무 일도 하지 않습니다 — **두 겹으로 막습니다.**
+  - 프로필 루트 기본값은 `%LOCALAPPDATA%\Jangbogo\profiles` 입니다. 설치 폴더 아래가 아닌 이유는 그 폴더가 저장소 트리 안일 수 있고(개발 환경) 재설치 때 통째로 갈리기 때문입니다.
+  - 프로필 이름에 경로 구분자나 상위 참조가 섞이면 거부합니다. 이름은 DB 에서 오므로 루트를 벗어날 수 있습니다.
+- **`MallProfileLock`** (5-3) — 프로필 단위 파일 락.
+  - 기존 동시 실행 방지는 `ConcurrentHashMap` 기반이라 **JVM 안에서만** 유효했습니다. 서비스 인스턴스와 사용자가 직접 띄운 인스턴스는 다른 프로세스라 막히지 않았습니다.
+  - **비차단**입니다. 기다리면 스케줄러가 다음 회차까지 통째로 막힙니다.
+  - **키는 몰 seq 가 아니라 프로필 이름**입니다. 같은 계정을 쓰는 몰이 실재하므로 seq 로 잠그면 그 경우를 놓칩니다.
+  - 잠글 수 없는 환경은 실패가 아니라 `UNAVAILABLE` 로 구분합니다 — 못 잠근다고 수집을 멈출 이유는 없습니다.
+
+### Added (테스트)
+
+- `SessionProfilePolicyTest`(6건) · `MallProfileLockTest`(9건): 기본 꺼짐, 오타는 꺼진 것으로 판정, 두 겹 게이트, 경로 이탈 거부, 락 획득·비차단·해제·프로필 공유 시 상호 차단·락 파일 보존·잠글 수 없는 위치. 총 **275건**.
+
+### Notes
+
+- 계획서의 5-2 는 `ensureSessionProfileColumns()` 를 새로 만드는 항목이었으나 **불필요해졌습니다.** Phase 3-10 의 `SchemaMigrator` 가 `schema.sql` 을 단일 선언처로 삼아 자동 ALTER 하므로, 컬럼을 자바 코드에 다시 적을 이유가 없습니다.
+
+---
+
 ## [0.14.0] - 2026-08-03
 
 보안 하드닝 4건과 잔여 정리 3건. **동작이 바뀌는 변경이 있어 minor 를 올립니다.**
