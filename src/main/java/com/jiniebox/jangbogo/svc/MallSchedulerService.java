@@ -5,7 +5,10 @@ import com.jiniebox.jangbogo.dao.JbgMallDataAccessObject;
 import com.jiniebox.jangbogo.dto.MallAccount;
 import com.jiniebox.jangbogo.svc.util.CollectIntervalPolicy;
 import com.jiniebox.jangbogo.svc.util.ErrorSummary;
+import com.jiniebox.jangbogo.svc.util.ExecutionContextDetector;
 import com.jiniebox.jangbogo.svc.util.FtpPendingQueue;
+import com.jiniebox.jangbogo.svc.util.SessionProfileGate;
+import com.jiniebox.jangbogo.svc.util.SessionProfilePolicy;
 import com.jiniebox.jangbogo.util.ExceptionUtil;
 import com.jiniebox.jangbogo.util.JinieboxUtil;
 import com.jiniebox.jangbogo.util.StringEncrypter;
@@ -240,6 +243,26 @@ public class MallSchedulerService {
         return;
       }
 
+      // 세션 프로필 게이트 (Phase 5-4).
+      //
+      // 마스터 킬스위치가 꺼져 있거나 이 몰이 옵트인하지 않았으면 PROCEED 라 기존 경로 그대로다.
+      // 켜져 있는데 조건이 어긋나면, 시도해서 '로그인 화면에서 멈춘 채 타임아웃' 을 만드는 대신
+      // 막힌 이유를 이름으로 남기고 물러난다.
+      SessionProfileGate.Decision gate =
+          SessionProfileGate.evaluate(
+              SessionProfilePolicy.appliesTo(
+                  asInt(mall.get("session_profile_enabled")) != null
+                      && asInt(mall.get("session_profile_enabled")) == 1),
+              ExecutionContextDetector.detect(),
+              str(mall.get("session_profile_name")),
+              str(mall.get("session_profile_owner")),
+              System.getProperty("user.name"));
+      if (!gate.canProceed()) {
+        logger.info("쇼핑몰 seq={} 세션 프로필 게이트에 막힘 — {}", seq, gate);
+        saveSkipLog(seqInt, mallName, gate.name(), gate.reason(), startedAt);
+        return;
+      }
+
       String encKeyBase64 = str(mall.get("encrypt_key"));
       String encIvBase64 = str(mall.get("encrypt_iv"));
 
@@ -324,6 +347,51 @@ public class MallSchedulerService {
       cur = cur.getCause();
     }
     return null;
+  }
+
+  /**
+   * 세션 프로필 때문에 스케줄을 등록하지 않았음을 기록한다 (Phase 5-5).
+   *
+   * <p>기동 시 한 번만 남긴다. 등록해 두고 매 회차 막히게 두면 같은 줄이 12시간마다 쌓여 로그가 무의미해진다.
+   */
+  public void logSessionProfileSkip(String seq, String mallName, SessionProfileGate.Decision gate) {
+    int seqInt = 0;
+    try {
+      seqInt = Integer.parseInt(seq);
+    } catch (NumberFormatException ignore) {
+    }
+    long now = System.currentTimeMillis();
+    saveSkipLog(seqInt, mallName, gate.name(), gate.reason(), now);
+  }
+
+  /**
+   * 세션 프로필 게이트에 막힌 것을 기록한다 (Phase 5-4).
+   *
+   * <p>실패가 아니라 <b>건너뜀</b>이다. FAIL 로 적으면 브레이커가 이것을 연속 실패로 세어 몰을 차단해 버린다 — 막은 것은 우리 쪽 조건이지 사이트가 아니다.
+   * {@code SKIPPED} 는 성공·실패 집계에서 모두 빠진다.
+   */
+  private void saveSkipLog(
+      int seqMall, String mallName, String gateName, String reason, long startedAt) {
+    try {
+      JbgCollectLogDataAccessObject logDao = new JbgCollectLogDataAccessObject();
+      logDao.addLog(
+          seqMall,
+          mallName,
+          "SKIPPED",
+          0,
+          0,
+          gateName,
+          reason,
+          "session-profile-gate",
+          null,
+          null,
+          null,
+          null,
+          startedAt,
+          System.currentTimeMillis());
+    } catch (Exception e) {
+      logger.warn("세션 프로필 게이트 로그 저장 실패: {}", e.getMessage());
+    }
   }
 
   /** 실패 로그를 DB에 저장 (간단 버전 — step="scheduler-precheck") */

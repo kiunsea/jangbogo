@@ -3,7 +3,10 @@ package com.jiniebox.jangbogo.boot;
 import com.jiniebox.jangbogo.dao.JbgMallDataAccessObject;
 import com.jiniebox.jangbogo.dao.SchemaMigrator;
 import com.jiniebox.jangbogo.svc.MallSchedulerService;
+import com.jiniebox.jangbogo.svc.util.ExecutionContextDetector;
 import com.jiniebox.jangbogo.svc.util.ScreenshotUtil;
+import com.jiniebox.jangbogo.svc.util.SessionProfileGate;
+import com.jiniebox.jangbogo.svc.util.SessionProfilePolicy;
 import java.util.List;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -104,6 +107,19 @@ public class StartupTasks {
   }
 
   /** 애플리케이션 시작 시 DB에 저장된 개별 쇼핑몰 스케줄링 복원 */
+  /**
+   * 이 몰이 세션 프로필을 쓰는데 지금 자리에서는 브라우저를 띄울 수 없는지 (Phase 5-5).
+   *
+   * <p>킬스위치가 꺼져 있거나 옵트인하지 않았으면 항상 false 다 — 기존 동작이 그대로 유지된다.
+   */
+  private boolean blockedBySessionProfile(JSONObject mall) {
+    Integer optIn = asInt(mall.get("session_profile_enabled"));
+    if (!SessionProfilePolicy.appliesTo(optIn != null && optIn == 1)) {
+      return false;
+    }
+    return !ExecutionContextDetector.detect().canRunHeadedBrowser();
+  }
+
   private void restoreIndividualSchedules() {
     try {
       JbgMallDataAccessObject jaDao = new JbgMallDataAccessObject();
@@ -121,6 +137,19 @@ public class StartupTasks {
               && autoCollect == 1
               && intervalMinutes != null
               && intervalMinutes > 0) {
+
+            // 세션 프로필을 쓰는 몰인데 여기가 세션 0 이면 등록하지 않는다 (Phase 5-5).
+            //
+            // 등록해 봤자 매 회차가 게이트에 막혀 SKIPPED 만 쌓인다. 12시간마다 같은 줄이
+            // 반복되면 로그가 무의미해지고, 정작 사람이 봐야 할 때 눈에 띄지 않는다.
+            // 한 번만 남기고 등록을 건너뛴다.
+            if (blockedBySessionProfile(mall)) {
+              logger.info("쇼핑몰 seq={} 세션 프로필 몰인데 세션 0 이라 스케줄을 등록하지 않는다", seq);
+              mallSchedulerService.logSessionProfileSkip(
+                  seq, str(mall.get("name")), SessionProfileGate.Decision.REQUIRES_USER_SESSION);
+              continue;
+            }
+
             mallSchedulerService.scheduleMall(seq, intervalMinutes);
             restoredCount++;
             logger.info("쇼핑몰 seq={} 스케줄 복원 완료 (주기: {}분)", seq, intervalMinutes);
