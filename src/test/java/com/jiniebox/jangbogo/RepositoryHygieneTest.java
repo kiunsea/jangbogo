@@ -32,6 +32,7 @@ class RepositoryHygieneTest {
   private static final List<String> MUST_IGNORE =
       List.of(
           "profiles/", // 실로그인 Chrome 세션 (Phase 5)
+          ".locks/", // 프로필 단위 락 — 런타임 상태이고 지우지 않는 규칙이라 쌓인다
           "config/mall_account.yml", // 쇼핑몰 계정
           "config/admin.properties", // 관리자 자격증명
           "db/*.db", // 구매내역 + jbg_mall 의 암호화 키
