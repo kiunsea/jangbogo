@@ -7,7 +7,7 @@ plugins {
 }
 
 group = 'com.jiniebox'
-version = '0.13.9'
+version = '0.13.10'
 description = '사용자 온라인/오프라인 구매 내역 수집기'
 
 java {
@@ -162,9 +162,46 @@ tasks.register('createJre') {
 	}
 }
 
+// 번들 JRE 의 실제 버전을 읽어 대응 소스 안내문을 만든다 (AGPL/GPLv2 대응).
+//
+// 왜 별도 태스크인가: 버전은 jlink 가 만든 build/jre/release 안에 있고 그 파일은 createJre 가
+// 실행돼야 생긴다. packageDist 의 ReplaceTokens 는 토큰 맵을 설정 시점에 굳히므로 그 값을
+// 넣을 수 없다. CI 는 setup-java 가 주는 JDK 로 빌드하므로 로컬과 버전이 다를 수 있고,
+// 그래서 숫자를 손으로 적어 두면 반드시 어긋난다.
+tasks.register('generateSourceNotice') {
+	dependsOn createJre
+
+	def template = file('packaging/distribution/CORRESPONDING-SOURCE.txt')
+	def releaseFile = file("${buildDir}/jre/release")
+	def outputFile = file("${buildDir}/generated/CORRESPONDING-SOURCE.txt")
+
+	inputs.file(template)
+	inputs.file(releaseFile)
+	outputs.file(outputFile)
+
+	doLast {
+		// release 파일 예: JAVA_VERSION="21.0.11"
+		def javaVersion = releaseFile.readLines()
+			.findResult { line ->
+				def m = line =~ /^JAVA_VERSION="?([^"]+)"?$/
+				m ? m[0][1] : null
+			}
+		if (!javaVersion) {
+			throw new GradleException(
+				"${releaseFile} 에서 JAVA_VERSION 을 읽지 못했다. 번들 JRE 의 소스 안내가 틀린 채로 배포된다.")
+		}
+
+		outputFile.parentFile.mkdirs()
+		outputFile.text = template.getText('UTF-8')
+			.replace('@APP_VERSION@', project.version.toString())
+			.replace('@JAVA_VERSION@', javaVersion)
+		println "✓ 대응 소스 안내 생성: app=${project.version}, jre=${javaVersion}"
+	}
+}
+
 // 배포 패키지 생성 태스크: JAR + 배치 스크립트 + Custom JRE + WinSW
 tasks.register('packageDist', Zip) {
-	dependsOn bootJar, createJre
+	dependsOn bootJar, createJre, generateSourceNotice
 	
 	archiveFileName = 'Jangbogo-distribution.zip'
 	destinationDirectory = file("${buildDir}/distributions")
@@ -182,6 +219,18 @@ tasks.register('packageDist', Zip) {
 	
 	from("${buildDir}/jre") {
 		into('jre')
+	}
+
+	// 라이선스 고지 (AGPL-3.0 제4조: 사본과 함께 라이선스 전문을 전달해야 한다).
+	// 이 세 파일이 빠진 채로 여러 버전이 배포됐다 — NOTICE 자신이 "배포 시 LICENSE 와 함께
+	// 포함하라"고 적어 둔 것을 정작 packageDist 가 지키지 않고 있었다.
+	from(projectDir) {
+		include 'LICENSE', 'NOTICE'
+		into('/')
+	}
+	from("${buildDir}/generated") {
+		include 'CORRESPONDING-SOURCE.txt'
+		into('/')
 	}
 	
 	from('packaging/winsw') {

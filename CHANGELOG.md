@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.13.10] - 2026-08-02
+
+배포 ZIP 의 라이선스 고지 누락을 고칩니다. (미결 1)
+
+### Fixed
+
+- **배포 ZIP 에 `LICENSE` 도 `NOTICE` 도 들어 있지 않던 문제**: `packageDist` 의 include 목록에 두 파일이 빠져 있어 **여러 버전이 라이선스 전문 없이 배포됐습니다.** AGPL-3.0 제4조는 사본과 함께 라이선스 전문을 전달할 것을 요구하며, 정작 이 저장소의 `NOTICE` 자신이 "배포 시에는 LICENSE 와 함께 이 NOTICE 를 포함해 주십시오"라고 적어 두고 있었습니다.
+
+### Added
+
+- **`CORRESPONDING-SOURCE.txt`** — 대응 소스 안내를 ZIP 에 함께 담습니다. AGPL 제6조가 요구하는 "대응 소스를 찾을 수 있는 명확한 안내"이며, 세 구성요소를 모두 다룹니다.
+  - 앱 본체(AGPL-3.0-or-later) — 저장소·릴리스 태그 주소, 그리고 **제13조**(네트워크 상호작용) 안내. 이 앱은 웹 UI 를 띄우므로 직접 걸리는 조항입니다.
+  - 번들 JRE(GPLv2 + Classpath Exception) — Eclipse Temurin 소스 취득처와 `jre/legal` 위치. 바이너리를 배포하므로 소스 취득처를 알려야 합니다.
+  - 제3자 라이브러리 — 애플리케이션 JAR 안에 원본 JAR 그대로 들어 있으며, 요약은 `NOTICE` 참조.
+  - **버전은 빌드 시점에 채웁니다.** 저장소 원본에는 자리표시자만 두고, 앱 버전은 `build.gradle` 에서, JRE 버전은 jlink 가 만든 `build/jre/release` 에서 읽습니다. CI 는 `setup-java` 가 주는 JDK 로 빌드하므로 로컬과 JRE 버전이 다를 수 있어, 숫자를 손으로 적으면 반드시 어긋납니다.
+
+### Added (테스트)
+
+- `DistributionLicenseTest`(6건): 저장소의 AGPL 전문 존재, `packageDist` 의 `LICENSE`·`NOTICE` 포함, 대응 소스 안내 생성·포함·의존관계, 안내문 원본의 버전 박제 금지, 세 구성요소 고지 누락 감시, 치환 전 원본이 그대로 담기지 않는지.
+
+### Notes
+
+- **jlink 오프라인 ZIP 배포는 유지합니다.** 조사 결과 라이선스 충돌은 없었습니다 — Classpath Exception 이 링크를 허용하고, ZIP 동봉은 AGPL 제5조의 aggregate 입니다. 남은 의무는 고지와 소스 안내였고 이번 릴리스가 그것을 채웁니다. `jre/legal` 은 jlink 가 이미 복사해 넣고 있었습니다.
+
+---
+
 ## [0.13.9] - 2026-08-02
 
 이마트 신 템플릿 영수증의 수집을 되살립니다. (판단 대기 B-3)
