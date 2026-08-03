@@ -64,6 +64,13 @@ config/backup/mall_account_*.yml
 # 전파 대장(doc/CROSS-PROJECT-PROPAGATION.md)은 운용 문서라 커밋한다.
 doc/PLAN-*.md
 
+### Browser Profiles ###
+# Phase 5(프로필 재사용)가 만드는 Chrome 사용자 프로필. 사람이 한 번 로그인한 세션이
+# 그대로 들어 있으므로 쿠키·토큰이 담긴다. 프로필 위치 후보 중 하나가 {설치루트}/profiles 라
+# 저장소 트리 안에 생길 수 있고, 그때 실계정 세션이 PUBLIC 저장소로 커밋된다.
+# 디렉터리가 생기기 전에 미리 막아 둔다.
+profiles/
+
 ### Log Files ###
 logs/
 *.log
