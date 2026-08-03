@@ -146,11 +146,11 @@ Selenium 크롤링 실패 시 단계명·URL·페이지 타이틀·셀렉터·�
 - 신규 API: `GET /api/collect-logs/{seq}`, `GET /api/collect-logs/{seq}/screenshot` (경로 탐색 공격 차단)
 - `collect-logs.html` 상세 모달 UI + 쇼핑몰/단계 필터 드롭다운 + 스크린샷 확대 모달
 
-### v0.7.0 (2026-04-17) — 수집 오류 로그 + Windows 서비스 관리 + muse-agent 패턴 이식
+### v0.7.0 (2026-04-17) — 수집 오류 로그 + Windows 서비스 관리 + 참조 프로젝트 패턴 이식
 - `jbg_collect_log` 테이블 신규 (수집 실행 이력)
 - `JbgCollectLogDataAccessObject`, AdminController 3개 엔드포인트
 - `collect-logs.html` 페이지, 대시보드 "실행 결과 요약" 카드, 네비 메뉴
-- Windows 서비스 스크립트 세트 (muse-agent 패턴 풀 이식):
+- Windows 서비스 스크립트 세트 (참조 프로젝트 패턴 풀 이식):
   - `install.bat` — 관리자 권한 + WinSW 등록 + 포트 체크 + RUNNING 폴링 + 로그 tail + 대시보드 ready polling + 단축아이콘 + 트레이 기동
   - `uninstall.bat` — 100% ASCII 영문
   - `Jangbogo.bat` — 포트 충돌 프롬프트, JRE 자동 다운로드 fallback

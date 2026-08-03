@@ -548,7 +548,7 @@ Emart 영수증 파서의 무회귀 판정 단위를 만든 테스트 릴리스.
 
 ### Removed
 
-- **`settings.gradle` 의 죽은 `includeBuild('D:/GIT/doribox')`**: 대상이 없어 no-op 이었고, PUBLIC 저장소에 PRIVATE 저장소명과 특정 PC 절대경로가 노출되며, 해당 경로에 clone 이 존재하면 빌드 구성이 조용히 바뀌는 문제가 있었습니다. doribox 패키지 import 방침은 폐기 확정입니다.
+- **`settings.gradle` 의 죽은 로컬 포함 빌드 선언**: 대상이 없어 no-op 이었고, PUBLIC 저장소에 비공개 저장소명과 특정 PC 절대경로가 노출되며, 해당 경로에 clone 이 존재하면 빌드 구성이 조용히 바뀌는 문제가 있었습니다. 외부 패키지 import 방침은 폐기 확정입니다.
 
 ---
 
