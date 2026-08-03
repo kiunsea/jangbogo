@@ -18,6 +18,27 @@ import org.json.simple.JSONObject;
  */
 public class JbgMallDataAccessObject extends CommonDataAccessObject {
 
+  /**
+   * 세션 프로필 컬럼 (Phase 5). SELECT 목록에 붙여 쓴다.
+   *
+   * <p>한 곳에 모아 둔 이유가 있다 — 컬럼을 {@code schema.sql} 에 선언하고 게이트 코드까지 다 만들어 놓고도 <b>DAO 의 SELECT 목록에 넣지
+   * 않아 게이트가 통째로 죽어 있었다.</b> 값이 항상 null 이라 옵트인이 영원히 false 였고, 실측에서야 드러났다. 조회 지점이 여러 곳이므로 목록을 흩어 두면
+   * 같은 일이 또 생긴다.
+   */
+  private static final String SESSION_PROFILE_COLUMNS =
+      ", session_profile_enabled, session_profile_name, session_profile_status,"
+          + " session_profile_last_login, session_profile_owner";
+
+  /** 조회 결과의 세션 프로필 컬럼을 JSON 에 옮긴다. */
+  private void putSessionProfileFields(java.sql.ResultSet rset, org.json.simple.JSONObject mJson)
+      throws java.sql.SQLException {
+    mJson.put("session_profile_enabled", safeGetInt(rset, "session_profile_enabled", 0));
+    mJson.put("session_profile_name", rset.getString("session_profile_name"));
+    mJson.put("session_profile_status", rset.getString("session_profile_status"));
+    mJson.put("session_profile_last_login", rset.getLong("session_profile_last_login"));
+    mJson.put("session_profile_owner", rset.getString("session_profile_owner"));
+  }
+
   private static final Logger log = LogManager.getLogger(JbgMallDataAccessObject.class);
 
   public JbgMallDataAccessObject() {
@@ -42,6 +63,7 @@ public class JbgMallDataAccessObject extends CommonDataAccessObject {
         querySb.append(", encrypt_key, encrypt_iv");
       }
       querySb.append(", account_status, last_signin_time, auto_collect, collect_interval_minutes");
+      querySb.append(SESSION_PROFILE_COLUMNS);
       querySb.append(" FROM jbg_mall");
       log.debug(
           "LOCALDB-QUERY------------------------------------------------------------------------------");
@@ -66,6 +88,7 @@ public class JbgMallDataAccessObject extends CommonDataAccessObject {
           mJson.put("last_signin_time", rset.getLong("last_signin_time"));
           mJson.put("auto_collect", safeGetInt(rset, "auto_collect", 0));
           mJson.put("collect_interval_minutes", safeGetInt(rset, "collect_interval_minutes", 0));
+          putSessionProfileFields(rset, mJson);
           malls.add(mJson);
         }
         return malls;
@@ -97,6 +120,7 @@ public class JbgMallDataAccessObject extends CommonDataAccessObject {
       StringBuffer querySb = new StringBuffer("SELECT seq, id, name, details, ");
       querySb.append(
           "encrypt_key, encrypt_iv, account_status, last_signin_time, auto_collect, collect_interval_minutes");
+      querySb.append(SESSION_PROFILE_COLUMNS);
       querySb.append(" FROM jbg_mall");
       querySb.append(" WHERE seq=" + seq);
       log.debug(
@@ -118,6 +142,7 @@ public class JbgMallDataAccessObject extends CommonDataAccessObject {
           mJson.put("last_signin_time", rset.getLong("last_signin_time"));
           mJson.put("auto_collect", safeGetInt(rset, "auto_collect", 0));
           mJson.put("collect_interval_minutes", safeGetInt(rset, "collect_interval_minutes", 0));
+          putSessionProfileFields(rset, mJson);
         }
         return mJson;
       } else {
