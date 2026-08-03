@@ -120,7 +120,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Notes
 
-- Edge 타임아웃 부재는 doribox 측에도 적용 검토 대상으로 전파됨(대장 P3-1).
+- Edge 타임아웃 부재는 전파 대장에 등재됨(P3-1). 브라우저를 모는 코드라면 프로젝트와 무관하게 재현되는 결함이라 검토 대상이다.
 
 ---
 

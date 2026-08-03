@@ -58,6 +58,12 @@ config/backup/mall_account_*.yml
 # 장보고 설정 파일 (선택적으로 커밋 가능, 하지만 민감 정보 포함 시 제외)
 # config/jbg_config.yml
 
+### 내부 계획 문서 ###
+# 이 저장소는 PUBLIC 이다. 세션 인계용 계획서는 성질상 운영 환경 세부와 미완 작업이 섞이므로
+# 정본을 비공개 저장소에 두고 여기서는 로컬 전용으로만 둔다 (2026-08-02).
+# 전파 대장(doc/CROSS-PROJECT-PROPAGATION.md)은 운용 문서라 커밋한다.
+doc/PLAN-*.md
+
 ### Log Files ###
 logs/
 *.log
