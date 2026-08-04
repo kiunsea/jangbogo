@@ -1,6 +1,7 @@
 package com.jiniebox.jangbogo.svc.util;
 
 import com.jiniebox.jangbogo.svc.util.ExecutionContextDetector.ExecutionContext;
+import java.util.function.Supplier;
 
 /**
  * 세션 프로필 재사용의 진입 게이트 (Phase 5-4 · 5-5).
@@ -68,8 +69,17 @@ public final class SessionProfileGate {
    * <p>락은 여기서 보지 않는다 — 락 획득은 파일을 만드는 부수효과가 있으므로, 이 판정을 통과한 뒤 호출측이 잡고 그 결과를 {@link #fromLockOutcome}
    * 로 옮긴다. 값싼 검사를 먼저 하고 비싼 것을 나중에 한다.
    *
+   * <h2>실행 컨텍스트를 왜 {@link Supplier} 로 받는가 (Phase 5-18)</h2>
+   *
+   * <p>이 판정은 옵트인하지 않은 몰에서 첫 줄에 바로 통과한다. 그런데 값으로 받으면 <b>자바가 호출 전에 인자를 전부 평가</b>하므로, 통과할 것이 뻔한 몰에서도
+   * 실행 컨텍스트 탐지가 매 회차 돈다 — 그 탐지는 {@code tasklist} 외부 프로세스를 띄우고 최대 5초를 기다린다. 옵트인 OFF 몰의 런타임 동작이 그대로여야
+   * 한다는 수용 기준 10 에 어긋난다.
+   *
+   * <p>공급자로 받으면 단축평가가 <b>이 안으로</b> 들어와 호출부가 실수할 여지가 없어진다. 값으로 받던 때는 호출부마다 규약을 지켜야 했고, 실제로 두
+   * 곳(스케줄러·기동)이 어긋나 있었다.
+   *
    * @param profileApplies {@code SessionProfilePolicy.appliesTo(몰 옵트인)} 결과
-   * @param context 실행 컨텍스트
+   * @param contextSupplier 실행 컨텍스트 공급자. <b>적용 대상일 때만 호출된다</b>
    * @param profileName {@code session_profile_name} (없으면 null)
    * @param profileOwner {@code session_profile_owner} (없으면 null)
    * @param currentOwner 현재 OS 계정
@@ -77,15 +87,18 @@ public final class SessionProfileGate {
    */
   public static Decision evaluate(
       boolean profileApplies,
-      ExecutionContext context,
+      Supplier<ExecutionContext> contextSupplier,
       String profileName,
       String profileOwner,
       String currentOwner) {
 
     // 꺼져 있으면 기존 경로 그대로다. 이 게이트가 동작을 바꾸지 않는다는 보장이 여기서 나온다.
+    // 공급자를 부르지 않는 것도 그 보장의 일부다 — 부르면 매 회차 tasklist 가 돈다.
     if (!profileApplies) {
       return Decision.PROCEED;
     }
+
+    ExecutionContext context = contextSupplier == null ? null : contextSupplier.get();
 
     // 세션 0 이면 나머지를 볼 것도 없다 — 프로필이 멀쩡해도 띄울 자리가 없다.
     if (context == null || !context.canRunHeadedBrowser()) {

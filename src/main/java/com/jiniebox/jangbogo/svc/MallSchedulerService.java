@@ -248,12 +248,14 @@ public class MallSchedulerService {
       // 마스터 킬스위치가 꺼져 있거나 이 몰이 옵트인하지 않았으면 PROCEED 라 기존 경로 그대로다.
       // 켜져 있는데 조건이 어긋나면, 시도해서 '로그인 화면에서 멈춘 채 타임아웃' 을 만드는 대신
       // 막힌 이유를 이름으로 남기고 물러난다.
+      // 실행 컨텍스트는 공급자로 넘긴다 (Phase 5-18). 값으로 넘기면 자바가 호출 전에 평가해서,
+      // 옵트인하지 않아 첫 줄에서 통과할 몰에서도 매 회차 tasklist 가 돈다.
       SessionProfileGate.Decision gate =
           SessionProfileGate.evaluate(
               SessionProfilePolicy.appliesTo(
                   asInt(mall.get("session_profile_enabled")) != null
                       && asInt(mall.get("session_profile_enabled")) == 1),
-              ExecutionContextDetector.detect(),
+              ExecutionContextDetector::detect,
               str(mall.get("session_profile_name")),
               str(mall.get("session_profile_owner")),
               System.getProperty("user.name"));

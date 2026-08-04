@@ -14,6 +14,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -40,8 +41,51 @@ class SessionProfileGateTest {
   @DisplayName("적용 대상이 아니면 무조건 통과한다 — 기존 동작이 유지된다")
   void doesNothingWhenNotApplicable() {
     // 킬스위치가 꺼졌거나 그 몰이 옵트인하지 않은 경우다. 나머지 조건이 아무리 나빠도 막지 않는다.
-    assertEquals(PROCEED, SessionProfileGate.evaluate(false, SERVICE_SESSION_0, null, null, null));
-    assertEquals(PROCEED, SessionProfileGate.evaluate(false, UNKNOWN, null, "다른사람", "나"));
+    assertEquals(
+        PROCEED, SessionProfileGate.evaluate(false, () -> SERVICE_SESSION_0, null, null, null));
+    assertEquals(PROCEED, SessionProfileGate.evaluate(false, () -> UNKNOWN, null, "다른사람", "나"));
+  }
+
+  @Test
+  @DisplayName("적용 대상이 아니면 실행 컨텍스트를 탐지조차 하지 않는다 (Phase 5-18)")
+  void doesNotDetectTheContextWhenNotApplicable() {
+    // 값으로 받던 때는 자바가 호출 전에 인자를 평가해, 첫 줄에서 통과할 몰에서도
+    // 매 회차 tasklist 외부 프로세스가 떴다(최대 5초 대기). 옵트인 OFF 몰의 런타임
+    // 동작이 그대로여야 한다는 수용 기준 10 의 기존 위반이었다.
+    AtomicInteger calls = new AtomicInteger();
+
+    assertEquals(
+        PROCEED,
+        SessionProfileGate.evaluate(
+            false,
+            () -> {
+              calls.incrementAndGet();
+              return SERVICE_SESSION_0;
+            },
+            null,
+            null,
+            null));
+
+    assertEquals(0, calls.get(), "적용 대상이 아닌데 실행 컨텍스트를 탐지했다.");
+  }
+
+  @Test
+  @DisplayName("적용 대상이면 실행 컨텍스트를 한 번만 탐지한다")
+  void detectsTheContextOnceWhenApplicable() {
+    // 반대로 대상일 때는 반드시 봐야 한다. 안 보면 세션 0 판정이 통째로 죽는다.
+    AtomicInteger calls = new AtomicInteger();
+
+    SessionProfileGate.evaluate(
+        true,
+        () -> {
+          calls.incrementAndGet();
+          return SERVICE_SESSION_0;
+        },
+        "ssg",
+        "kim",
+        "kim");
+
+    assertEquals(1, calls.get(), "탐지 횟수가 1이 아니다.");
   }
 
   // ---------------------------------------------------------------
@@ -54,16 +98,17 @@ class SessionProfileGateTest {
     // 프로필이 멀쩡해도 띄울 자리가 없다.
     assertEquals(
         REQUIRES_USER_SESSION,
-        SessionProfileGate.evaluate(true, SERVICE_SESSION_0, "ssg", "kim", "kim"));
+        SessionProfileGate.evaluate(true, () -> SERVICE_SESSION_0, "ssg", "kim", "kim"));
   }
 
   @Test
   @DisplayName("실행 컨텍스트를 모르면 막는다 — 모를 때 띄우면 증상이 재현된다")
   void blocksWhenTheContextIsUnknown() {
     assertEquals(
-        REQUIRES_USER_SESSION, SessionProfileGate.evaluate(true, UNKNOWN, "ssg", "kim", "kim"));
+        REQUIRES_USER_SESSION,
+        SessionProfileGate.evaluate(true, () -> UNKNOWN, "ssg", "kim", "kim"));
     assertEquals(
-        REQUIRES_USER_SESSION, SessionProfileGate.evaluate(true, null, "ssg", "kim", "kim"));
+        REQUIRES_USER_SESSION, SessionProfileGate.evaluate(true, () -> null, "ssg", "kim", "kim"));
   }
 
   @Test
@@ -71,7 +116,8 @@ class SessionProfileGateTest {
   void blocksWhenTheProfileIsMissing() {
     for (String missing : new String[] {null, "", "   "}) {
       assertEquals(
-          PROFILE_MISSING, SessionProfileGate.evaluate(true, INTERACTIVE, missing, "kim", "kim"));
+          PROFILE_MISSING,
+          SessionProfileGate.evaluate(true, () -> INTERACTIVE, missing, "kim", "kim"));
     }
   }
 
@@ -80,28 +126,31 @@ class SessionProfileGateTest {
   void blocksOnOwnerMismatch() {
     // 열어도 세션이 살아나지 않는다. 시도하면 '로그인 화면에서 멈춤' 이 된다.
     assertEquals(
-        PROFILE_OWNER_MISMATCH, SessionProfileGate.evaluate(true, INTERACTIVE, "ssg", "다른사람", "나"));
+        PROFILE_OWNER_MISMATCH,
+        SessionProfileGate.evaluate(true, () -> INTERACTIVE, "ssg", "다른사람", "나"));
   }
 
   @Test
   @DisplayName("소유자 표기의 대소문자·공백 차이는 불일치로 보지 않는다")
   void ownerComparisonIsForgiving() {
     // 윈도우 계정명은 대소문자를 가리지 않는다. 여기서 틀리면 멀쩡한 프로필이 막힌다.
-    assertEquals(PROCEED, SessionProfileGate.evaluate(true, INTERACTIVE, "ssg", " KIM ", "kim"));
+    assertEquals(
+        PROCEED, SessionProfileGate.evaluate(true, () -> INTERACTIVE, "ssg", " KIM ", "kim"));
   }
 
   @Test
   @DisplayName("소유자가 기록돼 있지 않으면 검사하지 않는다")
   void skipsTheOwnerCheckWhenNotRecorded() {
     // 소유자를 적기 전에 만든 프로필을 '미기록' 만으로 막으면 멀쩡한 것을 못 쓰게 된다.
-    assertEquals(PROCEED, SessionProfileGate.evaluate(true, INTERACTIVE, "ssg", null, "kim"));
-    assertEquals(PROCEED, SessionProfileGate.evaluate(true, INTERACTIVE, "ssg", "  ", "kim"));
+    assertEquals(PROCEED, SessionProfileGate.evaluate(true, () -> INTERACTIVE, "ssg", null, "kim"));
+    assertEquals(PROCEED, SessionProfileGate.evaluate(true, () -> INTERACTIVE, "ssg", "  ", "kim"));
   }
 
   @Test
   @DisplayName("조건이 다 맞으면 통과한다")
   void proceedsWhenEverythingIsInPlace() {
-    assertEquals(PROCEED, SessionProfileGate.evaluate(true, INTERACTIVE, "ssg", "kim", "kim"));
+    assertEquals(
+        PROCEED, SessionProfileGate.evaluate(true, () -> INTERACTIVE, "ssg", "kim", "kim"));
   }
 
   // ---------------------------------------------------------------
