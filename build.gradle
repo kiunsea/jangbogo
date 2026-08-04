@@ -7,7 +7,7 @@ plugins {
 }
 
 group = 'com.jiniebox'
-version = '0.15.4'
+version = '0.15.5'
 description = '사용자 온라인/오프라인 구매 내역 수집기'
 
 java {
@@ -83,6 +83,17 @@ dependencies {
 	testImplementation('org.springframework.boot:spring-boot-starter-test') {
 		exclude group: 'org.springframework.boot', module: 'spring-boot-starter-logging'
 	}
+
+	// Playwright — 프로브 전용. 배포본에 들어가지 않는다.
+	//
+	// 계획서 수용 기준 5 는 "main 의 build.gradle 에 Playwright 의존성이 없다" 이고, 결정 3 은
+	// 배포본에 포함하지 않기로 했다. 그래서 testImplementation 으로만 둔다 — 컴파일·실행 어느
+	// 쪽으로도 main 소스에 닿지 않고 배포 ZIP 에도 들어가지 않는다.
+	//
+	// 목적은 T3 판정의 마지막 배제 절차다. 순정 Chrome 대조군이 이미 "엔진 탓이 아니다"를
+	// 가리키지만, Phase 5B 를 영구 미착수로 닫으려면 Playwright 도 실제로 재 보는 편이 낫다.
+	// 판정이 끝나면 이 의존성은 제거한다.
+	testImplementation 'com.microsoft.playwright:playwright:1.52.0'
 	// JUnit 5 명시적 추가 (IDE 호환성)
 	testImplementation 'org.junit.jupiter:junit-jupiter-api'
 	testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine'
@@ -94,7 +105,14 @@ dependencies {
 }
 
 tasks.named('test') {
-	useJUnitPlatform()
+	// 프로브(@Tag("probe"))는 실제 브라우저를 띄우고 사람의 조작을 기다린다.
+	// 일반 테스트 묶음은 브라우저·네트워크·DB 없이 돌아야 하므로 기본적으로 제외한다.
+	// 실행하려면: ./gradlew test -PincludeProbe --tests '*Probe*'
+	useJUnitPlatform {
+		if (!project.hasProperty('includeProbe')) {
+			excludeTags 'probe'
+		}
+	}
 
 	// LocalDBConnection 은 Spring DataSource 를 거치지 않고 직접 JDBC 로 접속하므로
 	// src/test/resources/application.yml 의 spring.datasource.url 이 적용되지 않는다.
@@ -103,6 +121,18 @@ tasks.named('test') {
 	doFirst { testDbDir.mkdirs() }
 	def testDbFile = new File(testDbDir, 'jangbogo-test.db').absolutePath.replace('\\', '/')
 	systemProperty 'jangbogo.localdb.url', "jdbc:sqlite:${testDbFile}"
+
+	// 프로브 대상 지정을 테스트 JVM 까지 넘긴다.
+	//
+	// gradle 명령줄의 -D 는 gradle JVM 에만 붙고 포크된 테스트 JVM 은 상속하지 않는다.
+	// 넘기지 않으면 프로브가 그 값을 못 보고 조용히 다른 대상으로 돈다 — 실제로
+	// oasis 를 지정했는데 ssg 브라우저가 떴고, 기록까지 덮어썼다.
+	['jangbogo.probe.mall'].each { key ->
+		def value = System.getProperty(key)
+		if (value != null) {
+			systemProperty key, value
+		}
+	}
 
 	// ScreenshotUtil 은 기본적으로 작업 디렉터리의 logs/screenshots 에 PNG 를 쓴다.
 	// 테스트가 개발 트리에 파일을 남기지 않도록 build/ 아래로 격리한다. (Phase 3-7)

@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.15.5] - 2026-08-05
+
+**Phase 4A(엔진 판정 게이트)를 종결합니다.** T1·T2·T4 는 PASS, T3(세션 프로필 재사용)는 ssg·oasis 모두 FAIL 이지만 **원인이 엔진이 아닙니다** — 두 몰이 세션 단위 인증을 쓰기 때문입니다. 판정 근거는 `doc/developer/adr/ADR-0001-session-profile-reuse-t3.md` 에 있습니다.
+
+이번 변경은 **전부 휴면**입니다. 프로필을 넘기는 호출자가 아직 없어 런타임 동작은 이전과 같습니다.
+
+### Added
+
+- **세션 프로필로 브라우저를 여는 경로** (`WebDriverManager.getWebDriver(browserName, profileDir)` 오버로드). 프로필이 `null` 이면 조립 결과가 기존과 **완전히 동일**합니다 — 옵트인하지 않은 몰의 동작이 바뀌지 않는다는 보장이 여기서 나옵니다. 프로필이 있을 때만 붙는 것:
+  - `--user-data-dir` · `--profile-directory` (**`--` 접두사 필수**. 구 chromedriver 는 보정해 줬지만 149 계열부터는 인자를 조용히 무시하고 매번 새 임시 프로필을 엽니다 — '로그인 안 된 상태로 성공' 이라 실패보다 나쁩니다)
+  - `excludeSwitches` 로 자동화 표식 제거(`enable-automation` · `test-type`)
+  - Chrome 실행 파일 핀 고정 (`jangbogo.browser.chrome-binary`) — 프로필을 만든 Chrome 과 여는 Chrome 을 같은 것으로
+  - headless 강제 off — 프로필 재사용은 세션 만료를 눈으로 확인할 수 있어야 성립합니다
+  - CDP 마스킹 스크립트 주입(`Page.addScriptToEvaluateOnNewDocument`). 실패해도 수집을 멈추지 않고 경고만 남깁니다
+- **`NativeChromeLoginLauncher`** — 사람이 직접 로그인할 **순정 chrome.exe** 를 `ProcessBuilder` 로 띄웁니다. Selenium·chromedriver 가 관여하지 않아 사람이 평소 쓰는 브라우저와 구분되지 않습니다. 5-15(세션 캡처)의 기반입니다.
+  - **창이 닫혔다는 판정을 `Process.waitFor()` 로 하지 않습니다.** Chrome 은 실행된 프로세스가 브라우저 수명주기를 갖지 않아 사람이 로그인하기 전에 돌아올 수 있습니다. 믿을 수 있는 신호는 **프로필 락(`lockfile`) 해제**이고, 쿠키가 디스크로 내려가는 것도 그 시점입니다.
+  - 표준 입출력을 물려주지 않습니다. `inheritIO()` 로 띄우면 Chrome 이 부모의 스트림 핸들을 잡아 **부모가 먼저 끝나지 못합니다** — 실측으로 3시간 13분을 붙잡힌 적이 있습니다.
+- **프로브 5종** (전부 `@Tag("probe")`, 일반 빌드에서 제외):
+  - `ChromeFingerprintProbe` — T1(자동화 표식) · T2(지문 동등성) · T4(chromedriver 기동). 실계정 불필요
+  - `SessionProfileReuseProbe` — T3(프로필 재사용)
+  - `SessionCookieSurvivalProbe` — 세션 쿠키가 브라우저 재시작을 넘는지 A/B. 실계정 불필요
+  - `SeleniumSessionTransferProbe` — 세션 이관(CDP `Network.getAllCookies` 캡처 + `setCookies` 주입) 왕복
+  - `PlaywrightSessionProbe` — 엔진 배제 절차(PW-2 프로필 재사용 실패 / PW-3 `storageState` 성공)
+- `doc/developer/adr/ADR-0001-session-profile-reuse-t3.md` — T3 판정 기록(Phase 4A-5 요구 산출물)
+
+### Changed
+
+- **마스킹 방식을 정정했습니다.** 흔한 레시피는 `navigator.webdriver` 를 `undefined` 로 지우지만, 그것은 이 속성이 자동화일 때만 존재하던 옛 Chrome 기준입니다. 지금 Chrome 은 **평소에도 이 값이 있고 `false`** 입니다(T2 실측). `undefined` 로 지우면 순정과 **달라져** 오히려 눈에 띕니다. 프로토타입이 아니라 인스턴스에 정의하는 것도 `getOwnPropertyDescriptor` 로 구분되므로 함께 고쳤습니다.
+- `test` 태스크가 `probe` 태그를 기본 제외합니다. 프로브는 실제 브라우저를 띄우고 사람의 조작을 기다리므로 일반 묶음에 섞이면 안 됩니다. 실행: `./gradlew test -PincludeProbe --tests '*Probe*'`
+- 프로브 대상 지정(`jangbogo.probe.mall`)을 **테스트 JVM 까지 전달**합니다. gradle 명령줄의 `-D` 는 gradle JVM 에만 붙고 포크된 테스트 JVM 은 상속하지 않습니다 — 넘기지 않으면 프로브가 그 값을 못 보고 **조용히 다른 몰로 돕니다**(oasis 를 지정했는데 ssg 가 뜨고 기록까지 덮어쓴 적이 있습니다).
+
+### Added (테스트)
+
+- `WebDriverOptionsTest` 18건 — 프로필이 없을 때 조립 결과가 기존과 같은지, 있을 때만 프로필 전용 옵션이 붙는지, `--` 접두사·절대경로·하위 프로필 지정, headless 강제 off.
+- `NativeChromeLoginLauncherTest` 11건 — 명령 조립(접두사·새 창 강제·첫 실행 안내 억제·URL 위치), 실행 파일 탐색 실패 시 조용히 넘기지 않기, 표준 입출력 미상속, 락 파일 기반 사용 중 판정.
+- 전부 브라우저·네트워크·DB 없이 돕니다. 총 **333건** (실패 0).
+
+### Notes
+
+- **T3 FAIL 의 원인은 몰의 인증 방식입니다.** 순정 Chrome(자동화 없음)으로도 재시작 뒤 로그인으로 밀렸고, 캡처해 보니 ssg 의 인증 쿠키가 전부 **세션 스코프**였습니다. Chrome 은 창을 닫을 때 세션 쿠키를 버립니다("중단한 위치에서 계속하기"를 켜도 마찬가지 — 실계정 없이 A/B 로 확인). 즉 **프로필 디렉터리를 다시 여는 방식은 영속 로그인을 주는 몰에서만 성립하고, 확인한 두 몰은 주지 않습니다.**
+- **대신 세션 이관이 성립합니다.** 같은 로그인 한 번으로 방식을 갈랐더니 프로필 재사용은 엔진과 무관하게 실패하고, 살아 있는 브라우저에서 쿠키를 떠 주입하는 방식은 성공했습니다. 그 방식은 **Selenium 만으로** 됩니다(CDP 캡처·주입 왕복 실측).
+- 부수로 확인된 별건 3가지는 ADR 말미에 남겼습니다 — `Ssg.isSignedIn()` 이 로그아웃 상태에서도 true, 즉시수집이 세션 프로필 게이트를 우회, 게이트 호출부의 단축평가 누락.
+
 ## [0.15.4] - 2026-08-04
 
 **게이트가 통째로 죽어 있던 문제를 고칩니다.** 실측에서 잡혔습니다.

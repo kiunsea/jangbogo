@@ -3,8 +3,12 @@ package com.jiniebox.jangbogo.svc.util;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.DisplayName;
@@ -164,6 +168,164 @@ class WebDriverOptionsTest {
   @DisplayName("Edge 옵션의 브라우저 이름은 MicrosoftEdge 다")
   void edgeOptionsTargetEdge() {
     assertEquals("MicrosoftEdge", manager.buildEdgeOptions().getBrowserName());
+  }
+
+  // ---------------------------------------------------------------------
+  // Phase 5-7 · 경로 A 배선
+  //
+  // 이 묶음은 순수 함수 검증이 아니다. 우리 코드가 만든 값이 Selenium 의 옵션 객체까지
+  // 실제로 건너갔는지를 직렬화 결과(asMap)로 확인한다. 5차 세션에서 게이트 판정을 완벽히
+  // 테스트하고도 DAO 의 SELECT 목록에 컬럼이 빠져 게이트가 통째로 죽어 있던 일이 있었다 —
+  // 끊긴 배선은 순수 함수 테스트로는 잡히지 않는다.
+  // ---------------------------------------------------------------------
+
+  private static final Path PROFILE = Paths.get("build", "test-profiles", "ssg");
+
+  @SuppressWarnings("unchecked")
+  private static Map<String, Object> chromeOptionsOf(ChromeOptions options) {
+    return (Map<String, Object>) options.asMap().get(ChromeOptions.CAPABILITY);
+  }
+
+  @Test
+  @DisplayName("프로필을 주면 --user-data-dir 이 절대경로로, -- 접두사를 달고 실제로 전달된다")
+  void carriesUserDataDirWithTheRequiredPrefix() {
+    List<String> args = argsOf(manager.buildChromeOptions(false, PROFILE));
+
+    String expected = "--user-data-dir=" + PROFILE.toAbsolutePath();
+    assertTrue(
+        args.contains(expected),
+        "프로필 경로가 옵션까지 건너가지 않았다. 이 인자가 빠지면 매번 새 임시 프로필이 열려"
+            + " '로그인 안 된 상태로 성공' 이 된다. 실제 인자: "
+            + args);
+
+    // 접두사가 빠진 형태로 새어 들어가면 chromedriver 149+ 가 조용히 무시한다.
+    assertFalse(
+        args.stream().anyMatch(a -> a.startsWith("user-data-dir=")),
+        "-- 접두사 없는 user-data-dir 이 섞여 있다. 실제 인자: " + args);
+  }
+
+  @Test
+  @DisplayName("상대 경로를 줘도 절대경로로 바꿔 넘긴다")
+  void absolutizesRelativeProfilePaths() {
+    // Chrome 은 상대 경로를 우리 작업 디렉터리가 아니라 자기 기준으로 푼다.
+    // 그대로 넘기면 엉뚱한 위치에 빈 프로필이 생긴다.
+    List<String> args = argsOf(manager.buildChromeOptions(false, Paths.get("relative", "profile")));
+
+    assertTrue(
+        args.stream()
+            .anyMatch(
+                a ->
+                    a.startsWith("--user-data-dir=")
+                        && Paths.get(a.substring("--user-data-dir=".length())).isAbsolute()),
+        "상대 경로가 그대로 넘어갔다. 실제 인자: " + args);
+  }
+
+  @Test
+  @DisplayName("프로필을 쓰면 하위 프로필을 Default 로 명시한다")
+  void pinsTheProfileDirectory() {
+    // 생략하면 Chrome 이 마지막에 쓰던 프로필을 고를 수 있다 —
+    // 사람이 로그인해 둔 프로필과 다른 곳이 열릴 수 있다.
+    assertTrue(
+        argsOf(manager.buildChromeOptions(false, PROFILE))
+            .contains("--profile-directory=" + WebDriverManager.PROFILE_DIRECTORY));
+  }
+
+  @Test
+  @DisplayName("프로필을 쓰면 자동화 표식 스위치가 excludeSwitches 로 전달된다")
+  void carriesExcludeSwitches() {
+    Object excluded =
+        chromeOptionsOf(manager.buildChromeOptions(false, PROFILE)).get("excludeSwitches");
+
+    assertNotNull(excluded, "excludeSwitches 가 goog:chromeOptions 까지 건너가지 않았다.");
+    assertTrue(
+        ((Collection<?>) excluded).containsAll(WebDriverManager.EXCLUDED_SWITCHES),
+        "실제 값: " + excluded);
+  }
+
+  @Test
+  @DisplayName("프로필을 쓰면 headless 설정을 무시하고 화면을 띄운다")
+  void profileForcesHeadedMode() {
+    // 프로필 재사용은 headless 로 성립하지 않는다. 설정이 켜져 있어도 우리가 이긴다.
+    List<String> args = argsOf(manager.buildChromeOptions(true, PROFILE));
+
+    assertFalse(
+        args.stream().anyMatch(a -> a.contains("headless")),
+        "프로필을 쓰는데 headless 로 떴다. 실제 인자: " + args);
+  }
+
+  @Test
+  @DisplayName("Chrome 실행 파일은 프로퍼티가 있을 때만 핀 고정한다")
+  void pinsChromeBinaryOnlyWhenAsked() {
+    String previous = System.getProperty(WebDriverManager.CHROME_BINARY_PROPERTY);
+    try {
+      System.clearProperty(WebDriverManager.CHROME_BINARY_PROPERTY);
+      assertNull(
+          chromeOptionsOf(manager.buildChromeOptions(false, PROFILE)).get("binary"),
+          "지정하지 않았는데 바이너리가 박혔다 — 설치된 Chrome 을 못 찾게 될 수 있다.");
+
+      System.setProperty(WebDriverManager.CHROME_BINARY_PROPERTY, "C:\\chrome\\chrome.exe");
+      assertEquals(
+          "C:\\chrome\\chrome.exe",
+          chromeOptionsOf(manager.buildChromeOptions(false, PROFILE)).get("binary"));
+    } finally {
+      if (previous == null) {
+        System.clearProperty(WebDriverManager.CHROME_BINARY_PROPERTY);
+      } else {
+        System.setProperty(WebDriverManager.CHROME_BINARY_PROPERTY, previous);
+      }
+    }
+  }
+
+  @Test
+  @DisplayName("프로필이 없으면 조립 결과가 기존과 완전히 같다 — 옵트인 OFF 몰의 동작 불변")
+  void withoutProfileTheOptionsAreUnchanged() {
+    // Phase 5 수용 기준 10. 옵트인하지 않은 몰은 Phase 3 종료 시점과 실행 결과가 같아야 한다.
+    // 프로필 전용 옵션이 하나라도 새어 나가면 여기서 걸린다.
+    String previous = System.getProperty(WebDriverManager.CHROME_BINARY_PROPERTY);
+    try {
+      System.setProperty(WebDriverManager.CHROME_BINARY_PROPERTY, "C:\\chrome\\chrome.exe");
+
+      for (boolean headless : new boolean[] {false, true}) {
+        assertEquals(
+            manager.buildChromeOptions(headless).asMap(),
+            manager.buildChromeOptions(headless, null).asMap(),
+            "프로필 없는 경로의 옵션이 달라졌다. headless=" + headless);
+
+        Map<String, Object> chromeOptions =
+            chromeOptionsOf(manager.buildChromeOptions(headless, null));
+        assertNull(chromeOptions.get("excludeSwitches"), "프로필이 없는데 excludeSwitches 가 붙었다.");
+        assertNull(chromeOptions.get("binary"), "프로필이 없는데 바이너리가 핀 고정됐다.");
+        assertFalse(
+            argsOf(manager.buildChromeOptions(headless, null)).stream()
+                .anyMatch(a -> a.contains("user-data-dir") || a.contains("profile-directory")),
+            "프로필이 없는데 프로필 인자가 붙었다.");
+      }
+    } finally {
+      if (previous == null) {
+        System.clearProperty(WebDriverManager.CHROME_BINARY_PROPERTY);
+      } else {
+        System.setProperty(WebDriverManager.CHROME_BINARY_PROPERTY, previous);
+      }
+    }
+  }
+
+  @Test
+  @DisplayName("마스킹 스크립트는 navigator.webdriver 를 지우는 게 아니라 false 로 되돌린다")
+  void stealthScriptRestoresWebdriverToFalse() {
+    // excludeSwitches 로 배너와 스위치는 지워지지만 navigator.webdriver 는 남는다.
+    //
+    // 흔한 레시피대로 undefined 를 넣으면 순정 Chrome(=false)과 다른 상태가 되어 오히려 눈에 띈다.
+    // T2 실측으로 확인한 값이다 — 순정 "webdriver":"false" / 이 스크립트 적용 후에도 "false".
+    assertTrue(WebDriverManager.STEALTH_SCRIPT.contains("webdriver"));
+    assertTrue(
+        WebDriverManager.STEALTH_SCRIPT.contains("false"),
+        "순정 Chrome 은 false 다. 실제: " + WebDriverManager.STEALTH_SCRIPT);
+    assertFalse(
+        WebDriverManager.STEALTH_SCRIPT.contains("undefined"),
+        "undefined 로 지우면 순정과 달라진다 — 과잉 마스킹이다.");
+    assertTrue(
+        WebDriverManager.STEALTH_SCRIPT.contains("Navigator.prototype"),
+        "순정 Chrome 에서 이 속성은 프로토타입에 있다. 인스턴스에 얹으면 구분된다.");
   }
 
   @Test

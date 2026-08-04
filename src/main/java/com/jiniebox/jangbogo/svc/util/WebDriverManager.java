@@ -1,13 +1,17 @@
 package com.jiniebox.jangbogo.svc.util;
 
 import com.jiniebox.jangbogo.dto.JangbogoConfig;
+import java.nio.file.Path;
 import java.time.Duration;
+import java.util.List;
+import java.util.Map;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.openqa.selenium.Capabilities;
 import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.chrome.ChromeDriver;
 import org.openqa.selenium.chrome.ChromeOptions;
+import org.openqa.selenium.chromium.ChromiumDriver;
 import org.openqa.selenium.edge.EdgeDriver;
 import org.openqa.selenium.edge.EdgeOptions;
 import org.openqa.selenium.remote.RemoteWebDriver;
@@ -24,6 +28,42 @@ public class WebDriverManager {
 
   /** 페이지 로드 타임아웃 재정의 시스템 프로퍼티. */
   public static final String PAGE_LOAD_TIMEOUT_PROPERTY = "jangbogo.browser.page-load-timeout-sec";
+
+  /**
+   * Chrome 실행 파일 핀 고정 (Phase 5-7).
+   *
+   * <p>프로필을 만든 Chrome 과 그 프로필을 여는 Chrome 이 다르면 세션이 살아나지 않을 수 있다. 값이 없으면 지정하지 않는다 — 지금까지의 동작 그대로다.
+   */
+  public static final String CHROME_BINARY_PROPERTY = "jangbogo.browser.chrome-binary";
+
+  /** 프로필 디렉터리 안에서 쓸 하위 프로필 이름. Chrome 의 기본값과 같다. */
+  static final String PROFILE_DIRECTORY = "Default";
+
+  /**
+   * 자동화 표식을 지우는 스위치 (Phase 5-7).
+   *
+   * <p>{@code enable-automation} 은 "Chrome이 자동화된 테스트 소프트웨어에 의해 제어되고 있습니다" 배너와 {@code
+   * navigator.webdriver=true} 를 만든다. {@code test-type} 은 명령줄에 {@code test-type=webdriver} 로 남는다. 둘
+   * 다 사람이 만든 프로필을 여는 경로에서만 지운다.
+   */
+  static final List<String> EXCLUDED_SWITCHES = List.of("enable-automation", "test-type");
+
+  /**
+   * 새 문서마다 주입하는 마스킹 스크립트 (Phase 5-7).
+   *
+   * <p>타입이 붙은 DevTools 바인딩({@code selenium-devtools-vNNN})은 Chrome 150 용 아티팩트가 없어 쓸 수 없다. {@code
+   * ChromiumDriver.executeCdpCommand} 는 버전 매칭이 필요 없어 그대로 동작한다 — 실측으로 확인했다.
+   *
+   * <p><b>{@code undefined} 가 아니라 {@code false} 로 되돌린다.</b> 흔히 쓰이는 레시피는 {@code undefined} 를 넣지만,
+   * 그것은 {@code navigator.webdriver} 가 자동화일 때만 존재하던 옛 Chrome 기준이다. 지금 Chrome 은 <b>평소에도 이 값이 있고
+   * {@code false}</b> 다 — T2 로 실측했다. {@code undefined} 로 지우면 순정 브라우저와 <b>다른</b> 상태가 되어 오히려 눈에 띈다.
+   *
+   * <p>인스턴스가 아니라 프로토타입에 정의하는 이유도 같다. 순정 Chrome 에서 이 속성은 {@code Navigator.prototype} 에 있고 navigator
+   * 자신의 속성이 아니다. 인스턴스에 얹으면 {@code getOwnPropertyDescriptor} 로 구분된다.
+   */
+  static final String STEALTH_SCRIPT =
+      "Object.defineProperty(Navigator.prototype, 'webdriver',"
+          + " {get: () => false, configurable: true});";
 
   // 여기 있던 CHROME_DRIVER_ID / CHROME_DRIVER_PATH / CHROME_BINARY_PATH /
   // EDGE_DRIVER_ID / EDGE_DRIVER_PATH 5개 필드는 제거했다 (Phase 3-11).
@@ -67,21 +107,66 @@ public class WebDriverManager {
    * @return
    */
   public synchronized WebDriver getWebDriver(String browserName) {
+    return getWebDriver(browserName, null);
+  }
+
+  /**
+   * 세션 프로필로 웹드라이버를 기동한다 (Phase 5-7 · 경로 A).
+   *
+   * <p>{@code profileDir} 이 {@code null} 이면 <b>기존 경로 그대로</b>다 — 옵트인하지 않은 몰의 동작이 바뀌지 않는다는 보장이 여기서
+   * 나온다. 프로필 전용 옵션(자동화 표식 제거·바이너리 핀·headless 강제 off)도 프로필이 있을 때만 붙인다.
+   *
+   * <p>Edge 는 프로필 경로를 받지 않는다. 경로 A 는 Chrome 으로만 판정했고, Edge 분기는 설정으로만 닿는 예비 경로다.
+   *
+   * @param browserName {@code "chrome"} 또는 {@code "edge"}
+   * @param profileDir 사람이 로그인해 둔 프로필 디렉터리. 없으면 null
+   * @return 웹드라이버
+   */
+  public synchronized WebDriver getWebDriver(String browserName, Path profileDir) {
     WebDriver driver = null;
 
     if (this.BROWSER_NAME_CHROME.equals(browserName)) {
       // BROWSER_HEADLESS 가 true 일 때만 headless 로 띄운다.
       // (설정이 없거나 파싱 불가면 headless 를 켜지 않는다 — 로그인 화면을 눈으로 확인할 수 있어야 한다)
       boolean headless = Boolean.parseBoolean(config().get("BROWSER_HEADLESS"));
-      ChromeOptions options = buildChromeOptions(headless);
-      log.info("ChromeDriver 기동 (headless={})", headless);
+      ChromeOptions options = buildChromeOptions(headless, profileDir);
+      log.info(
+          "ChromeDriver 기동 (headless={}, profile={})",
+          headless && profileDir == null,
+          profileDir == null ? "없음" : profileDir);
       driver = new ChromeDriver(options);
+      if (profileDir != null) {
+        applyStealth(driver);
+      }
     } else if (this.BROWSER_NAME_EDGE.equals(browserName)) {
       log.info("EdgeDriver 기동");
       driver = new EdgeDriver(buildEdgeOptions());
     }
 
     return driver;
+  }
+
+  /**
+   * 새 문서마다 마스킹 스크립트를 주입한다 (Phase 5-7).
+   *
+   * <p>{@code excludeSwitches} 로 배너와 스위치는 지워지지만 {@code navigator.webdriver} 는 그대로 남는다. 페이지가 로드될 때마다
+   * 문서 스크립트보다 먼저 돌아야 하므로 {@code Page.addScriptToEvaluateOnNewDocument} 를 쓴다.
+   *
+   * <p>실패해도 수집을 멈추지 않는다 — 마스킹은 있으면 나은 것이지 없으면 못 도는 것이 아니다. 다만 조용히 넘기지는 않는다.
+   *
+   * @param driver 기동된 드라이버
+   */
+  void applyStealth(WebDriver driver) {
+    if (!(driver instanceof ChromiumDriver chromium)) {
+      log.warn("CDP 를 지원하지 않는 드라이버라 마스킹을 건너뛴다: {}", driver.getClass().getSimpleName());
+      return;
+    }
+    try {
+      chromium.executeCdpCommand(
+          "Page.addScriptToEvaluateOnNewDocument", Map.of("source", STEALTH_SCRIPT));
+    } catch (RuntimeException e) {
+      log.warn("마스킹 스크립트 주입 실패({}). 경고만 남기고 진행한다.", e.getClass().getSimpleName());
+    }
   }
 
   /**
@@ -94,12 +179,34 @@ public class WebDriverManager {
    * @return 조립된 ChromeOptions
    */
   ChromeOptions buildChromeOptions(boolean headless) {
+    return buildChromeOptions(headless, null);
+  }
+
+  /**
+   * 세션 프로필까지 반영해 ChromeOptions 를 조립한다 (Phase 5-7).
+   *
+   * <p>{@code profileDir} 이 {@code null} 이면 위 {@link #buildChromeOptions(boolean)} 과 <b>완전히 같은
+   * 결과</b>다. 프로필 전용 옵션은 하나도 붙지 않는다 — 옵트인 OFF 몰의 런타임 동작이 그대로 유지되어야 하기 때문이다.
+   *
+   * @param headless true 면 화면 출력 없이 실행한다. 프로필을 쓸 때는 무시된다
+   * @param profileDir 프로필 디렉터리. 없으면 null
+   * @return 조립된 ChromeOptions
+   */
+  ChromeOptions buildChromeOptions(boolean headless, Path profileDir) {
     ChromeOptions options = new ChromeOptions();
     options.addArguments("--remote-allow-origins=*");
     options.addArguments(
         "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.6367.91 Safari/537.3");
-    if (headless) {
+    if (headless && profileDir == null) {
       options.addArguments("--headless=new"); // 크롬 브라우저를 화면에 출력하지 않고 실행한다
+    } else if (headless) {
+      // 프로필 재사용은 headless 로 성립하지 않는다 — 세션 만료를 눈으로 확인할 수 없고,
+      // 로그인 화면에 멈춘 채 타임아웃되면 로그만으로는 원인을 가릴 수 없다. 설정보다 우선한다.
+      log.info("세션 프로필을 쓰므로 BROWSER_HEADLESS=true 를 무시하고 화면을 띄운다.");
+    }
+
+    if (profileDir != null) {
+      applyProfileOptions(options, profileDir);
     }
 
     // 페이지 로드 타임아웃을 명시한다 (B-2).
@@ -114,6 +221,43 @@ public class WebDriverManager {
     options.setPageLoadTimeout(Duration.ofSeconds(pageLoadTimeoutSeconds()));
 
     return options;
+  }
+
+  /**
+   * 프로필 전용 옵션을 붙인다 (Phase 5-7 · 경로 A).
+   *
+   * <p><b>{@code --} 접두사가 필수다.</b> 구 chromedriver 는 접두사 없는 {@code user-data-dir=...} 을 보정해 줬지만 149
+   * 계열부터는 그러지 않는다. 접두사가 빠지면 인자가 조용히 무시되고 <b>매번 새 임시 프로필이 열려</b> '로그인 안 된 상태로 성공' 이 된다 — 실패보다 나쁜
+   * 결말이다.
+   *
+   * <p>{@code --profile-directory} 를 명시하는 이유도 같다. 생략하면 Chrome 이 마지막에 쓰던 프로필을 고를 수 있어, 사람이 로그인한 프로필과
+   * 다른 곳이 열릴 수 있다.
+   *
+   * @param options 조립 중인 옵션
+   * @param profileDir 프로필 디렉터리
+   */
+  private void applyProfileOptions(ChromeOptions options, Path profileDir) {
+    options.addArguments("--user-data-dir=" + profileDir.toAbsolutePath());
+    options.addArguments("--profile-directory=" + PROFILE_DIRECTORY);
+
+    // 자동화 표식 제거. 프로필을 쓰는 경로에서만 붙인다.
+    options.setExperimentalOption("excludeSwitches", EXCLUDED_SWITCHES);
+
+    String binary = trimmedProperty(CHROME_BINARY_PROPERTY);
+    if (binary != null) {
+      // 프로필을 만든 Chrome 과 여는 Chrome 을 같은 것으로 고정한다.
+      options.setBinary(binary);
+    }
+  }
+
+  /** 시스템 프로퍼티를 읽되 빈 값은 없는 것으로 본다. */
+  private static String trimmedProperty(String key) {
+    String raw = System.getProperty(key);
+    if (raw == null) {
+      return null;
+    }
+    String trimmed = raw.trim();
+    return trimmed.isEmpty() ? null : trimmed;
   }
 
   /**
