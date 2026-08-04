@@ -24,12 +24,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`NativeChromeLoginLauncher`** — 사람이 직접 로그인할 **순정 chrome.exe** 를 `ProcessBuilder` 로 띄웁니다. Selenium·chromedriver 가 관여하지 않아 사람이 평소 쓰는 브라우저와 구분되지 않습니다. 5-15(세션 캡처)의 기반입니다.
   - **창이 닫혔다는 판정을 `Process.waitFor()` 로 하지 않습니다.** Chrome 은 실행된 프로세스가 브라우저 수명주기를 갖지 않아 사람이 로그인하기 전에 돌아올 수 있습니다. 믿을 수 있는 신호는 **프로필 락(`lockfile`) 해제**이고, 쿠키가 디스크로 내려가는 것도 그 시점입니다.
   - 표준 입출력을 물려주지 않습니다. `inheritIO()` 로 띄우면 Chrome 이 부모의 스트림 핸들을 잡아 **부모가 먼저 끝나지 못합니다** — 실측으로 3시간 13분을 붙잡힌 적이 있습니다.
-- **프로브 5종** (전부 `@Tag("probe")`, 일반 빌드에서 제외):
+- **프로브 4종** (전부 `@Tag("probe")`, 일반 빌드에서 제외):
   - `ChromeFingerprintProbe` — T1(자동화 표식) · T2(지문 동등성) · T4(chromedriver 기동). 실계정 불필요
   - `SessionProfileReuseProbe` — T3(프로필 재사용)
   - `SessionCookieSurvivalProbe` — 세션 쿠키가 브라우저 재시작을 넘는지 A/B. 실계정 불필요
   - `SeleniumSessionTransferProbe` — 세션 이관(CDP `Network.getAllCookies` 캡처 + `setCookies` 주입) 왕복
-  - `PlaywrightSessionProbe` — 엔진 배제 절차(PW-2 프로필 재사용 실패 / PW-3 `storageState` 성공)
 - `doc/developer/adr/ADR-0001-session-profile-reuse-t3.md` — T3 판정 기록(Phase 4A-5 요구 산출물)
 
 ### Changed
@@ -37,6 +36,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **마스킹 방식을 정정했습니다.** 흔한 레시피는 `navigator.webdriver` 를 `undefined` 로 지우지만, 그것은 이 속성이 자동화일 때만 존재하던 옛 Chrome 기준입니다. 지금 Chrome 은 **평소에도 이 값이 있고 `false`** 입니다(T2 실측). `undefined` 로 지우면 순정과 **달라져** 오히려 눈에 띕니다. 프로토타입이 아니라 인스턴스에 정의하는 것도 `getOwnPropertyDescriptor` 로 구분되므로 함께 고쳤습니다.
 - `test` 태스크가 `probe` 태그를 기본 제외합니다. 프로브는 실제 브라우저를 띄우고 사람의 조작을 기다리므로 일반 묶음에 섞이면 안 됩니다. 실행: `./gradlew test -PincludeProbe --tests '*Probe*'`
 - 프로브 대상 지정(`jangbogo.probe.mall`)을 **테스트 JVM 까지 전달**합니다. gradle 명령줄의 `-D` 는 gradle JVM 에만 붙고 포크된 테스트 JVM 은 상속하지 않습니다 — 넘기지 않으면 프로브가 그 값을 못 보고 **조용히 다른 몰로 돕니다**(oasis 를 지정했는데 ssg 가 뜨고 기록까지 덮어쓴 적이 있습니다).
+
+### Removed
+
+- **`com.microsoft.playwright:playwright` testImplementation 과 `PlaywrightSessionProbe`.** T3 판정의 배제 절차로 한 번 넣어 실제로 재 봤고(PW-2 프로필 재사용 **실패** / PW-3 `storageState` 주입 **성공**), 갈린 것이 엔진이 아니라 방식이며 그 방식이 기존 스택으로 된다는 것을 확인해 판정이 끝났습니다. 도입 근거가 사라졌으므로 제거합니다 — 계획서 수용 기준 5(`main` 의 `build.gradle` 에 Playwright 의존성 없음)를 지킵니다.
+  - 측정 자체는 `ADR-0001` 에 표로 남아 있고, 재현이 필요하면 커밋 `6f59357` 에서 프로브를 복원할 수 있습니다. **Phase 5B 는 영구 미착수입니다.**
 
 ### Added (테스트)
 

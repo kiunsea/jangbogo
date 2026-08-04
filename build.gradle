@@ -84,16 +84,13 @@ dependencies {
 		exclude group: 'org.springframework.boot', module: 'spring-boot-starter-logging'
 	}
 
-	// Playwright — 프로브 전용. 배포본에 들어가지 않는다.
+	// Playwright 의존성은 두지 않는다.
 	//
-	// 계획서 수용 기준 5 는 "main 의 build.gradle 에 Playwright 의존성이 없다" 이고, 결정 3 은
-	// 배포본에 포함하지 않기로 했다. 그래서 testImplementation 으로만 둔다 — 컴파일·실행 어느
-	// 쪽으로도 main 소스에 닿지 않고 배포 ZIP 에도 들어가지 않는다.
-	//
-	// 목적은 T3 판정의 마지막 배제 절차다. 순정 Chrome 대조군이 이미 "엔진 탓이 아니다"를
-	// 가리키지만, Phase 5B 를 영구 미착수로 닫으려면 Playwright 도 실제로 재 보는 편이 낫다.
-	// 판정이 끝나면 이 의존성은 제거한다.
-	testImplementation 'com.microsoft.playwright:playwright:1.52.0'
+	// T3 판정의 배제 절차로 한 번 넣어 실제로 재 봤고(PW-2 프로필 재사용 실패 / PW-3 세션 주입
+	// 성공), 유효한 방식이 기존 스택으로 되는 것을 확인해 판정이 끝났다. 근거가 사라졌으므로
+	// 제거한다 — 계획서 수용 기준 5("main 의 build.gradle 에 Playwright 의존성이 없다")를 지킨다.
+	// 측정 기록은 doc/developer/adr/ADR-0001 에 있고, 프로브는 커밋 6f59357 에 남아 있다.
+
 	// JUnit 5 명시적 추가 (IDE 호환성)
 	testImplementation 'org.junit.jupiter:junit-jupiter-api'
 	testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine'

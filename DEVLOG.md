@@ -37,8 +37,17 @@
 
 - `WebDriverManager.getWebDriver(browserName, profileDir)` 오버로드 — 프로필이 `null` 이면 조립 결과가 기존과 완전히 같다. 프로필이 있을 때만 `--user-data-dir`·`--profile-directory`·`excludeSwitches`·바이너리 핀·headless 강제 off·CDP 마스킹이 붙는다.
 - `NativeChromeLoginLauncher`(신규) — 사람 로그인용 순정 chrome.exe 기동. 창 닫힘 판정은 `Process.waitFor()` 가 아니라 프로필 락 해제로 한다.
-- 프로브 5종(`@Tag("probe")`) + `test` 태스크의 태그 제외 + 프로브 프로퍼티를 테스트 JVM 까지 전달.
+- 프로브 4종(`@Tag("probe")`) + `test` 태스크의 태그 제외 + 프로브 프로퍼티를 테스트 JVM 까지 전달.
 - 테스트 29건 추가(총 333건, 실패 0). 개발 트리 DB md5 불변.
+
+#### Playwright 의존성 처리 — 커밋을 둘로 나눴다
+
+판정 배제 절차로 넣었던 `PlaywrightSessionProbe` 와 그 `testImplementation` 은 근거가 사라져 제거 대상이었지만, 미커밋 상태에서 그냥 지우면 **git 이력에도 남지 않아** 측정 수단이 통째로 사라진다. 그래서 커밋을 둘로 나눴다.
+
+1. `6f59357` — 프로브를 포함해 커밋한다. PW-2·PW-3 측정이 이력에 남는다.
+2. 이 커밋 — 의존성과 프로브를 제거한다. `main` 최종 상태가 수용 기준 5 를 지킨다.
+
+재현이 필요하면 `git show 6f59357` 로 복원할 수 있다. 두 커밋을 함께 push 하므로 CI 는 최종 상태 하나만 검증한다 — 중간 커밋에서 Playwright 를 내려받는 비용은 들지 않는다.
 
 #### 이번 측정에서 배운 것
 
