@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Path;
@@ -326,6 +327,78 @@ class WebDriverOptionsTest {
     assertTrue(
         WebDriverManager.STEALTH_SCRIPT.contains("Navigator.prototype"),
         "순정 Chrome 에서 이 속성은 프로토타입에 있다. 인스턴스에 얹으면 구분된다.");
+  }
+
+  // ---------------------------------------------------------------------
+  // Phase 5-15 · 실행 중인 Chrome 에 붙기
+  // ---------------------------------------------------------------------
+
+  @Test
+  @DisplayName("붙기 옵션은 debuggerAddress 를 goog:chromeOptions 까지 실어 보낸다")
+  void attachOptionsCarryDebuggerAddress() {
+    assertEquals(
+        "127.0.0.1:51234",
+        chromeOptionsOf(manager.buildAttachOptions("127.0.0.1:51234")).get("debuggerAddress"));
+  }
+
+  @Test
+  @DisplayName("붙기 옵션에는 기동용 옵션이 하나도 붙지 않는다")
+  void attachOptionsCarryNothingThatOnlyAppliesAtLaunch() {
+    // debuggerAddress 를 주면 chromedriver 는 브라우저를 띄우지 않고 접속만 한다.
+    // 프로필·바이너리·표식 제거는 기동 시점에만 의미가 있어, 여기 얹으면 조용히 무시되면서
+    // '적용됐다'는 착각만 남는다. 그 착각이 T3 판정에서 가장 비쌌던 종류의 오류다.
+    String previous = System.getProperty(WebDriverManager.CHROME_BINARY_PROPERTY);
+    try {
+      System.setProperty(WebDriverManager.CHROME_BINARY_PROPERTY, "C:\\chrome\\chrome.exe");
+      ChromeOptions options = manager.buildAttachOptions("127.0.0.1:51234");
+
+      Map<String, Object> chromeOptions = chromeOptionsOf(options);
+      assertNull(chromeOptions.get("binary"), "붙는 데 바이너리는 쓰이지 않는다.");
+      assertNull(chromeOptions.get("excludeSwitches"), "이미 뜬 브라우저의 스위치는 바꿀 수 없다.");
+      assertTrue(argsOf(options).isEmpty(), "기동 인자를 붙였다 — 무시되는 값이다. 실제 인자: " + argsOf(options));
+    } finally {
+      if (previous == null) {
+        System.clearProperty(WebDriverManager.CHROME_BINARY_PROPERTY);
+      } else {
+        System.setProperty(WebDriverManager.CHROME_BINARY_PROPERTY, previous);
+      }
+    }
+  }
+
+  @Test
+  @DisplayName("붙기 옵션도 페이지 로드 타임아웃을 명시한다")
+  void attachOptionsPinPageLoadTimeout() {
+    @SuppressWarnings("unchecked")
+    Map<String, Object> timeouts =
+        (Map<String, Object>) manager.buildAttachOptions("127.0.0.1:1").asMap().get("timeouts");
+
+    assertNotNull(timeouts, "붙은 뒤 페이지가 멎으면 Selenium 기본값 300초를 기다리게 된다.");
+    assertEquals(
+        WebDriverManager.DEFAULT_PAGE_LOAD_TIMEOUT_SECONDS * 1000L,
+        ((Number) timeouts.get("pageLoad")).longValue());
+  }
+
+  @Test
+  @DisplayName("빈 주소로는 붙기 옵션을 만들지 않는다")
+  void attachRejectsBlankAddress() {
+    // 빈 값을 그대로 넘기면 chromedriver 가 브라우저를 새로 띄운다 —
+    // 사람이 로그인한 창이 아니라 빈 창에서 쿠키를 뜨게 된다.
+    assertThrows(IllegalArgumentException.class, () -> manager.buildAttachOptions(null));
+    assertThrows(IllegalArgumentException.class, () -> manager.buildAttachOptions("  "));
+  }
+
+  @Test
+  @DisplayName("포트가 없거나 유효하지 않은 주소도 거른다 — '비어 있지 않다' 는 너무 약한 검사다")
+  void attachRejectsAddressWithoutUsablePort() {
+    // 포트를 못 얻었을 때 만들어지는 '127.0.0.1:-1' 은 형태만 멀쩡해서 공백 검사를 통과한다.
+    // 그대로 넘어가면 원래 원인('디버깅 포트가 안 열렸다')이 드라이버 예외 속으로 사라진다.
+    for (String bad :
+        List.of("127.0.0.1:-1", "127.0.0.1", "127.0.0.1:", "127.0.0.1:포트", "127.0.0.1:70000")) {
+      assertThrows(
+          IllegalArgumentException.class,
+          () -> manager.buildAttachOptions(bad),
+          "이 주소가 통과했다: " + bad);
+    }
   }
 
   @Test

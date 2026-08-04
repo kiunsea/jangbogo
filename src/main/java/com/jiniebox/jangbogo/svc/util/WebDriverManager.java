@@ -147,6 +147,96 @@ public class WebDriverManager {
   }
 
   /**
+   * 이미 떠 있는 Chrome 에 붙는다 (Phase 5-15 · 세션 캡처).
+   *
+   * <p>여기서만 브라우저를 <b>새로 띄우지 않는다.</b> 사람이 순정 chrome.exe 로 로그인하는 그 브라우저에 밖에서 붙어 쿠키만 뜨는 것이 목적이다. 캡처는
+   * 브라우저가 <b>살아 있는 동안</b> 해야 한다 — 인증 쿠키가 세션 스코프라 창을 닫으면 사라진다(ADR-0001).
+   *
+   * <p>{@code debuggerAddress} 를 주면 chromedriver 는 브라우저를 기동하지 않고 그 주소에 접속만 한다. 그래서 프로필·바이너리·자동화 표식
+   * <b>옵션</b>은 하나도 붙이지 않는다 — 기동 시점에만 의미가 있는 값이고, 여기서 얹으면 조용히 무시되면서 "적용됐다"는 착각만 남는다.
+   *
+   * <p><b>표식이 없다는 뜻은 아니다.</b> 붙는 대상은 디버깅 포트를 연 브라우저이고, 그것만으로 {@code navigator.webdriver} 가 {@code
+   * true} 다(실측). 사람이 그 창을 만지기 전에 반드시 {@link #applyStealth(WebDriver)} 를 불러 되돌려야 한다 — 새 문서부터 적용되므로
+   * 로그인 주소로 이동하기 <b>전에</b> 불러야 한다.
+   *
+   * <p><b>{@code quit()} 은 이 브라우저를 닫지 않는다</b>(실측). 붙은 세션만 끊기고 브라우저와 열린 포트는 남는다. 닫으려면 {@link
+   * #closeAttachedBrowser(WebDriver)} 를 쓴다.
+   *
+   * @param debuggerAddress {@code 127.0.0.1:포트}
+   * @return 붙은 드라이버
+   */
+  public WebDriver attachToRunningChrome(String debuggerAddress) {
+    log.info("실행 중인 Chrome 에 붙는다 (debuggerAddress={})", debuggerAddress);
+    return new ChromeDriver(buildAttachOptions(debuggerAddress));
+  }
+
+  /**
+   * 붙어 있는 브라우저를 닫는다 (Phase 5-15).
+   *
+   * <p>{@code quit()} 만으로는 닫히지 않는다 — 드라이버가 띄운 브라우저가 아니기 때문이다. 그대로 두면 <b>로그인된 브라우저와 인증 없는 디버깅 포트가
+   * 그대로 남는다.</b> 같은 PC 의 아무 프로세스나 그 세션을 조작할 수 있으므로 캡처가 끝나면 반드시 닫는다.
+   *
+   * <p>CDP {@code Browser.close} 로 브라우저에게 정상 종료를 시킨 뒤 드라이버를 놓는다. 닫기가 실패해도 드라이버는 놓는다 — 그쪽까지 못 놓으면
+   * 정리할 방법이 아예 없어진다.
+   *
+   * @param driver {@link #attachToRunningChrome} 이 돌려준 드라이버
+   */
+  public void closeAttachedBrowser(WebDriver driver) {
+    if (driver == null) {
+      return;
+    }
+    try {
+      if (driver instanceof ChromiumDriver chromium) {
+        chromium.executeCdpCommand("Browser.close", Map.of());
+      } else {
+        log.warn("CDP 를 지원하지 않는 드라이버라 브라우저를 닫지 못한다: {}", driver.getClass().getSimpleName());
+      }
+    } catch (RuntimeException e) {
+      log.warn("브라우저 종료 실패({}). 드라이버만 놓는다.", e.getClass().getSimpleName());
+    } finally {
+      try {
+        driver.quit();
+      } catch (RuntimeException e) {
+        // 이미 닫힌 브라우저에 대고 놓으면 예외가 날 수 있다. 정리 단계라 삼킨다.
+        log.debug("드라이버 종료 중 예외({})", e.getClass().getSimpleName());
+      }
+    }
+  }
+
+  /**
+   * 붙기 전용 옵션을 조립한다 (Phase 5-15).
+   *
+   * @param debuggerAddress {@code 호스트:포트}
+   * @return 조립된 ChromeOptions
+   */
+  ChromeOptions buildAttachOptions(String debuggerAddress) {
+    String address = debuggerAddress == null ? "" : debuggerAddress.trim();
+    if (address.isBlank()) {
+      throw new IllegalArgumentException("debuggerAddress 가 비어 있다.");
+    }
+    // 형태만 멀쩡한 값(예: 127.0.0.1:-1)이 통과하면 원래 원인('포트가 안 열렸다')이
+    // 드라이버 예외 속으로 사라진다. '비어 있지 않다' 는 이 값에 대한 검사로 너무 약하다.
+    int colon = address.lastIndexOf(':');
+    int port = -1;
+    if (colon > 0 && colon < address.length() - 1) {
+      try {
+        port = Integer.parseInt(address.substring(colon + 1));
+      } catch (NumberFormatException ignore) {
+        port = -1;
+      }
+    }
+    if (port <= 0 || port > 65535) {
+      throw new IllegalArgumentException("debuggerAddress 의 포트가 유효하지 않다: " + address);
+    }
+
+    ChromeOptions options = new ChromeOptions();
+    options.setExperimentalOption("debuggerAddress", address);
+    // 붙은 뒤에도 페이지가 응답하지 않으면 기다림이 끝나야 한다. 나머지 기동 옵션과 같은 상수를 쓴다.
+    options.setPageLoadTimeout(Duration.ofSeconds(pageLoadTimeoutSeconds()));
+    return options;
+  }
+
+  /**
    * 새 문서마다 마스킹 스크립트를 주입한다 (Phase 5-7).
    *
    * <p>{@code excludeSwitches} 로 배너와 스위치는 지워지지만 {@code navigator.webdriver} 는 그대로 남는다. 페이지가 로드될 때마다
@@ -154,9 +244,12 @@ public class WebDriverManager {
    *
    * <p>실패해도 수집을 멈추지 않는다 — 마스킹은 있으면 나은 것이지 없으면 못 도는 것이 아니다. 다만 조용히 넘기지는 않는다.
    *
-   * @param driver 기동된 드라이버
+   * <p><b>붙기 경로에서는 이것을 밖에서 불러야 한다</b>(5-15). 디버깅 포트를 연 브라우저는 그것만으로 표식이 켜져 있고, 되돌리는 수단이 이 메서드뿐이라 패키지
+   * 밖(컨트롤러·서비스)에서도 부를 수 있어야 한다. 새 문서부터 적용되므로 <b>로그인 주소로 이동하기 전에</b> 부른다.
+   *
+   * @param driver 기동했거나 붙은 드라이버
    */
-  void applyStealth(WebDriver driver) {
+  public void applyStealth(WebDriver driver) {
     if (!(driver instanceof ChromiumDriver chromium)) {
       log.warn("CDP 를 지원하지 않는 드라이버라 마스킹을 건너뛴다: {}", driver.getClass().getSimpleName());
       return;

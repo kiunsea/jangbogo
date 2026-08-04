@@ -103,7 +103,9 @@ class SeleniumSessionTransferProbe {
       driver.get(homeUrl);
       Thread.sleep(1500);
 
-      chromium.executeCdpCommand("Network.setCookies", Map.of("cookies", cookies));
+      // 프로덕션 코드를 그대로 부른다. 여기서 CDP 를 직접 부르면 이 프로브가 통과해도
+      // 출하 경로(SessionTransfer)의 변환이 옳다는 근거가 되지 못한다.
+      SessionTransfer.inject(chromium, SessionSnapshot.of(cookies, java.time.Instant.now()));
 
       driver.navigate().to(memberUrl);
       Thread.sleep(3000);
@@ -163,23 +165,23 @@ class SeleniumSessionTransferProbe {
     assertTrue(Files.isRegularFile(seed), "씨앗 세션이 없다. PW-1 을 먼저 실행할 것: " + seed);
 
     // 1) 씨앗을 넣어 '로그인된 Selenium 세션' 을 만든다.
-    List<Map<String, Object>> captured;
+    SessionSnapshot captured;
     WebDriver first = new WebDriverManager().getWebDriver("chrome", scratchProfile(mall, "cap"));
     try {
       ChromiumDriver chromium = (ChromiumDriver) first;
       first.get(homeUrl);
       Thread.sleep(1500);
-      chromium.executeCdpCommand("Network.setCookies", Map.of("cookies", readCookies(seed)));
+      SessionTransfer.inject(
+          chromium, SessionSnapshot.of(readCookies(seed), java.time.Instant.now()));
       first.navigate().to(memberUrl);
       Thread.sleep(2500);
 
-      // 2) 그 살아 있는 세션에서 Selenium 이 직접 뜬다.
-      Map<String, Object> all = chromium.executeCdpCommand("Network.getAllCookies", Map.of());
-      captured = (List<Map<String, Object>>) all.get("cookies");
+      // 2) 그 살아 있는 세션에서 프로덕션 코드가 직접 뜬다.
+      captured = SessionTransfer.capture(chromium);
     } finally {
       first.quit();
     }
-    assertTrue(captured != null && !captured.isEmpty(), "Selenium 이 쿠키를 뜨지 못했다.");
+    assertTrue(!captured.isEmpty(), "Selenium 이 쿠키를 뜨지 못했다.");
 
     // 3) 세 번째 브라우저에 그것을 넣는다. 여기까지 Playwright 는 어디에도 없다.
     String finalUrl;
@@ -190,7 +192,7 @@ class SeleniumSessionTransferProbe {
       ChromiumDriver chromium = (ChromiumDriver) second;
       second.get(homeUrl);
       Thread.sleep(1500);
-      chromium.executeCdpCommand("Network.setCookies", Map.of("cookies", captured));
+      SessionTransfer.inject(chromium, captured);
       second.navigate().to(memberUrl);
       Thread.sleep(3000);
       finalUrl = second.getCurrentUrl();

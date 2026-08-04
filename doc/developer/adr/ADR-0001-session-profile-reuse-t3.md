@@ -131,7 +131,11 @@ Chrome 설정으로 우회되는지 별도로 확인했다(`SessionCookieSurviva
    사람이 순정 Chrome 으로 로그인하면 거기서는 뜰 수단이 없다. 후보는 두 가지다 —
    (a) 사람이 자동화 브라우저 안에서 로그인한다(로그인 시점에 봇 방어를 만난다)
    (b) 순정 chrome.exe 를 `--remote-debugging-port` 로 띄우고 CDP 로 붙어 쿠키만 뜬다(브라우저 자체는 순정).
-   **(b) 가 유력하나 미측정이다.**
+   ~~**(b) 가 유력하나 미측정이다.**~~
+   → **[2026-08-05 측정됨 · ADR-0002]** 캡처·주입 왕복은 성립한다. 다만 **`--remote-debugging-port` 를 여는
+   것만으로 `navigator.webdriver` 가 `true` 가 되어** (b) 의 전제("브라우저 자체는 순정")가 로그인 시점에는
+   깨진다. 붙은 뒤 마스킹으로 되돌릴 수 있고, (a) 도 마스킹하면 같은 값을 보인다. 선택은
+   [ADR-0002](ADR-0002-session-capture-path.md) 참조.
 2. **세션 수명을 모른다.** 이관된 세션이 며칠 가는지 재지 않았다. 이것이 곧 "사람이 얼마나 자주 다시
    로그인해야 하는가"이고, 5-10(만료 감지)의 설계 입력이다.
 3. **세션 스냅샷은 살아 있는 인증 토큰이다.** 지금은 `build/` 아래 평문 JSON 이다(gitignore 대상이라 커밋되지
@@ -157,6 +161,9 @@ Chrome 설정으로 우회되는지 별도로 확인했다(`SessionCookieSurviva
 # 자동화 표식 (실계정 불필요)
 ./gradlew test -PincludeProbe --tests '*ChromeFingerprintProbe*'
 ./gradlew test -PincludeProbe --tests '*SessionCookieSurvivalProbe*'
+
+# 세션 캡처 경로 판정 (실계정 불필요 — ADR-0002)
+./gradlew test -PincludeProbe --tests '*SessionCaptureProbe*'
 ```
 
 대상 몰은 **기본값이 없다.** 지정하지 않으면 멈춘다 — 조용히 엉뚱한 몰로 도는 것을 한 번 겪었기 때문이다.

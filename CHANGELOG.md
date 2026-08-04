@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.15.6] - 2026-08-05
+
+**5-15(세션 캡처)의 전제를 실측했습니다.** 계획서가 "유력하나 미측정"으로 남겨 둔 캡처 경로를 실계정 없이 재 봤고, **전제 하나가 깨졌습니다** — `--remote-debugging-port` 를 여는 것만으로 자동화 표식이 켜집니다. 판정 기록은 `doc/developer/adr/ADR-0002-session-capture-path.md` 에 있습니다.
+
+이번 변경도 **전부 휴면**입니다. 새 코드를 부르는 프로덕션 호출자가 아직 없습니다.
+
+### Added
+
+- **실행 중인 Chrome 에 붙는 경로** (`WebDriverManager.attachToRunningChrome`) — 여기서만 브라우저를 새로 띄우지 않습니다. 사람이 로그인하는 그 브라우저에 밖에서 붙어 쿠키만 뜨기 위한 것입니다.
+  - **캡처는 브라우저가 살아 있는 동안 해야 합니다.** 인증 쿠키가 세션 스코프라 창을 닫으면 사라지므로(ADR-0001), 닫힌 뒤에는 뜰 것이 없습니다. 프로필 락 해제는 완료 신호가 아니라 **정리** 신호입니다 — 계획서 표현과 어긋나는 지점이라 javadoc 에 명시했습니다.
+- **`SessionSnapshot` · `SessionTransfer`** — 세션을 뜨고(CDP `Network.getAllCookies`) 넣는(`Network.setCookies`) 최소 단위. 5-16(암호화 저장)이 붙을 자리입니다.
+  - **평문으로 디스크에 쓰는 경로를 두지 않았습니다.** 스냅샷은 살아 있는 인증 토큰이라, 저장은 암호화와 함께 와야 합니다. 지금은 메모리까지만 다룹니다.
+  - `toString()` 이 값을 담지 않습니다. 로그·예외 메시지에 그대로 실려도 토큰이 새지 않게 하기 위해서입니다.
+  - **주입 결과를 되읽어 확인합니다.** CDP `setCookies` 는 쿠키별 성패를 알려주지 않아, 요청한 개수를 그대로 돌려주면 "12개 주입 완료" 뒤에 로그아웃 상태가 되는 실패를 아무도 잡지 못합니다.
+- **`NativeChromeLoginLauncher` 의 디버깅 포트 지원** — 포트는 Chrome 이 고르게 하고(`ANY_DEBUG_PORT`) 실제 값은 프로필의 기록 파일에서 읽습니다. **고정 번호는 아예 거부합니다** — 그 포트를 이미 다른 브라우저가 쓰고 있으면 **남의 브라우저에서 쿠키를 뜨게 되고**, 그것은 살아 있는 인증 토큰이라 조용히 넘길 수 있는 사고가 아닙니다.
+- **`WebDriverManager.closeAttachedBrowser`** — `quit()` 은 붙은 브라우저를 닫지 않습니다(실측). 그대로 두면 **로그인된 브라우저와 인증 없는 디버깅 포트가 남습니다.**
+- `SessionCaptureProbe`(`@Tag("probe")`, 실계정 불필요) — 아래 측정을 재현합니다.
+- `doc/developer/adr/ADR-0002-session-capture-path.md` — 캡처 경로 판정 기록.
+
+### Changed
+
+- `WebDriverManager.applyStealth` 를 public 으로 올렸습니다. 붙기 경로의 브라우저는 표식이 켜져 있고 되돌리는 수단이 이 메서드뿐인데, 다음 단계(계정 연결 화면)는 다른 패키지에 있어 부를 수 없었습니다.
+- `SessionSnapshot` 의 목록 접근을 패키지 안으로 좁혔습니다. 열려 있으면 나중에 로그 한 줄·직렬화 한 줄로 토큰 전량이 나갈 수 있고, `toString()` 방어는 그 경로를 막지 못합니다.
+
+### Notes (측정 — 실계정 불필요)
+
+로컬 페이지가 세션 쿠키를 심고 자기 시점의 `navigator.webdriver` 를 보고합니다. 대조군과 양성 대조군을 **같은 실행**에 뒀습니다.
+
+| 팔 | `navigator.webdriver` |
+|---|---|
+| **[대조군]** 순정 chrome.exe, 포트 없음 | `false` |
+| 순정 chrome.exe + 디버깅 포트 | **`true`** |
+| 붙은 뒤 마스킹 주입 | `false` |
+| **[양성 대조군]** Selenium 기본 | `true` |
+| **[후보 a]** Selenium + 마스킹 | `false` |
+
+- **캡처·주입 왕복 성립**, `quit()` 후에도 사람의 창은 살아남고, `closeAttachedBrowser` 로 닫힙니다.
+- **후보 (b)("브라우저 자체는 순정")의 전제가 로그인 시점에는 깨집니다.** 마스킹으로 되돌릴 수 있지만, 그러면 후보 (a) 와 같은 값이 됩니다. 선택은 ADR-0002 의 "남은 결정" 참조.
+
+### Added (테스트)
+
+- `SessionTransferTest` 12건 · `NativeChromeLoginLauncherTest` +12 · `WebDriverOptionsTest` +5. 전부 브라우저·네트워크·DB 없이 돕니다. 총 **363건** (실패 0).
+
 ## [0.15.5] - 2026-08-05
 
 **Phase 4A(엔진 판정 게이트)를 종결합니다.** T1·T2·T4 는 PASS, T3(세션 프로필 재사용)는 ssg·oasis 모두 FAIL 이지만 **원인이 엔진이 아닙니다** — 두 몰이 세션 단위 인증을 쓰기 때문입니다. 판정 근거는 `doc/developer/adr/ADR-0001-session-profile-reuse-t3.md` 에 있습니다.
