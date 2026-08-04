@@ -81,6 +81,8 @@ class SessionCaptureProbe {
     boolean closedByApi = false;
     boolean profileDetectedInUse = false;
     String seleniumWebdriver = null;
+    String maskedUa = null;
+    String maskedUaHints = null;
     String maskedSeleniumWebdriver = null;
     String roundTripCookies = null;
 
@@ -88,9 +90,13 @@ class SessionCaptureProbe {
     //
     // 이 팔이 없으면 표식이 보일 때 '포트 탓' 인지 '런처 탓' 인지 가를 수 없다.
     // ADR T2 는 순정 = false 라고 적었지만 그것은 다른 측정이므로 같은 실행에서 다시 잰다.
-    String plainNativeWebdriver =
-        measureNativeWebdriver("session-capture-plain", NativeChromeLoginLauncher.NO_DEBUG_PORT);
+    String plainReport =
+        measureNativeReport("session-capture-plain", NativeChromeLoginLauncher.NO_DEBUG_PORT);
+    String plainNativeWebdriver = fieldOf(plainReport, "webdriver");
     verdicts.put("[대조군] 순정 Chrome (포트 없음)", describe(plainNativeWebdriver));
+    verdicts.put(
+        "[대조군] UA 문자열 / 클라이언트 힌트",
+        describe(fieldOf(plainReport, "ua")) + "  /  " + describe(fieldOf(plainReport, "uaHints")));
 
     String afterStealthWebdriver = null;
     Process chrome = null;
@@ -202,11 +208,16 @@ class SessionCaptureProbe {
       WebDriver masked = new WebDriverManager().getWebDriver("chrome", maskedProfile);
       try {
         masked.get(controlBase + "/page?tag=masked");
-        maskedSeleniumWebdriver = fieldOf(awaitReport("masked", WAIT), "webdriver");
+        String maskedReport = awaitReport("masked", WAIT);
+        maskedSeleniumWebdriver = fieldOf(maskedReport, "webdriver");
+        maskedUa = fieldOf(maskedReport, "ua");
+        maskedUaHints = fieldOf(maskedReport, "uaHints");
       } finally {
         masked.quit();
       }
       verdicts.put("[후보 a] Selenium + 마스킹", describe(maskedSeleniumWebdriver));
+      verdicts.put(
+          "[후보 a] UA 문자열 / 클라이언트 힌트", describe(maskedUa) + "  /  " + describe(maskedUaHints));
 
       // ── 5. 왕복 — 뜬 세션을 다른 브라우저에 넣으면 그 브라우저가 들고 있는가 ──────────
       if (!snapshot.isEmpty()) {
@@ -331,15 +342,15 @@ class SessionCaptureProbe {
   }
 
   /**
-   * 순정 chrome.exe 를 한 번 띄워 페이지가 보는 {@code navigator.webdriver} 를 읽는다.
+   * 순정 chrome.exe 를 한 번 띄워 페이지가 보고한 한 줄을 그대로 돌려준다.
    *
    * <p>포트를 열고/열지 않고 두 번 재서 표식의 원인을 가르는 데 쓴다.
    *
    * @param profileName 프로필 디렉터리 이름
    * @param debugPort 디버깅 포트
-   * @return 페이지가 본 값. 못 읽으면 null
+   * @return 보고 한 줄. 못 받으면 null
    */
-  private String measureNativeWebdriver(String profileName, int debugPort) throws Exception {
+  private String measureNativeReport(String profileName, int debugPort) throws Exception {
     Path profile = Paths.get("build", "probe-profiles", profileName);
     deleteRecursively(profile);
     Files.createDirectories(profile);
@@ -349,7 +360,7 @@ class SessionCaptureProbe {
     try {
       String url = "http://127.0.0.1:" + server.getAddress().getPort() + "/page?tag=" + profileName;
       chrome = NativeChromeLoginLauncher.launch(profile, url, debugPort);
-      return fieldOf(awaitReport(profileName, WAIT), "webdriver");
+      return awaitReport(profileName, WAIT);
     } finally {
       closeNativeChrome(profile, chrome);
       server.stop(0);
@@ -385,10 +396,17 @@ class SessionCaptureProbe {
                   + tag
                   + "<script>"
                   + plant
+                  // UA 문자열과 클라이언트 힌트를 함께 보고한다. --user-agent 는 문자열만 바꾸므로
+                  // 둘이 어긋나면 사이트는 '스스로를 다른 버전이라 주장하는 브라우저' 를 본다.
+                  + "var uaFull = (navigator.userAgentData && navigator.userAgentData.brands)"
+                  + " ? navigator.userAgentData.brands.map(function(b){return b.brand+'/'+b.version;}).join(' ')"
+                  + " : '-';"
+                  + "var m = navigator.userAgent.match(/Chrome\\/[0-9.]+/);"
                   + "fetch('/report', {method:'POST', body:"
                   + " '"
                   + tag
-                  + "|webdriver=' + navigator.webdriver + '|cookies=' + (document.cookie || '-')});"
+                  + "|webdriver=' + navigator.webdriver + '|ua=' + (m ? m[0] : '-')"
+                  + " + '|uaHints=' + uaFull + '|cookies=' + (document.cookie || '-')});"
                   + "</script></body></html>";
           byte[] body = page.getBytes(StandardCharsets.UTF_8);
           exchange.getResponseHeaders().add("Content-Type", "text/html; charset=utf-8");
