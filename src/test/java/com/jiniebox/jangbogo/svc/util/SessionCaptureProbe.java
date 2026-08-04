@@ -10,6 +10,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -60,6 +61,56 @@ class SessionCaptureProbe {
   /** 페이지가 보낸 보고. 어느 팔에서 온 것인지 tag 로 가른다. */
   private final List<String> reports = new CopyOnWriteArrayList<>();
 
+  /**
+   * 페이지가 자기 시점의 지문을 보고한다.
+   *
+   * <p>한 축만 보면 "표식이 없다" 는 결론을 믿을 수 없다. 자동화 브라우저와 순정 브라우저가 <b>어느 축에서 갈리는지</b> 를 나열해야 '차이가 UA 하나뿐인가'
+   * 같은 질문에 답할 수 있다.
+   *
+   * <p>{@code ua} 는 브라우저가 <b>주장하는</b> 버전이고 {@code uaFull}·{@code brands} 는 클라이언트 힌트가 내는 <b>실제</b>
+   * 버전이다. 둘이 어긋나면 사이트는 정교한 분석 없이도 자기모순을 본다.
+   *
+   * <p>값에 구분자가 섞이지 않도록 {@code |} 는 치환해서 보낸다.
+   */
+  private static final String FINGERPRINT_JS =
+      """
+      (async function () {
+        var f = [];
+        function put(k, v) { f.push(k + '=' + String(v).replace(/[|]/g, '/')); }
+        put('webdriver', navigator.webdriver);
+        var m = navigator.userAgent.match(/Chrome\\/[0-9.]+/);
+        put('ua', m ? m[0] : '-');
+        put('uaTail', navigator.userAgent.split(' ').pop());
+        put('platform', navigator.platform);
+        put('langs', navigator.languages.join(','));
+        put('plugins', navigator.plugins.length);
+        put('cores', navigator.hardwareConcurrency);
+        put('chromeKeys', (typeof window.chrome === 'object' && window.chrome)
+            ? Object.keys(window.chrome).sort().join('+') : '-');
+        try {
+          var b = navigator.userAgentData.brands
+              .map(function (x) { return x.brand + '/' + x.version; }).sort().join(' ');
+          put('brands', b);
+          var hv = await navigator.userAgentData.getHighEntropyValues(['uaFullVersion']);
+          put('uaFull', hv.uaFullVersion);
+        } catch (e) { put('brands', '-'); put('uaFull', '-'); }
+        try {
+          var gl = document.createElement('canvas').getContext('webgl');
+          var ext = gl.getExtension('WEBGL_debug_renderer_info');
+          put('webgl', gl.getParameter(ext.UNMASKED_RENDERER_WEBGL));
+        } catch (e) { put('webgl', '-'); }
+        try {
+          var st = await navigator.permissions.query({ name: 'notifications' });
+          put('perm', Notification.permission + '/' + st.state);
+        } catch (e) { put('perm', '-'); }
+        put('cookies', document.cookie || '-');
+        fetch('/report', { method: 'POST', body: PROBE_TAG + '|' + f.join('|') });
+      })();
+      """;
+
+  /** 지문 비교에서 뺄 축 — 팔마다 다른 것이 정상인 값. */
+  private static final List<String> FINGERPRINT_IGNORED = List.of("cookies");
+
   @Test
   @DisplayName("순정 Chrome 에 붙어 살아 있는 세션을 뜬다 — 대조군·양성 대조군 동시 측정")
   void attachToNativeChromeAndCaptureLiveSession() throws Exception {
@@ -81,8 +132,8 @@ class SessionCaptureProbe {
     boolean closedByApi = false;
     boolean profileDetectedInUse = false;
     String seleniumWebdriver = null;
-    String maskedUa = null;
-    String maskedUaHints = null;
+    String headlessUa = null;
+    List<String> fingerprintDiffs = List.of();
     String maskedSeleniumWebdriver = null;
     String roundTripCookies = null;
 
@@ -95,8 +146,8 @@ class SessionCaptureProbe {
     String plainNativeWebdriver = fieldOf(plainReport, "webdriver");
     verdicts.put("[대조군] 순정 Chrome (포트 없음)", describe(plainNativeWebdriver));
     verdicts.put(
-        "[대조군] UA 문자열 / 클라이언트 힌트",
-        describe(fieldOf(plainReport, "ua")) + "  /  " + describe(fieldOf(plainReport, "uaHints")));
+        "[대조군] UA 문자열 / 실제 버전(힌트)",
+        describe(fieldOf(plainReport, "ua")) + "  /  " + describe(fieldOf(plainReport, "brands")));
 
     String afterStealthWebdriver = null;
     Process chrome = null;
@@ -201,6 +252,7 @@ class SessionCaptureProbe {
       //
       // 사람이 이 창에서 로그인하는 방식이다(ADR 후보 (a)). 여기가 깨끗하면 포트·붙기 없이
       // 5-15 가 성립한다 — 드라이버가 처음부터 우리 것이라 캡처에 붙을 필요도 없다.
+      String maskedReport = null;
       Path maskedProfile = Paths.get("build", "probe-profiles", "session-capture-masked");
       deleteRecursively(maskedProfile);
       Files.createDirectories(maskedProfile);
@@ -208,16 +260,42 @@ class SessionCaptureProbe {
       WebDriver masked = new WebDriverManager().getWebDriver("chrome", maskedProfile);
       try {
         masked.get(controlBase + "/page?tag=masked");
-        String maskedReport = awaitReport("masked", WAIT);
+        maskedReport = awaitReport("masked", WAIT);
         maskedSeleniumWebdriver = fieldOf(maskedReport, "webdriver");
-        maskedUa = fieldOf(maskedReport, "ua");
-        maskedUaHints = fieldOf(maskedReport, "uaHints");
       } finally {
         masked.quit();
       }
       verdicts.put("[후보 a] Selenium + 마스킹", describe(maskedSeleniumWebdriver));
+
+      // ── 4-1. 지문 비교 — '차이가 UA 하나뿐인가' 에 답하려면 축을 나열해야 한다 ──────
+      Map<String, String> plainFp = fingerprintOf(plainReport);
+      Map<String, String> maskedFp = fingerprintOf(maskedReport);
+      fingerprintDiffs = fingerprintDiff(plainFp, maskedFp);
+      int compared =
+          (int) plainFp.keySet().stream().filter(k -> !FINGERPRINT_IGNORED.contains(k)).count();
       verdicts.put(
-          "[후보 a] UA 문자열 / 클라이언트 힌트", describe(maskedUa) + "  /  " + describe(maskedUaHints));
+          "[지문] 순정 vs 후보 a",
+          fingerprintDiffs.isEmpty()
+              ? "비교한 " + compared + "축 전부 일치"
+              : compared + "축 중 " + fingerprintDiffs.size() + "축 불일치");
+      for (String diff : fingerprintDiffs) {
+        verdicts.put(
+            "   └ " + diff.substring(0, diff.indexOf(':')),
+            diff.substring(diff.indexOf(':') + 1).trim());
+      }
+
+      // ── 4-2. headless 는 UA 를 스스로 드러내는가 ─────────────────────────────
+      //
+      // UA 하드코딩을 지우려면 headless 가 'HeadlessChrome' 을 광고하지 않아야 한다.
+      // 수집기는 headless 로도 돌기 때문이다.
+      WebDriver headless = new WebDriverManager().getWebDriver("chrome", null);
+      try {
+        headless.get(controlBase + "/page?tag=headless");
+        headlessUa = fieldOf(awaitReport("headless", WAIT), "ua");
+      } finally {
+        headless.quit();
+      }
+      verdicts.put("[headless] UA 문자열", describe(headlessUa));
 
       // ── 5. 왕복 — 뜬 세션을 다른 브라우저에 넣으면 그 브라우저가 들고 있는가 ──────────
       if (!snapshot.isEmpty()) {
@@ -304,6 +382,18 @@ class SessionCaptureProbe {
           .append("       ▸ 후보 (a)(Selenium+마스킹): ")
           .append(mark(maskedSeleniumWebdriver, "깨끗하다. 포트·붙기 없이도 같은 결과를 얻는다.", "표식이 남는다."))
           .append('\n');
+      report.append("       ▸ 지문 비교: ");
+      if (fingerprintDiffs.isEmpty()) {
+        report.append("순정과 갈리는 축이 없다 — 잰 범위 안에서 후보 (a) 는 순정과 구분되지 않는다.\n");
+      } else {
+        report.append("갈리는 축이 있다 → ").append(fingerprintDiffs).append('\n');
+      }
+      report
+          .append("       ▸ headless UA: ")
+          .append(
+              measured(headlessUa) && !headlessUa.contains("Headless")
+                  ? "스스로를 드러내지 않는다(" + headlessUa + ").\n"
+                  : "확인 필요 — " + describe(headlessUa) + "\n");
     }
     record("SESSION-CAPTURE.txt", report.toString());
     System.out.println(report);
@@ -315,9 +405,57 @@ class SessionCaptureProbe {
 
     assertTrue(
         profileDetectedInUse, "브라우저가 도는데 프로필이 비었다고 판정했다 — '이미 열려 있는 프로필' 가드가 죽는다. " + report);
+    // 후보 (a) 가 순정과 갈리지 않는다는 것은 이제 계약이다. 누가 UA 를 다시 박으면 여기서 걸린다.
+    assertTrue(fingerprintDiffs.isEmpty(), "순정과 갈리는 축이 생겼다: " + fingerprintDiffs + "\n" + report);
+    assertTrue(
+        measured(headlessUa) && !headlessUa.contains("Headless"),
+        "headless 가 스스로를 드러낸다: " + describe(headlessUa) + "\n" + report);
+
     assertTrue(controlValid, "양성 대조군 실패 — Selenium 이 띄운 Chrome 에서도 표식이 안 보인다. " + report);
     assertTrue(captured, "순정 Chrome 에 붙어 세션을 뜨지 못했다. " + report);
     assertTrue(roundTrip, "뜬 세션이 다른 브라우저에서 살아나지 않았다. " + report);
+  }
+
+  /** 보고 한 줄을 축별 값으로 가른다. */
+  private static Map<String, String> fingerprintOf(String report) {
+    Map<String, String> out = new LinkedHashMap<>();
+    if (report == null) {
+      return out;
+    }
+    String[] parts = report.split("\\|");
+    for (int i = 1; i < parts.length; i++) {
+      int at = parts[i].indexOf('=');
+      if (at > 0) {
+        out.put(parts[i].substring(0, at), parts[i].substring(at + 1));
+      }
+    }
+    return out;
+  }
+
+  /**
+   * 두 지문이 갈리는 축을 나열한다.
+   *
+   * <p>"차이가 없다" 를 주장하려면 <b>무엇을 비교했는지</b>가 함께 있어야 한다. 그래서 갈린 축뿐 아니라 비교한 축 수도 함께 보고한다.
+   */
+  private static List<String> fingerprintDiff(Map<String, String> a, Map<String, String> b) {
+    List<String> diffs = new ArrayList<>();
+    List<String> keys = new ArrayList<>(a.keySet());
+    for (String key : b.keySet()) {
+      if (!keys.contains(key)) {
+        keys.add(key);
+      }
+    }
+    for (String key : keys) {
+      if (FINGERPRINT_IGNORED.contains(key)) {
+        continue;
+      }
+      String left = a.getOrDefault(key, "(없음)");
+      String right = b.getOrDefault(key, "(없음)");
+      if (!left.equals(right)) {
+        diffs.add(key + ": 순정=" + left + " / 후보a=" + right);
+      }
+    }
+    return diffs;
   }
 
   /** 재기는 했는가. null 은 '보고를 못 받았다' 이지 'false 로 측정됐다' 가 아니다. */
@@ -394,19 +532,11 @@ class SessionCaptureProbe {
           String page =
               "<html><body>probe "
                   + tag
-                  + "<script>"
-                  + plant
-                  // UA 문자열과 클라이언트 힌트를 함께 보고한다. --user-agent 는 문자열만 바꾸므로
-                  // 둘이 어긋나면 사이트는 '스스로를 다른 버전이라 주장하는 브라우저' 를 본다.
-                  + "var uaFull = (navigator.userAgentData && navigator.userAgentData.brands)"
-                  + " ? navigator.userAgentData.brands.map(function(b){return b.brand+'/'+b.version;}).join(' ')"
-                  + " : '-';"
-                  + "var m = navigator.userAgent.match(/Chrome\\/[0-9.]+/);"
-                  + "fetch('/report', {method:'POST', body:"
-                  + " '"
+                  + "<script>var PROBE_TAG='"
                   + tag
-                  + "|webdriver=' + navigator.webdriver + '|ua=' + (m ? m[0] : '-')"
-                  + " + '|uaHints=' + uaFull + '|cookies=' + (document.cookie || '-')});"
+                  + "';"
+                  + plant
+                  + FINGERPRINT_JS
                   + "</script></body></html>";
           byte[] body = page.getBytes(StandardCharsets.UTF_8);
           exchange.getResponseHeaders().add("Content-Type", "text/html; charset=utf-8");

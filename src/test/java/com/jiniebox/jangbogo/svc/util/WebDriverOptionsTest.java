@@ -64,9 +64,23 @@ class WebDriverOptionsTest {
 
       assertTrue(
           args.contains("--remote-allow-origins=*"), "headless=" + headless + " 인자: " + args);
-      assertTrue(
-          args.stream().anyMatch(a -> a.startsWith("user-agent=")),
-          "user-agent 가 빠졌다. headless=" + headless + " 인자: " + args);
+    }
+  }
+
+  @Test
+  @DisplayName("User-Agent 를 지정하지 않는다 — Chrome 이 내는 값이 옳다")
+  void neverPinsTheUserAgent() {
+    // 박아 두면 UA 문자열만 바뀌고 클라이언트 힌트는 실제 버전을 그대로 낸다.
+    // 그러면 사이트는 '자기를 다른 버전이라 주장하는' 브라우저를 보게 된다 —
+    // 12축 지문 비교에서 순정과 갈린 세 축이 전부 이 한 줄에서 나왔다.
+    for (boolean headless : new boolean[] {false, true}) {
+      for (Path profile : new Path[] {null, PROFILE}) {
+        List<String> args = argsOf(manager.buildChromeOptions(headless, profile));
+
+        assertFalse(
+            args.stream().anyMatch(a -> a.replace("--", "").startsWith("user-agent=")),
+            "UA 를 박았다. headless=" + headless + " profile=" + profile + " 인자: " + args);
+      }
     }
   }
 

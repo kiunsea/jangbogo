@@ -288,8 +288,20 @@ public class WebDriverManager {
   ChromeOptions buildChromeOptions(boolean headless, Path profileDir) {
     ChromeOptions options = new ChromeOptions();
     options.addArguments("--remote-allow-origins=*");
-    options.addArguments(
-        "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.6367.91 Safari/537.3");
+    // User-Agent 를 지정하지 않는다 — Chrome 이 내는 값이 언제나 옳다.
+    //
+    // 예전에는 여기에 UA 문자열을 박아 뒀는데, 그것이 실측에서 순정 Chrome 과 갈리는 유일한 원인이었다.
+    // 12축 지문 비교에서 세 축이 어긋났고 셋 다 이 한 줄에서 나왔다:
+    //   ua      : 순정 Chrome/150.0.0.0  vs  박아 둔 값 Chrome/124.0.6367.91
+    //   uaTail  : 순정 Safari/537.36     vs  박아 둔 값 Safari/537.3  (형태 자체가 어긋나 있었다)
+    //   uaFull  : 순정 150.0.7871.187    vs  빈 값
+    //
+    // 마지막 항목이 특히 나쁘다. UA 문자열을 덮어써도 클라이언트 힌트(User-Agent Client Hints)는
+    // 실제 버전을 그대로 내므로, 사이트는 '자기를 124 라고 주장하면서 힌트는 150 인' 브라우저를 본다.
+    // 지문을 정교하게 분석할 것도 없이 이미 받은 두 값이 서로 어긋난다.
+    //
+    // 박아 둘 이유도 없었다 — 이 값을 읽는 코드가 저장소에 없고, 도입 커밋에도 근거가 없다.
+    // 지우면 Chrome 이 자기 버전을 정확히 광고하고, 업데이트를 따라가는 유지보수도 사라진다.
     if (headless && profileDir == null) {
       options.addArguments("--headless=new"); // 크롬 브라우저를 화면에 출력하지 않고 실행한다
     } else if (headless) {
