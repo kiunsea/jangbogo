@@ -59,6 +59,21 @@ public final class BrowserConcurrencyLimiter {
    */
   public static final int DEFAULT_TIMEOUT_SECONDS = 300;
 
+  /** 즉시수집이 차례를 기다리는 상한(초). */
+  public static final String IMMEDIATE_TIMEOUT_PROPERTY =
+      "jangbogo.browser.acquire-timeout-immediate-sec";
+
+  /**
+   * 즉시수집의 기본 대기 상한(초).
+   *
+   * <p>5 초다. {@value #DEFAULT_TIMEOUT_SECONDS} 초를 그대로 쓰지 않는 이유는 즉시수집이 <b>사람이 화면 앞에서 기다리는 동기 HTTP
+   * 요청</b>이고, 선택한 몰을 하나씩 도는 루프이기 때문이다. 상한이 300 초면 최악의 경우 몰 수 × 5 분 동안 응답이 매달린다.
+   *
+   * <p>300 초라는 값의 근거는 "다음 주기까지 반나절을 잃느니 기다린다" 는 스케줄러의 계산이었다. 즉시수집에는 그 계산이 성립하지 않는다 — 사용자가 몇 초 뒤에 다시
+   * 누르면 된다.
+   */
+  public static final int DEFAULT_IMMEDIATE_TIMEOUT_SECONDS = 5;
+
   private static volatile BrowserConcurrencyLimiter shared;
 
   private final Semaphore semaphore;
@@ -101,15 +116,25 @@ public final class BrowserConcurrencyLimiter {
 
   /** 설정된 대기 상한(초). 0 이면 기다리지 않는다. */
   static int configuredTimeoutSeconds() {
-    String raw = System.getProperty(TIMEOUT_PROPERTY);
+    return nonNegativeIntProperty(TIMEOUT_PROPERTY, DEFAULT_TIMEOUT_SECONDS);
+  }
+
+  /** 설정된 즉시수집 대기 상한(초). 0 이면 기다리지 않는다. */
+  static int configuredImmediateTimeoutSeconds() {
+    return nonNegativeIntProperty(IMMEDIATE_TIMEOUT_PROPERTY, DEFAULT_IMMEDIATE_TIMEOUT_SECONDS);
+  }
+
+  /** 0 도 유효한 값이다 — "기다리지 않는다" 는 뜻이라 음수만 걸러 낸다. */
+  private static int nonNegativeIntProperty(String property, int fallback) {
+    String raw = System.getProperty(property);
     if (raw == null || raw.isBlank()) {
-      return DEFAULT_TIMEOUT_SECONDS;
+      return fallback;
     }
     try {
       int parsed = Integer.parseInt(raw.trim());
-      return parsed >= 0 ? parsed : DEFAULT_TIMEOUT_SECONDS;
+      return parsed >= 0 ? parsed : fallback;
     } catch (NumberFormatException e) {
-      return DEFAULT_TIMEOUT_SECONDS;
+      return fallback;
     }
   }
 

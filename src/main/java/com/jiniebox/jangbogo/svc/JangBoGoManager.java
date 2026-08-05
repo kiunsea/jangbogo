@@ -4,6 +4,12 @@ import com.jiniebox.jangbogo.dao.JbgMallDataAccessObject;
 import com.jiniebox.jangbogo.dto.JangbogoConfig;
 import com.jiniebox.jangbogo.svc.ifc.MallSession;
 import com.jiniebox.jangbogo.svc.mall.MallRegistry;
+import com.jiniebox.jangbogo.svc.util.BrowserConcurrencyLimiter;
+import com.jiniebox.jangbogo.svc.util.CollectAdmission;
+import com.jiniebox.jangbogo.svc.util.CollectTrigger;
+import com.jiniebox.jangbogo.svc.util.ExecutionContextDetector;
+import com.jiniebox.jangbogo.svc.util.SessionProfileGate;
+import com.jiniebox.jangbogo.svc.util.SessionProfilePolicy;
 import com.jiniebox.jangbogo.svc.util.WebDriverManager;
 import com.jiniebox.jangbogo.sys.UserSession;
 import com.jiniebox.jangbogo.util.JinieboxUtil;
@@ -138,81 +144,106 @@ public class JangBoGoManager {
     }
   }
 
+  // 비동기 수집 진입점 updateItems 는 여기 있었지만 지웠다 (Phase 5-19).
+  //
+  // 호출처가 0 이었고(양 repo grep 확인), 게이트와 브라우저 동시 실행 제한을 거치지 않고 곧바로
+  // executeCollectionInternal 로 들어갔다. 즉 이 단계가 세우려는 정책을 통째로 비켜 가는 통로가
+  // 쓰이지 않은 채 열려 있었다. 필요해지면 collect 를 감싸서 다시 만든다.
+
   /**
-   * 온라인/오프라인 쇼핑몰에서 구매한 아이템 내역들을 수집하고 지니박스 데이터베이스에 반영한다.
+   * 구매 아이템 목록 수집 (동기 실행). <b>수집으로 들어가는 유일한 통로다</b> (Phase 5-19).
    *
-   * @param seqMall 수집할 쇼핑몰
-   * @param mallId {seqMall:{usrid:OOO,usrpw:OOO}}
-   * @param mallPw
-   * @throws Exception
+   * <p>스케줄러와 즉시수집이 여기서 만난다. 예전에는 실행 정책(세션 프로필 게이트)이 스케줄러 쪽에만 있어서 <b>즉시수집이 게이트를 우회</b>했다. 규약을 호출부가
+   * 지키게 두면 두 경로는 언젠가 갈린다 — Phase 5-18 에서 같은 형태의 결함을 이미 한 번 고쳤다. 그래서 판정을 이 안으로 들여왔고, 예전 진입점 {@code
+   * updateItemsAndGetNewSeqs} 는 지웠다. 우회할 방법이 남아 있으면 우회는 결국 생긴다.
+   *
+   * <p>순서는 <b>게이트 → 제한기 → 자격증명</b> 이다. 자격증명을 값이 아니라 {@link MallCredentialSupplier} 로 받는 것이 이 순서를
+   * 성립시킨다 — 막힐 회차에서는 비밀번호가 아예 복호화되지 않는다.
+   *
+   * <p>막힌 회차는 예외가 아니라 {@link MallCollectOutcome} 으로 돌아온다. 즉시수집의 포괄 {@code catch} 가 예외를 계정 문제로 읽어 계정
+   * 연결을 끊기 때문이다.
+   *
+   * @param mall 쇼핑몰 행 (seq · 세션 프로필 열을 읽는다). 호출부가 이미 조회한 것을 그대로 넘긴다
+   * @param credentials 자격증명 공급자. 진입 판정을 통과한 뒤에만 호출된다
+   * @param trigger 누가 요청했는가. 브라우저 자리를 얼마나 기다릴지가 갈린다
+   * @return 수집 결과 또는 막힌 사유
+   * @throws Exception 수집 중 오류, 또는 자격증명 공급자가 던진 예외
    */
-  public void updateItems(String seqMall, String mallId, String mallPw) throws Exception {
-    MallOrderUpdaterRunner runner;
-    try {
-      runner = executeCollectionInternal(seqMall, mallId, mallPw);
-    } catch (IllegalStateException e) {
-      logger.warn("쇼핑몰 seq={} 이미 수집 작업 실행 중, 건너뜀", seqMall);
-      return;
-    } catch (RuntimeException e) {
-      logger.error("쇼핑몰 seq={} 수집 작업 준비 실패", seqMall, e);
-      throw e;
+  public MallCollectOutcome collect(
+      JSONObject mall, MallCredentialSupplier credentials, CollectTrigger trigger)
+      throws Exception {
+
+    if (mall == null) {
+      throw new IllegalArgumentException("쇼핑몰 정보가 없다.");
     }
+    String seqMall = String.valueOf(mall.get("seq"));
 
-    // Thread로 실행하되 종료 시 Set에서 제거
-    Thread collectionThread =
-        new Thread(
-            () -> {
-              try {
-                runner.run();
-              } finally {
-                runningCollections.remove(seqMall);
-                logger.info("쇼핑몰 seq={} 수집 작업 완료", seqMall);
-              }
-            });
+    // 세션 프로필 게이트 (Phase 5-4).
+    //
+    // 마스터 킬스위치가 꺼져 있거나 이 몰이 옵트인하지 않았으면 PROCEED 라 기존 경로 그대로다.
+    // 실행 컨텍스트는 공급자로 넘긴다 (Phase 5-18) — 값으로 넘기면 옵트인하지 않은 몰에서도 매 회차 tasklist 가 돈다.
+    SessionProfileGate.Decision gate =
+        SessionProfileGate.evaluate(
+            SessionProfilePolicy.appliesTo(asInt(mall.get("session_profile_enabled")) == 1),
+            ExecutionContextDetector::detect,
+            str(mall.get("session_profile_name")),
+            str(mall.get("session_profile_owner")),
+            System.getProperty("user.name"));
 
-    try {
-      collectionThread.start();
-    } catch (Exception e) {
-      // Thread 시작 실패 시 즉시 제거
-      runningCollections.remove(seqMall);
-      logger.error("쇼핑몰 seq={} 수집 작업 Thread 시작 실패", seqMall, e);
-      throw new RuntimeException("수집 작업 Thread 시작 실패: " + e.getMessage(), e);
+    try (CollectAdmission admission =
+        CollectAdmission.evaluate(
+            gate, BrowserConcurrencyLimiter.shared(), trigger.acquireTimeoutMillis())) {
+
+      if (!admission.admitted()) {
+        logger.info("쇼핑몰 seq={} 수집 진입 차단 — {}", seqMall, admission);
+        return MallCollectOutcome.blockedBy(admission);
+      }
+
+      // 여기서 처음 복호화한다. 위에서 막혔으면 비밀번호는 메모리에 오르지 않는다.
+      MallCredentials creds = credentials.get();
+
+      MallOrderUpdaterRunner runner;
+      try {
+        runner = executeCollectionInternal(seqMall, creds.id(), creds.pw());
+      } catch (IllegalStateException e) {
+        logger.warn("쇼핑몰 seq={} 이미 수집 작업 실행 중, 건너뜀", seqMall);
+        return MallCollectOutcome.alreadyRunning();
+      } catch (RuntimeException e) {
+        logger.error("쇼핑몰 seq={} 수집 작업 준비 실패", seqMall, e);
+        throw e;
+      }
+
+      try {
+        // 동기 실행하여 결과 받기
+        runner.run();
+
+        List<Integer> newOrderSeqs = runner.getNewOrderSeqs();
+        logger.info("쇼핑몰 seq={} 수집 작업 완료, 신규 주문: {}개", seqMall, newOrderSeqs.size());
+
+        return MallCollectOutcome.success(newOrderSeqs);
+      } finally {
+        runningCollections.remove(seqMall);
+      }
     }
   }
 
-  /**
-   * 구매 아이템 목록 수집 (동기 실행 + 신규 주문 seq 반환)
-   *
-   * @param seqMall 수집할 쇼핑몰
-   * @param mallId 쇼핑몰 사용자 아이디
-   * @param mallPw 쇼핑몰 사용자 비밀번호
-   * @return 신규 추가된 주문 seq 목록
-   * @throws Exception
-   */
-  public List<Integer> updateItemsAndGetNewSeqs(String seqMall, String mallId, String mallPw)
-      throws Exception {
-    MallOrderUpdaterRunner runner;
-    try {
-      runner = executeCollectionInternal(seqMall, mallId, mallPw);
-    } catch (IllegalStateException e) {
-      logger.warn("쇼핑몰 seq={} 이미 수집 작업 실행 중, 건너뜀", seqMall);
-      return new java.util.ArrayList<>();
-    } catch (RuntimeException e) {
-      logger.error("쇼핑몰 seq={} 수집 작업 준비 실패", seqMall, e);
-      throw e;
+  /** JSONObject 의 값을 문자열로. 없으면 null. */
+  private static String str(Object value) {
+    return value == null ? null : String.valueOf(value);
+  }
+
+  /** JSONObject 의 값을 int 로. 없거나 숫자가 아니면 0 — 즉 "옵트인하지 않음" 으로 읽힌다. */
+  private static int asInt(Object value) {
+    if (value instanceof Number number) {
+      return number.intValue();
     }
-
+    if (value == null) {
+      return 0;
+    }
     try {
-      // 동기 실행하여 결과 받기
-      runner.run();
-
-      // 신규 추가된 주문 seq 목록 반환
-      List<Integer> newOrderSeqs = runner.getNewOrderSeqs();
-      logger.info("쇼핑몰 seq={} 수집 작업 완료, 신규 주문: {}개", seqMall, newOrderSeqs.size());
-
-      return newOrderSeqs;
-    } finally {
-      runningCollections.remove(seqMall);
+      return Integer.parseInt(String.valueOf(value).trim());
+    } catch (NumberFormatException e) {
+      return 0;
     }
   }
 

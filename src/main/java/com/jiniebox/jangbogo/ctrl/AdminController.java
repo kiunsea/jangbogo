@@ -12,7 +12,10 @@ import com.jiniebox.jangbogo.dao.JbgOrderDataAccessObject;
 import com.jiniebox.jangbogo.dto.JangbogoConfig;
 import com.jiniebox.jangbogo.svc.JangBoGoManager;
 import com.jiniebox.jangbogo.svc.MallAccountYmlService;
+import com.jiniebox.jangbogo.svc.MallCollectOutcome;
+import com.jiniebox.jangbogo.svc.MallCredentials;
 import com.jiniebox.jangbogo.svc.util.CollectHealthPolicy;
+import com.jiniebox.jangbogo.svc.util.CollectTrigger;
 import com.jiniebox.jangbogo.sys.EnvSYS;
 import com.jiniebox.jangbogo.sys.SessionConstants;
 import com.jiniebox.jangbogo.util.StringEncrypter;
@@ -560,6 +563,64 @@ public class AdminController {
   }
 
   /**
+   * 저장된 암호문을 복호화한다 (Phase 5-19).
+   *
+   * <p>즉시수집은 이것을 {@code MallCredentialSupplier} 로 감싸 넘긴다 — 세션 프로필 게이트나 브라우저 자리에 막히는 회차에서는 호출되지 않아
+   * 비밀번호가 메모리에 오르지 않는다. 즉시 실행하지 않는 요청은 계정이 아직 쓸 수 있는지 확인하려고 직접 부른다.
+   *
+   * <p>실패는 예외로 올린다. 호출부의 {@code BadPaddingException} 처리와 포괄 {@code catch} 가 그것을 계정 문제로 다룬다 — 이쪽은
+   * 실제로 계정 문제가 맞다.
+   */
+  private static MallCredentials decryptCredentials(
+      String encKeyBase64, String encIvBase64, String cipherUsrId, String cipherUsrPw)
+      throws Exception {
+
+    javax.crypto.SecretKey secKey = StringEncrypter.decodeBase64ToSecretKey(encKeyBase64.trim());
+    javax.crypto.spec.IvParameterSpec ivSpec = StringEncrypter.decodeBase64ToIv(encIvBase64.trim());
+
+    String id = StringEncrypter.decrypt(StringEncrypter.ALGORITHM, cipherUsrId, secKey, ivSpec);
+    String pw = StringEncrypter.decrypt(StringEncrypter.ALGORITHM, cipherUsrPw, secKey, ivSpec);
+    if (id != null && id.startsWith("%")) id = id.substring(1);
+    if (pw != null && pw.startsWith("%")) pw = pw.substring(1);
+
+    if (id == null || pw == null) {
+      throw new IllegalStateException("계정 복호화 실패");
+    }
+    return new MallCredentials(id, pw);
+  }
+
+  /**
+   * 즉시수집이 막힌 것을 수집 로그에 남긴다 (Phase 5-19).
+   *
+   * <p>스케줄러는 막힌 회차를 {@code SKIPPED} 로 남기는데 즉시수집은 응답 JSON 으로만 돌려주고 있었다. 같은 통로로 합치는 것이 이 단계의 목적인데
+   * <b>사유가 어디에 남는가</b> 는 갈려 있었고, 응답은 화면을 닫으면 사라진다.
+   */
+  private void saveImmediateSkipLog(
+      String seq, JSONObject mall, MallCollectOutcome outcome, long startedAt) {
+    try {
+      int seqInt = Integer.parseInt(seq);
+      new JbgCollectLogDataAccessObject()
+          .addLog(
+              seqInt,
+              mall.get("name") != null ? mall.get("name").toString() : null,
+              "SKIPPED",
+              0,
+              0,
+              outcome.code(),
+              outcome.reason(),
+              outcome.stepName(),
+              null,
+              null,
+              null,
+              null,
+              startedAt,
+              System.currentTimeMillis());
+    } catch (Exception e) {
+      logger.warn("즉시수집 건너뜀 로그 저장 실패: {}", e.getMessage());
+    }
+  }
+
+  /**
    * 선택한 쇼핑몰들에 대한 자동 수집 실행 - executeNow=true: 즉시 실행 후 주기적 스케줄링 시작 - executeNow=false: 주기적 스케줄링만 시작
    * (즉시 실행 안 함) - 이미 수집 작업 실행 중인 쇼핑몰은 스킵 POST /malls/auto-collect
    */
@@ -573,6 +634,11 @@ public class AdminController {
     List<String> scheduled = new ArrayList<>();
     List<String> skipped = new ArrayList<>();
     List<String> decryptionFailed = new ArrayList<>();
+
+    // 게이트·브라우저 자리에 막혀 이번 회차를 건너뛴 몰 (Phase 5-19).
+    // skipped 와 나누는 이유는 처리가 다르기 때문이다 — 이쪽은 계정 연결을 끊지 않는다.
+    List<String> blocked = new ArrayList<>();
+    ObjectNode blockedReasons = objectMapper.createObjectNode();
 
     // 모든 쇼핑몰에서 신규 추가된 주문 seq 수집
     List<Integer> allNewOrderSeqs = new ArrayList<>();
@@ -595,7 +661,10 @@ public class AdminController {
         try {
           // 이미 수집 작업이 실행 중이면 스킵 (브라우저 실행 중)
           if (jangBoGoManager.isCollecting(seq)) {
-            skipped.add(seq);
+            // 계정 문제가 아니다 (Phase 5-19). skipped 로 보내면 프런트가 이 몰을 '계정 연결 끊김' 으로
+            // 그린다 — 서버는 끊지도 않았는데 사용자는 다시 연결해야 하는 것처럼 본다.
+            blocked.add(seq);
+            blockedReasons.put(seq, "이 몰의 수집이 이미 실행 중입니다.");
             logger.warn("쇼핑몰 seq={} 이미 수집 중, 건너뜀", seq);
             continue;
           }
@@ -654,39 +723,44 @@ public class AdminController {
             continue;
           }
 
-          javax.crypto.SecretKey secKey =
-              StringEncrypter.decodeBase64ToSecretKey(encKeyBase64.trim());
-          javax.crypto.spec.IvParameterSpec ivSpec =
-              StringEncrypter.decodeBase64ToIv(encIvBase64.trim());
-
-          String id =
-              StringEncrypter.decrypt(StringEncrypter.ALGORITHM, cipherUsrId, secKey, ivSpec);
-          String pw =
-              StringEncrypter.decrypt(StringEncrypter.ALGORITHM, cipherUsrPw, secKey, ivSpec);
-          if (id != null && id.startsWith("%")) id = id.substring(1);
-          if (pw != null && pw.startsWith("%")) pw = pw.substring(1);
-          if (id == null || pw == null) {
-            skipped.add(seq);
-            try {
-              jaDao.update(seq, 0, null, null);
-            } catch (Exception ignore) {
-            }
-            continue;
-          }
-
           // executeNow 플래그에 따라 즉시 실행 여부 결정
           if (executeNow) {
-            // 즉시 실행 (동기 실행 + 신규 주문 seq 수집)
-            List<Integer> newSeqs = jangBoGoManager.updateItemsAndGetNewSeqs(seq, id, pw);
-            allNewOrderSeqs.addAll(newSeqs);
+            // 즉시 실행. 세션 프로필 게이트와 브라우저 동시 실행 제한은 공통 통로 안에서 본다 (Phase 5-19).
+            // 예전에는 이 경로가 게이트를 우회했다.
+            //
+            // 복호화는 공급자로 넘긴다. 판정에 막히는 회차에서는 비밀번호가 메모리에 오르지 않는다.
+            long startedAt = System.currentTimeMillis();
+            MallCollectOutcome outcome =
+                jangBoGoManager.collect(
+                    mall,
+                    () -> decryptCredentials(encKeyBase64, encIvBase64, cipherUsrId, cipherUsrPw),
+                    CollectTrigger.IMMEDIATE);
 
-            processed.add(seq);
-            logger.info("쇼핑몰 seq={} 즉시 수집 실행 완료, 신규 주문: {}개", seq, newSeqs.size());
-            try {
-              Thread.sleep(sleepMs);
-            } catch (InterruptedException ignore) {
+            if (outcome.collected()) {
+              List<Integer> newSeqs = outcome.newOrderSeqs();
+              allNewOrderSeqs.addAll(newSeqs);
+
+              processed.add(seq);
+              logger.info("쇼핑몰 seq={} 즉시 수집 실행 완료, 신규 주문: {}개", seq, newSeqs.size());
+              try {
+                Thread.sleep(sleepMs);
+              } catch (InterruptedException ignore) {
+              }
+            } else {
+              // 막힌 것은 계정 문제가 아니다. 연결을 끊지 않는다 (Phase 5-19 결정).
+              // 스케줄 등록은 아래에서 그대로 진행한다 — 막힌 것은 '이번 회차' 지 설정이 아니다.
+              blocked.add(seq);
+              blockedReasons.put(seq, outcome.reason());
+              saveImmediateSkipLog(seq, mall, outcome, startedAt);
+              logger.info("쇼핑몰 seq={} 즉시 수집 건너뜀 — {} ({})", seq, outcome.code(), outcome.reason());
             }
           } else {
+            // 즉시 실행하지 않아도 자격증명은 여기서 확인한다 (Phase 5-19).
+            //
+            // 복호화를 수집 시점으로 미룬 것은 게이트에 막힐 회차에서 비밀번호를 올리지 않기 위해서지,
+            // 확인을 그만두려던 것이 아니다. 확인이 빠지면 복호화가 깨진 계정이 '주기적 수집 활성화'
+            // 성공으로 보고되고, 사용자는 다음 주기가 실패할 때까지 모른다.
+            decryptCredentials(encKeyBase64, encIvBase64, cipherUsrId, cipherUsrPw);
             logger.info("쇼핑몰 seq={} 즉시 실행 건너뜀 (executeNow=false)", seq);
           }
 
@@ -725,6 +799,8 @@ public class AdminController {
       response.set("scheduled", objectMapper.valueToTree(scheduled));
       response.set("skipped", objectMapper.valueToTree(skipped));
       response.set("decryptionFailed", objectMapper.valueToTree(decryptionFailed));
+      response.set("blocked", objectMapper.valueToTree(blocked));
+      response.set("blockedReasons", blockedReasons);
 
       // 메시지 구성
       StringBuilder message = new StringBuilder();
@@ -741,6 +817,12 @@ public class AdminController {
       if (!decryptionFailed.isEmpty()) {
         if (message.length() > 0) message.append(". ");
         message.append("일부 쇼핑몰 계정 복호화 실패. 해당 쇼핑몰에서 '계정연결'을 다시 시도해 주세요.");
+      }
+      if (!blocked.isEmpty()) {
+        if (message.length() > 0) message.append(". ");
+        message
+            .append(blocked.size())
+            .append("개 쇼핑몰은 지금 실행할 수 없어 건너뛰었습니다. 계정 연결은 그대로이니 잠시 뒤 다시 시도해 주세요.");
       }
       if (message.length() == 0) {
         message.append("처리된 쇼핑몰이 없습니다.");

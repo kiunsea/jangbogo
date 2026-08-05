@@ -4,11 +4,10 @@ import com.jiniebox.jangbogo.dao.JbgCollectLogDataAccessObject;
 import com.jiniebox.jangbogo.dao.JbgMallDataAccessObject;
 import com.jiniebox.jangbogo.dto.MallAccount;
 import com.jiniebox.jangbogo.svc.util.CollectIntervalPolicy;
+import com.jiniebox.jangbogo.svc.util.CollectTrigger;
 import com.jiniebox.jangbogo.svc.util.ErrorSummary;
-import com.jiniebox.jangbogo.svc.util.ExecutionContextDetector;
 import com.jiniebox.jangbogo.svc.util.FtpPendingQueue;
 import com.jiniebox.jangbogo.svc.util.SessionProfileGate;
-import com.jiniebox.jangbogo.svc.util.SessionProfilePolicy;
 import com.jiniebox.jangbogo.util.ExceptionUtil;
 import com.jiniebox.jangbogo.util.JinieboxUtil;
 import com.jiniebox.jangbogo.util.StringEncrypter;
@@ -243,27 +242,11 @@ public class MallSchedulerService {
         return;
       }
 
-      // 세션 프로필 게이트 (Phase 5-4).
+      // 세션 프로필 게이트는 여기 있었지만 공통 통로로 옮겼다 (Phase 5-19).
       //
-      // 마스터 킬스위치가 꺼져 있거나 이 몰이 옵트인하지 않았으면 PROCEED 라 기존 경로 그대로다.
-      // 켜져 있는데 조건이 어긋나면, 시도해서 '로그인 화면에서 멈춘 채 타임아웃' 을 만드는 대신
-      // 막힌 이유를 이름으로 남기고 물러난다.
-      // 실행 컨텍스트는 공급자로 넘긴다 (Phase 5-18). 값으로 넘기면 자바가 호출 전에 평가해서,
-      // 옵트인하지 않아 첫 줄에서 통과할 몰에서도 매 회차 tasklist 가 돈다.
-      SessionProfileGate.Decision gate =
-          SessionProfileGate.evaluate(
-              SessionProfilePolicy.appliesTo(
-                  asInt(mall.get("session_profile_enabled")) != null
-                      && asInt(mall.get("session_profile_enabled")) == 1),
-              ExecutionContextDetector::detect,
-              str(mall.get("session_profile_name")),
-              str(mall.get("session_profile_owner")),
-              System.getProperty("user.name"));
-      if (!gate.canProceed()) {
-        logger.info("쇼핑몰 seq={} 세션 프로필 게이트에 막힘 — {}", seq, gate);
-        saveSkipLog(seqInt, mallName, gate.name(), gate.reason(), startedAt);
-        return;
-      }
+      // 즉시수집이 이 판정을 우회하고 있었고, 규약을 호출부가 지키게 두는 한 두 경로는 다시 갈린다.
+      // 이제 JangBoGoManager.collect 안에서 게이트와 브라우저 동시 실행 제한을 함께 본다.
+      // 막힌 사유는 아래에서 outcome 으로 받아 그대로 SKIPPED 로 남긴다.
 
       String encKeyBase64 = str(mall.get("encrypt_key"));
       String encIvBase64 = str(mall.get("encrypt_iv"));
@@ -290,25 +273,42 @@ public class MallSchedulerService {
         return;
       }
 
-      // 복호화
-      SecretKey secKey = StringEncrypter.decodeBase64ToSecretKey(encKeyBase64.trim());
-      IvParameterSpec ivSpec = StringEncrypter.decodeBase64ToIv(encIvBase64.trim());
+      // 수집 실행 (동기 실행하여 신규 주문 seq 수집).
+      //
+      // 복호화를 값이 아니라 공급자로 넘긴다 (Phase 5-19). 게이트나 브라우저 자리에 막히는 회차에서는
+      // 이 람다가 호출되지 않으므로 비밀번호가 메모리에 오르지 않는다.
+      logger.info("쇼핑몰 seq={} 구매내역 수집 시작", seq);
+      MallCollectOutcome outcome =
+          jangBoGoManager.collect(
+              mall,
+              () -> {
+                SecretKey secKey = StringEncrypter.decodeBase64ToSecretKey(encKeyBase64.trim());
+                IvParameterSpec ivSpec = StringEncrypter.decodeBase64ToIv(encIvBase64.trim());
 
-      String usrid = StringEncrypter.decrypt(StringEncrypter.ALGORITHM, cipherId, secKey, ivSpec);
-      String usrpw = StringEncrypter.decrypt(StringEncrypter.ALGORITHM, cipherPw, secKey, ivSpec);
+                String usrid =
+                    StringEncrypter.decrypt(StringEncrypter.ALGORITHM, cipherId, secKey, ivSpec);
+                String usrpw =
+                    StringEncrypter.decrypt(StringEncrypter.ALGORITHM, cipherPw, secKey, ivSpec);
 
-      if (usrid != null && usrid.startsWith("%")) usrid = usrid.substring(1);
-      if (usrpw != null && usrpw.startsWith("%")) usrpw = usrpw.substring(1);
+                if (usrid != null && usrid.startsWith("%")) usrid = usrid.substring(1);
+                if (usrpw != null && usrpw.startsWith("%")) usrpw = usrpw.substring(1);
 
-      if (usrid == null || usrpw == null) {
-        logger.warn("쇼핑몰 seq={} 계정 복호화 실패", seq);
-        saveFailLog(seqInt, mallName, "계정 복호화 실패", null, startedAt);
+                if (usrid == null || usrpw == null) {
+                  throw new IllegalStateException("계정 복호화 실패");
+                }
+                return new MallCredentials(usrid, usrpw);
+              },
+              CollectTrigger.SCHEDULED);
+
+      if (!outcome.collected()) {
+        // 막힌 것은 실패가 아니다. 사유만 남기고 물러난다.
+        logger.info("쇼핑몰 seq={} 수집 건너뜀 — {} ({})", seq, outcome.code(), outcome.reason());
+        saveSkipLog(
+            seqInt, mallName, outcome.code(), outcome.reason(), outcome.stepName(), startedAt);
         return;
       }
 
-      // 수집 실행 (동기 실행하여 신규 주문 seq 수집)
-      logger.info("쇼핑몰 seq={} 구매내역 수집 시작", seq);
-      List<Integer> newOrderSeqs = jangBoGoManager.updateItemsAndGetNewSeqs(seq, usrid, usrpw);
+      List<Integer> newOrderSeqs = outcome.newOrderSeqs();
 
       // 파일 저장 및 FTP 업로드 처리
       if (!newOrderSeqs.isEmpty() || shouldProcessFileExport(seq)) {
@@ -363,17 +363,29 @@ public class MallSchedulerService {
     } catch (NumberFormatException ignore) {
     }
     long now = System.currentTimeMillis();
-    saveSkipLog(seqInt, mallName, gate.name(), gate.reason(), now);
+    saveSkipLog(
+        seqInt,
+        mallName,
+        gate.name(),
+        gate.reason(),
+        MallCollectOutcome.STEP_SESSION_PROFILE_GATE,
+        now);
   }
 
   /**
-   * 세션 프로필 게이트에 막힌 것을 기록한다 (Phase 5-4).
+   * 수집을 건너뛴 것을 기록한다 (Phase 5-4, 5-19 에서 확대).
    *
-   * <p>실패가 아니라 <b>건너뜀</b>이다. FAIL 로 적으면 브레이커가 이것을 연속 실패로 세어 몰을 차단해 버린다 — 막은 것은 우리 쪽 조건이지 사이트가 아니다.
-   * {@code SKIPPED} 는 성공·실패 집계에서 모두 빠진다.
+   * <p>실패가 아니라 <b>건너뜀</b>이다. 막은 것은 우리 쪽 조건이지 사이트가 아니다. {@code SKIPPED} 는 수집 로그 화면의 성공·실패 집계와 실패
+   * 목록에서 모두 빠진다({@code JbgCollectLogDataAccessObject} 의 요약 질의가 {@code SUCCESS}·{@code FAIL} 만 센다).
+   *
+   * <p>(정정) 예전 주석은 "FAIL 로 적으면 브레이커가 연속 실패로 세어 몰을 차단한다" 고 적었지만 그렇지 않다. 브레이커의 입력은 {@code
+   * jbg_collect_breaker} 뿐이고 그 표는 수집기가 실제로 돈 회차에만 갱신된다 — 이 표를 읽지 않는다. 실제 차이는 화면 집계다.
+   *
+   * <p>단계 이름을 인자로 받는 이유는 5-19 다. 게이트 말고도 브라우저 자리 부족·중복 실행이 이 통로로 들어오는데, 단계를 게이트로 박아 두면 세션 프로필을 켠 적
+   * 없는 사용자가 그 기능에서 원인을 찾게 된다.
    */
   private void saveSkipLog(
-      int seqMall, String mallName, String gateName, String reason, long startedAt) {
+      int seqMall, String mallName, String code, String reason, String step, long startedAt) {
     try {
       JbgCollectLogDataAccessObject logDao = new JbgCollectLogDataAccessObject();
       logDao.addLog(
@@ -382,9 +394,9 @@ public class MallSchedulerService {
           "SKIPPED",
           0,
           0,
-          gateName,
+          code,
           reason,
-          "session-profile-gate",
+          step,
           null,
           null,
           null,
@@ -392,7 +404,7 @@ public class MallSchedulerService {
           startedAt,
           System.currentTimeMillis());
     } catch (Exception e) {
-      logger.warn("세션 프로필 게이트 로그 저장 실패: {}", e.getMessage());
+      logger.warn("건너뜀 로그 저장 실패: {}", e.getMessage());
     }
   }
 
