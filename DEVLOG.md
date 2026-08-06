@@ -10,6 +10,38 @@
 
 ## 주요 변경사항
 
+### [2026-08-06 16:49] 5-15·5-16 — 세션 캡처 + 암호화 저장 (v0.16.0)
+
+#### 작업 개요
+
+사람이 브라우저에서 직접 로그인해 만든 세션을 CDP `Network.getAllCookies` 로 떠서 암호화 저장하는 앞단을 구현했다. 캡처 경로는 ADR-0002 로 확정된 후보 (a) — Selenium 이 프로필을 쓰며 브라우저를 띄우고 마스킹을 건 뒤 사람이 그 창에서 로그인한다(디버깅 포트를 열지 않는다). 이미 있던 `SessionSnapshot`·`SessionTransfer`·`WebDriverManager` 마스킹을 재사용하고, 남아 있던 **오케스트레이션(비동기 start/status/capture/cancel)과 암호화 저장**을 새로 만들었다. 킬스위치(`jangbogo.session-profile.enabled`, 기본 OFF) 뒤에 두었고 몰별 옵트인은 켜지 않았으므로 수집 동작은 그대로다. 테스트 388 → **432**, 전부 통과.
+
+#### 배경 — 계획서가 코드와 어긋난 지점을 착수 전에 잡았다
+
+정본 계획서 5-16 행이 *"`StartupTasks` 마이그레이션이 필요하다(`migrateCollectLogSchema` 선례)"* 라고 적고 있었는데, 그 선례 메서드는 Phase 3-10 에서 이미 제거됐고 지금은 `SchemaMigrator.ensureMigrated()` 가 `schema.sql` 을 읽어 없는 컬럼을 자동 ALTER 한다. 즉 `schema.sql` 에 컬럼 2개를 선언하는 것으로 끝이고 `StartupTasks` 는 손댈 필요가 없었다. 실제 코드로 확인해 계획서를 정정했다.
+
+#### 상세
+
+- **5-16 저장 (`svc/util/SessionSnapshotStore`)** — 몰 계정 키를 재사용하지 않고 저장마다 새 키/IV 생성(계정 재연결이 그 키를 회전시킨다). JSON→UTF-8→base64 로 ASCII 고정 후 암호화(문자열 암호기가 charset 미명시라 비-ASCII 쿠키가 복호화 시점에 깨지는 것을 막는다). 암호문은 프로필 루트 아래 파일, 키/IV 는 DB 전용 컬럼 2개에 분리. 스냅샷 값은 넓은 SELECT 에도 안 넣고 로그·응답·`toString` 에도 안 낸다.
+- **5-15 캡처 (`svc/SessionCaptureService` + `ctrl/SessionCaptureController`)** — 비동기 + 폴링. 막힘·실패는 값(enum). 한 번에 하나만 활성이고 수집 동시 실행 리스는 잡지 않는다(사람 페이스라 수집을 굶긴다). 창 상한은 관리자 세션 30분 잔여(`AuthInterceptor` 가 `LOGIN_TIME` 기준으로 잰다) 아래로 캡한다.
+- **DB** — `jbg_mall` 에 `session_snapshot_key`·`session_snapshot_iv`. `update()`(null 을 SET 에서 빼는 함정)를 피해 전용 read/write. `MallSessionProfileFieldsTest` 패턴의 경계 테스트로 쓴 것을 그대로 읽는지 확인.
+- **UI** — ‘계정연결’ 모달에 브라우저 로그인 진입점(‘로그인을 마쳤습니다’ 버튼 + 상태 폴링).
+
+#### 적대검증이 잡은 것 (3렌즈 → 6건, 회귀 렌즈는 빈 배열)
+
+착수 산출을 그대로 두지 않고 회귀·조용한 실패·계약경계·유출 렌즈로 검토한 뒤 file:line 으로 직접 재확인해 실재 결함만 고쳤다.
+
+1. **(HIGH) 고아 브라우저·영구 잠김** — 폴링이 끊기면 살아 있는 세션을 쥔 브라우저가 남고 이후 `start` 가 영구 `ALREADY_ACTIVE` 였다. 데몬 리퍼(유휴 2분·창 만료 회수) + `start` 진입 시 방치 캡처 선회수 + `@PreDestroy` 종료 정리로 닫았다.
+2. **(MED) 재캡처 데이터 손실** — 암호문 파일을 키 커밋 전에 덮어써, 키 쓰기가 일시 실패하면 이전 세션이 영구 파손됐다. 임시 파일 → 키 커밋 → 원자적 교체로 바꿨다.
+3. **(MED) 모달 닫기·이탈 시 미취소** — `hidden.bs.modal`·`pagehide`(sendBeacon)에서 진행 중이면 취소하도록 했다.
+4. **(LOW) `status` seqMall 미대조 + JS 좀비 폴링** — 서버는 seqMall 불일치를 `NO_ACTIVE_CAPTURE` 로, JS 는 폴링 세대 가드로 막았다.
+5. **(LOW) `load` 실패 로그에 seqMall 부재** — ‘미캡처’와 ‘파손’ 구분되게 seqMall(비밀 아님)을 남겼다.
+6. **(MED) 락 잡은 채 블로킹 호출** — 단일 관리자·로컬 실행 전제 + Selenium 타임아웃 하에 위험이 낮아 클래스 javadoc 에 트레이드오프를 기록하고 수용했다.
+
+#### 남은 것
+
+주입 기반 수집(5-9′) 배선·몰별 옵트인·실계정 캡처 실측(5-15)·세션 수명 측정(5-17)은 다음 단계다. 실측은 킬스위치 ON + 사람이 실제 로그인해야 하므로 별도로 진행한다.
+
 ### [2026-08-06 00:20] 프로필 락 획득 순서의 근거를 코드로 옮겼다 (v0.15.10)
 
 #### 작업 개요

@@ -55,13 +55,26 @@ public enum MallRegistry {
       "ssg",
       "emart",
       List.of(new CollectorSpec("SSG", Ssg::new), new CollectorSpec("Emart", Emart::new)),
-      "Emart"),
+      "Emart",
+      "https://www.ssg.com/"),
 
   /** 오아시스마켓. */
-  OASIS(2, "oasis", "oasis", List.of(new CollectorSpec("Oasis", Oasis::new)), "Oasis"),
+  OASIS(
+      2,
+      "oasis",
+      "oasis",
+      List.of(new CollectorSpec("Oasis", Oasis::new)),
+      "Oasis",
+      "https://www.oasis.co.kr/login"),
 
   /** 하나로마트. */
-  HANARO(3, "hanaro", "hanaro", List.of(new CollectorSpec("Hanaro", Hanaro::new)), "Hanaro");
+  HANARO(
+      3,
+      "hanaro",
+      "hanaro",
+      List.of(new CollectorSpec("Hanaro", Hanaro::new)),
+      "Hanaro",
+      "https://www.nonghyupmall.com/BC41000R/loginViewPage.nh");
 
   /** {@code mall_id} 를 못 찾았을 때 내보내기가 쓰는 값. */
   public static final String UNKNOWN_EXPORT_ID = "unknown";
@@ -86,18 +99,21 @@ public enum MallRegistry {
   private final String exportId;
   private final List<CollectorSpec> collectors;
   private final String verificationCollectorName;
+  private final String loginUrl;
 
   MallRegistry(
       int seq,
       String mallId,
       String exportId,
       List<CollectorSpec> collectors,
-      String verificationCollectorName) {
+      String verificationCollectorName,
+      String loginUrl) {
     this.seq = seq;
     this.mallId = mallId;
     this.exportId = exportId;
     this.collectors = collectors;
     this.verificationCollectorName = verificationCollectorName;
+    this.loginUrl = loginUrl;
   }
 
   /** {@code jbg_mall.seq}. */
@@ -118,6 +134,18 @@ public enum MallRegistry {
   /** 이 몰에서 돌릴 수집기들. 선언 순서대로 실행된다. */
   public List<CollectorSpec> collectors() {
     return collectors;
+  }
+
+  /**
+   * 세션 캡처 시 사람을 착지시킬 로그인 페이지 (Phase 5-15).
+   *
+   * <p><b>정확성이 아니라 편의다.</b> 캡처는 CDP {@code Network.getAllCookies} 로 도메인을 가리지 않고 전량을 뜨므로, 사람이 이 창에서
+   * 어느 도메인에 로그인하든 그 쿠키가 담긴다. SSG 계열처럼 데이터원이 둘이어도 한 캡처로 둘 다 담을 수 있어, 여기서는 대표 로그인 지점 하나만 준다.
+   *
+   * @return 로그인 페이지 URL
+   */
+  public String loginUrl() {
+    return loginUrl;
   }
 
   /**

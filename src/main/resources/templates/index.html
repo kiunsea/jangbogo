@@ -253,6 +253,16 @@
                                     &nbsp;
                                     <input id="usrpass_mall" type="password" class="form-control" placeholder="비밀번호">
                                 </div>
+                                <!-- 세션 캡처 진입점 (Phase 5-15) — 비밀번호 대신 브라우저에서 직접 로그인 -->
+                                <hr class="my-2">
+                                <div class="small text-muted mb-1">또는 브라우저를 띄워 직접 로그인하고 그 세션을 저장합니다.</div>
+                                <button id="btn_capture_start" type="button" class="btn btn-outline-primary btn-sm"
+                                        onclick="javascript:startSessionCapture()">브라우저로 로그인</button>
+                                <button id="btn_capture_done" type="button" class="btn btn-success btn-sm" style="display:none;"
+                                        onclick="javascript:finishSessionCapture()">로그인을 마쳤습니다</button>
+                                <button id="btn_capture_cancel" type="button" class="btn btn-outline-secondary btn-sm" style="display:none;"
+                                        onclick="javascript:cancelSessionCapture()">취소</button>
+                                <div id="capture_status" class="small mt-2 text-muted"></div>
                             </div>
                             <div class="modal-footer">
                                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
@@ -470,6 +480,9 @@
                             _doc.querySelector('#signinMallModal_title').innerText = "하나로마트 계정연결";
                         }
                         _doc.querySelector('#btn_connect_mall').setAttribute('onclick', 'javascript:connectMall('+ seqm +')');
+                        // 세션 캡처 진입점도 이 몰을 가리키게 하고 UI 를 초기화한다 (Phase 5-15).
+                        window._captureSeq = seqm;
+                        resetSessionCaptureUI();
                         var myModal = bootstrap.Modal.getOrCreateInstance(_doc.querySelector('#ModalSigninMall'));
                         myModal.show();
                     }
@@ -548,6 +561,136 @@
                     };
                     sendPost(_ajax, path, params);
                 }
+
+                // ── 세션 캡처 (Phase 5-15) ──────────────────────────────────────────
+                // 비밀번호를 입력하지 않는다. 브라우저를 띄워 사람이 직접 로그인하고, 그 세션을 떠서 저장한다.
+                // 비동기 + 폴링 — 요청을 붙잡지 않는다. 완료는 [로그인을 마쳤습니다] 버튼으로 받는다.
+                var _captureSeq = null;
+                var _capturePollTimer = null;
+                var _captureGen = 0; // 폴링 세대. 리셋/모달 전환마다 올려 좀비 폴링을 무효화한다.
+
+                function _captureEls() {
+                    const d = window.document;
+                    return {
+                        start: d.querySelector('#btn_capture_start'),
+                        done: d.querySelector('#btn_capture_done'),
+                        cancel: d.querySelector('#btn_capture_cancel'),
+                        status: d.querySelector('#capture_status')
+                    };
+                }
+
+                function resetSessionCaptureUI() {
+                    _captureGen++; // in-flight XHR 콜백이 폴링을 되살리지 못하게 세대를 올린다.
+                    if (_capturePollTimer) { clearTimeout(_capturePollTimer); _capturePollTimer = null; }
+                    const e = _captureEls();
+                    if (!e.start) return;
+                    e.start.style.display = '';
+                    e.done.style.display = 'none';
+                    e.cancel.style.display = 'none';
+                    e.status.innerText = '';
+                }
+
+                function startSessionCapture() {
+                    if (!_captureSeq) return;
+                    const e = _captureEls();
+                    e.status.innerText = '브라우저를 띄우는 중…';
+                    var _ajax = new XMLHttpRequest();
+                    _ajax.onreadystatechange = function () {
+                        if (checkAjaxSuc(_ajax)) {
+                            var res = JSON.parse(_ajax.responseText || '{}');
+                            if (res.outcome === 'STARTED') {
+                                e.start.style.display = 'none';
+                                e.done.style.display = '';
+                                e.cancel.style.display = '';
+                                e.status.innerText = res.message || '로그인을 기다리는 중…';
+                                pollSessionCapture(_captureGen);
+                            } else {
+                                e.status.innerText = res.message || '시작하지 못했습니다.';
+                            }
+                        }
+                    };
+                    sendPost(_ajax, '/mall/session/start', 'seqMall=' + _captureSeq);
+                }
+
+                function pollSessionCapture(gen) {
+                    if (!_captureSeq || gen !== _captureGen) return;
+                    var seqAtPoll = _captureSeq;
+                    var _ajax = new XMLHttpRequest();
+                    _ajax.onreadystatechange = function () {
+                        if (checkAjaxSuc(_ajax)) {
+                            // 이 콜백이 도는 사이 리셋/몰 전환이 있었으면 아무것도 하지 않는다(좀비 폴링 차단).
+                            if (gen !== _captureGen) return;
+                            var res = JSON.parse(_ajax.responseText || '{}');
+                            const e = _captureEls();
+                            if (res.outcome === 'AWAITING_LOGIN') {
+                                var mins = Math.floor((res.remainingMillis || 0) / 60000);
+                                e.status.innerText = '로그인한 뒤 [로그인을 마쳤습니다] 를 눌러 주세요. (창 유지 약 ' + mins + '분)';
+                                _capturePollTimer = setTimeout(function () { pollSessionCapture(gen); }, 3000);
+                            } else if (res.outcome === 'EXPIRED') {
+                                e.status.innerText = res.message || '시간이 다 되어 창을 닫았습니다.';
+                                resetSessionCaptureUI();
+                            } else if (res.outcome === 'NO_ACTIVE_CAPTURE') {
+                                resetSessionCaptureUI();
+                            }
+                        }
+                    };
+                    sendGet(_ajax, '/mall/session/status?seqMall=' + seqAtPoll);
+                }
+
+                function finishSessionCapture() {
+                    if (!_captureSeq) return;
+                    const e = _captureEls();
+                    e.status.innerText = '세션을 저장하는 중…';
+                    var _ajax = new XMLHttpRequest();
+                    _ajax.onreadystatechange = function () {
+                        if (checkAjaxSuc(_ajax)) {
+                            var res = JSON.parse(_ajax.responseText || '{}');
+                            if (res.outcome === 'CAPTURED') {
+                                alert('세션을 저장했습니다. (쿠키 ' + (res.cookieCount || 0) + '개)');
+                                resetSessionCaptureUI();
+                                var myModal = bootstrap.Modal.getOrCreateInstance(window.document.querySelector('#ModalSigninMall'));
+                                myModal.hide();
+                            } else {
+                                e.status.innerText = res.message || '저장하지 못했습니다.';
+                            }
+                        }
+                    };
+                    sendPost(_ajax, '/mall/session/capture', 'seqMall=' + _captureSeq);
+                }
+
+                function cancelSessionCapture() {
+                    if (!_captureSeq) { resetSessionCaptureUI(); return; }
+                    var _ajax = new XMLHttpRequest();
+                    _ajax.onreadystatechange = function () {
+                        if (checkAjaxSuc(_ajax)) { resetSessionCaptureUI(); }
+                    };
+                    sendPost(_ajax, '/mall/session/cancel', 'seqMall=' + _captureSeq);
+                }
+
+                // 캡처가 진행 중(로그인 대기)인가 — done 버튼이 보이면 서버에 살아있는 브라우저가 있다.
+                function _captureInProgress() {
+                    var done = window.document.querySelector('#btn_capture_done');
+                    return !!(done && done.style.display !== 'none');
+                }
+
+                // 모달을 닫으면(Close/X/ESC) 진행 중인 캡처를 취소해 브라우저를 닫는다.
+                // 성공 저장 경로는 hide 전에 UI 를 리셋하므로 여기서 다시 취소하지 않는다.
+                (function () {
+                    var modalEl = window.document.querySelector('#ModalSigninMall');
+                    if (modalEl) {
+                        modalEl.addEventListener('hidden.bs.modal', function () {
+                            if (_captureInProgress()) { cancelSessionCapture(); }
+                        });
+                    }
+                })();
+
+                // 탭 닫기·페이지 이동 시에도 살아있는 캡처 브라우저를 서버가 닫게 한다.
+                // sendBeacon 은 언로드에서 신뢰할 수 있다. seqMall 은 쿼리로 넘겨 @RequestParam 이 읽게 한다.
+                window.addEventListener('pagehide', function () {
+                    if (_captureSeq && _captureInProgress() && navigator.sendBeacon) {
+                        navigator.sendBeacon('/mall/session/cancel?seqMall=' + encodeURIComponent(_captureSeq));
+                    }
+                });
 
                 // 선택된 쇼핑몰 자동수집 즉시 실행 또는 취소
                 function autoCollectSelected() {

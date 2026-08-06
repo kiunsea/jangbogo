@@ -571,6 +571,92 @@ public class JbgMallDataAccessObject extends CommonDataAccessObject {
   }
 
   /**
+   * 세션 스냅샷 암호화 키/IV 를 읽는다 (Phase 5-16).
+   *
+   * <p><b>전용 조회다.</b> 이 값은 살아 있는 세션 토큰을 여는 열쇠라 {@code getMall}/{@code getAllMalls} 의 넓은 SELECT 목록에
+   * 섞지 않는다 — 그 결과 JSON 은 화면·로그로 흐르기 때문이다. 복호화가 필요한 곳({@code SessionSnapshotStore.load})에서만 이 메서드로
+   * 좁게 읽는다.
+   *
+   * @param seqMall 쇼핑몰 시퀀스
+   * @return {@code {snapshot_key, snapshot_iv}}. 몰이 없으면 null. 저장된 적 없으면 각 값이 null
+   * @throws Exception 조회 오류
+   */
+  public JSONObject getSessionSnapshotKeys(String seqMall) throws Exception {
+    LocalDBConnection conn = null;
+    try {
+      conn = new LocalDBConnection();
+      String seq = digitsOnly(seqMall);
+      ResultSet rset =
+          conn.executeQuery(
+              "SELECT session_snapshot_key, session_snapshot_iv FROM jbg_mall WHERE seq=" + seq);
+      if (rset != null && rset.next()) {
+        JSONObject json = new JSONObject();
+        json.put("snapshot_key", rset.getString("session_snapshot_key"));
+        json.put("snapshot_iv", rset.getString("session_snapshot_iv"));
+        return json;
+      }
+      return null;
+    } catch (Exception e) {
+      log.error("* 세션 스냅샷 키 조회 에러");
+      log.error(ExceptionUtil.getExceptionInfo(e));
+      throw e;
+    } finally {
+      if (conn != null) {
+        conn.close();
+      }
+    }
+  }
+
+  /**
+   * 세션 스냅샷 암호화 키/IV 와 캡처 시각을 저장한다 (Phase 5-16).
+   *
+   * <p><b>{@link #update} 를 쓰지 않는다.</b> 그 메서드는 null 인 값을 SET 절에서 통째로 빼므로(이름과 달리 지우지 못한다), 키를 명시적으로
+   * 덮어써야 하는 이 저장에는 맞지 않는다. PreparedStatement 로 세 값을 그대로 쓴다.
+   *
+   * <p>{@code capturedAtMillis} 를 {@code session_profile_last_login} 에 함께 기록한다 — 사람이 마지막으로 로그인해 세션을
+   * 뜬 시각이고, 5-17(세션 수명 측정)의 입력이다.
+   *
+   * @param seqMall 쇼핑몰 시퀀스
+   * @param snapshotKey base64 SecretKey (매 저장마다 새로 생성된 것)
+   * @param snapshotIv base64 IV
+   * @param capturedAtMillis 세션을 뜬 시각 (millisecond)
+   * @throws Exception 저장 오류
+   */
+  public void saveSessionSnapshotKeys(
+      String seqMall, String snapshotKey, String snapshotIv, long capturedAtMillis)
+      throws Exception {
+    LocalDBConnection conn = null;
+    try {
+      conn = new LocalDBConnection();
+      int seq = Integer.parseInt(digitsOnly(seqMall));
+      conn.txPstmtExecuteUpdate(
+          "UPDATE jbg_mall SET session_snapshot_key=?, session_snapshot_iv=?,"
+              + " session_profile_last_login=? WHERE seq=?",
+          snapshotKey,
+          snapshotIv,
+          capturedAtMillis,
+          seq);
+    } catch (Exception e) {
+      log.error("* 세션 스냅샷 키 저장 에러");
+      log.error(ExceptionUtil.getExceptionInfo(e));
+      throw e;
+    } finally {
+      if (conn != null) {
+        conn.close();
+      }
+    }
+  }
+
+  /** seq 문자열에서 숫자만 남긴다. 호출부(컨트롤러·서비스)에서 온 값이라 방어한다. 비어 있으면 실패로 본다. */
+  private static String digitsOnly(String seq) {
+    String d = seq == null ? "" : seq.replaceAll("[^0-9]", "");
+    if (d.isEmpty()) {
+      throw new IllegalArgumentException("유효한 seq 가 아니다: " + seq);
+    }
+    return d;
+  }
+
+  /**
    * 마지막 로그인 시간을 현재시간으로 설정 (통합 - 구 JbgAccessDataAccessObject.updateLastSigninTime)
    *
    * @param seqJbgmall 쇼핑몰 시퀀스

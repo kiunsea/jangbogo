@@ -33,7 +33,13 @@ CREATE TABLE IF NOT EXISTS jbg_mall (
   session_profile_name TEXT, -- 프로필 디렉터리 이름 (프로필 루트 하위)
   session_profile_status TEXT, -- NONE / READY / EXPIRED / LOCKED
   session_profile_last_login INTEGER, -- 사람이 마지막으로 로그인한 시각 (millisecond)
-  session_profile_owner TEXT -- 프로필을 만든 OS 계정. 다르면 세션이 열리지 않으므로 게이트로 쓴다
+  session_profile_owner TEXT, -- 프로필을 만든 OS 계정. 다르면 세션이 열리지 않으므로 게이트로 쓴다
+  -- 세션 스냅샷 암호화 키 (Phase 5-16). 몰 계정용 encrypt_key/encrypt_iv 와 분리한다 —
+  -- 계정 재연결이 성공할 때마다 그 키는 새로 생성되어 덮어써지므로, 재사용하면 스냅샷이 다음
+  -- 복호화에서 BadPadding 으로 죽는다(AdminController 의 연결 처리). 암호문은 프로필 루트 아래
+  -- 파일에 두고 키/IV 만 여기에 둔다 — 키·암호문 분리 보관을 계정 자격증명과 같은 수준으로 지킨다.
+  session_snapshot_key TEXT, -- 세션 스냅샷 전용 SecretKey (base64)
+  session_snapshot_iv TEXT -- 세션 스냅샷 전용 IV (base64)
 );
 
 --------------------------------------------------------

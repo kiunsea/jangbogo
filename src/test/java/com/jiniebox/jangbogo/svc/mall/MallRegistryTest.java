@@ -136,6 +136,27 @@ class MallRegistryTest {
   }
 
   @Test
+  @DisplayName("몰마다 세션 캡처 착지용 로그인 URL 이 있다 (Phase 5-15)")
+  void everyMallHasHttpsLoginUrl() {
+    // 자격증명 없이 seq 만으로 이 값을 얻어야 캡처 start 가 로그인 페이지로 착지시킬 수 있다.
+    for (MallRegistry mall : MallRegistry.values()) {
+      String url = mall.loginUrl();
+      assertNotNull(url, mall + " 에 로그인 URL 이 없다.");
+      assertTrue(url.startsWith("https://"), mall + " 의 로그인 URL 이 https 가 아니다: " + url);
+    }
+  }
+
+  @Test
+  @DisplayName("로그인 URL 이 몰별로 고정돼 있다")
+  void loginUrlsArePinned() {
+    assertEquals("https://www.ssg.com/", MallRegistry.bySeq(1).orElseThrow().loginUrl());
+    assertEquals("https://www.oasis.co.kr/login", MallRegistry.bySeq(2).orElseThrow().loginUrl());
+    assertEquals(
+        "https://www.nonghyupmall.com/BC41000R/loginViewPage.nh",
+        MallRegistry.bySeq(3).orElseThrow().loginUrl());
+  }
+
+  @Test
   @DisplayName("coupang 은 아직 등록하지 않는다")
   void coupangIsNotRegistered() {
     // 컴파일만 되는 껍데기다. 여기 넣으면 "지원되는 몰"로 보인다. Phase 4B 통과 후에 추가한다.
