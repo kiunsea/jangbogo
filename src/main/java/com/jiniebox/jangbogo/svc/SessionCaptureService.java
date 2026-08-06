@@ -274,9 +274,17 @@ public class SessionCaptureService {
     }
 
     WebDriver driver = null;
+    Path profileDir = null;
     try {
-      Path profileDir = SessionProfilePolicy.profileDir(mall.get().mallId());
+      profileDir = SessionProfilePolicy.profileDir(mall.get().mallId());
       Files.createDirectories(profileDir);
+      // 이전 실패·강제 종료가 남긴 고아 브라우저가 프로필 락을 쥐고 있으면 이번 기동도 "user data
+      // directory is already in use" 로 실패한다. 활성 캡처가 없는 지금 이 프로필을 문 크롬은 전부
+      // 고아이므로 먼저 정리한다 — 실측에서 고아 하나가 이후 시도 전부를 막았다.
+      int stale = webDriverManager.killOrphanProfileChrome(profileDir);
+      if (stale > 0) {
+        logger.info("이전 캡처가 남긴 고아 브라우저 {}개를 정리했다 — seq={}", stale, normalize(seqMall));
+      }
       // profileDir 이 있으므로 WebDriverManager 가 마스킹을 자동으로 건다(WebDriverManager:138-140).
       driver = webDriverManager.getWebDriver(WebDriverManager.BROWSER_NAME_CHROME, profileDir);
       driver.navigate().to(mall.get().loginUrl());
@@ -284,10 +292,20 @@ public class SessionCaptureService {
       logger.info("세션 캡처 시작 — seq={} (로그인 대기)", normalize(seqMall));
       return CaptureResult.of(Outcome.STARTED);
     } catch (Exception e) {
-      // 실패는 값으로. 부분 생성된 브라우저는 정리한다.
+      // 실패는 값으로. 부분 생성된 브라우저는 정리한다. 핸드셰이크 실패면 driver 가 null 인 채
+      // chrome.exe 만 떠 있어 quit() 으로 닿을 수 없다 — 프로필 명령줄로 찾아 마저 정리한다.
       quitQuietly(driver);
+      if (profileDir != null) {
+        int orphans = webDriverManager.killOrphanProfileChrome(profileDir);
+        if (orphans > 0) {
+          logger.info("기동 실패로 남은 고아 브라우저 {}개를 정리했다.", orphans);
+        }
+      }
       active = null;
-      logger.warn("세션 캡처 시작 실패({})", e.getClass().getSimpleName());
+      // 클래스명만 남기면 근본 원인이 가려진다(실측 — "user data directory already in use" 를 못 봤다).
+      // 기동은 로그인 전이라 메시지에 세션 값이 섞일 수 없다. 첫 줄만 warn, 전체 스택은 debug.
+      logger.warn("세션 캡처 시작 실패({}): {}", e.getClass().getSimpleName(), firstLine(e.getMessage()));
+      logger.debug("세션 캡처 시작 실패 상세", e);
       return CaptureResult.of(Outcome.LAUNCH_FAILED);
     }
   }
@@ -392,6 +410,18 @@ public class SessionCaptureService {
 
   private static String normalize(String seqMall) {
     return seqMall == null ? "" : seqMall.trim();
+  }
+
+  /**
+   * 예외 메시지의 첫 줄. Selenium 메시지는 원인 한 줄 뒤에 Host/Build info 여러 줄이 붙는다 — 진단에 필요한 것은 첫 줄이고, 나머지는 debug
+   * 스택으로 본다.
+   */
+  private static String firstLine(String message) {
+    if (message == null || message.isBlank()) {
+      return "(메시지 없음)";
+    }
+    int cut = message.indexOf('\n');
+    return (cut < 0 ? message : message.substring(0, cut)).trim();
   }
 
   private static void quitQuietly(WebDriver driver) {

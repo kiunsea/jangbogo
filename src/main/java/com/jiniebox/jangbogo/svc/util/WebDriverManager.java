@@ -1,10 +1,15 @@
 package com.jiniebox.jangbogo.svc.util;
 
 import com.jiniebox.jangbogo.dto.JangbogoConfig;
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.openqa.selenium.Capabilities;
@@ -200,6 +205,72 @@ public class WebDriverManager {
         // 이미 닫힌 브라우저에 대고 놓으면 예외가 날 수 있다. 정리 단계라 삼킨다.
         log.debug("드라이버 종료 중 예외({})", e.getClass().getSimpleName());
       }
+    }
+  }
+
+  /**
+   * 프로필 디렉터리를 물고 있는 고아 Chrome 을 강제 종료한다 (Phase 5-15 후속).
+   *
+   * <p>ChromeDriver 는 chrome.exe 를 띄운 <b>뒤에</b> 세션 핸드셰이크를 한다. 핸드셰이크가 실패하면({@code
+   * SessionNotCreatedException}) 예외만 남고 돌려받은 드라이버가 없어 {@code quit()} 으로 닿을 수 없는 브라우저가 생긴다. 그 브라우저가
+   * {@code --user-data-dir} 락을 쥔 채 남으면 같은 프로필의 다음 기동이 전부 "user data directory is already in use" 로
+   * 실패한다 — 실측에서 이런 고아 8개가 쌓여 이후 시도를 전부 막았다.
+   *
+   * <p>대상은 명령줄에 {@code --user-data-dir=<profileDir>} 가 있는 chrome.exe 로 한정한다. 캡처 프로필 디렉터리는 캡처 브라우저만
+   * 쓰므로, 활성 캡처가 없을 때 그 경로를 문 크롬은 전부 고아다. 개인 Chrome 은 이 인자를 갖지 않아 건드리지 않는다. Java 의 {@link
+   * ProcessHandle} 은 Windows 에서 다른 프로세스의 명령줄을 주지 않으므로 PowerShell(CIM)로 조회한다.
+   *
+   * <p>정리는 최선 노력이다 — 어떤 실패도 밖으로 던지지 않는다. 캡처 흐름은 "실패는 값으로" 계약이라, 정리 실패가 흐름을 끊어서는 안 된다.
+   *
+   * @param profileDir 캡처 프로필 디렉터리
+   * @return 종료한 프로세스 수. 비-Windows·조회 실패면 0
+   */
+  public int killOrphanProfileChrome(Path profileDir) {
+    if (profileDir == null
+        || !System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("windows")) {
+      return 0;
+    }
+    // PowerShell 단일 인용 문자열은 ' 를 '' 로만 이스케이프하면 된다. 경로 재료는
+    // SessionProfilePolicy.profileDir 의 검증(구분자·상위 참조 금지)을 통과한 값이다.
+    String needle = ("--user-data-dir=" + profileDir.toAbsolutePath()).replace("'", "''");
+    String script =
+        "Get-CimInstance Win32_Process -Filter \"Name='chrome.exe'\" | Where-Object {"
+            + " $_.CommandLine -and $_.CommandLine.Contains('"
+            + needle
+            + "') } | ForEach-Object {"
+            + " Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue; $_.ProcessId }";
+    try {
+      Process ps =
+          new ProcessBuilder("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script)
+              .redirectErrorStream(true)
+              .start();
+      // 출력은 종료한 PID 몇 줄이 전부라 파이프가 차기 전에 끝난다 — 종료를 먼저 기다려도 안전하다.
+      if (!ps.waitFor(10, TimeUnit.SECONDS)) {
+        ps.destroyForcibly();
+        log.warn("고아 브라우저 조회가 10초 안에 끝나지 않아 중단했다.");
+        return 0;
+      }
+      int killed = 0;
+      try (BufferedReader out = new BufferedReader(new InputStreamReader(ps.getInputStream()))) {
+        String line;
+        while ((line = out.readLine()) != null) {
+          String t = line.trim();
+          if (!t.isEmpty() && t.chars().allMatch(Character::isDigit)) {
+            killed++;
+          }
+        }
+      }
+      if (killed > 0) {
+        log.info("프로필 {} 을 물고 있던 고아 Chrome {}개를 강제 종료했다.", profileDir.getFileName(), killed);
+      }
+      return killed;
+    } catch (IOException e) {
+      log.warn("고아 브라우저 정리 실패({}). 그대로 진행한다.", e.getClass().getSimpleName());
+      return 0;
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      log.warn("고아 브라우저 정리가 인터럽트됐다. 그대로 진행한다.");
+      return 0;
     }
   }
 

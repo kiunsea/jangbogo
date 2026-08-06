@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -141,6 +142,32 @@ class SessionCaptureServiceTest {
     CaptureResult r = svc.start("2", now());
 
     assertEquals(Outcome.ALREADY_ACTIVE, r.outcome());
+  }
+
+  @Test
+  @DisplayName("start 는 기동 전에 프로필을 문 고아 브라우저를 예방 정리한다")
+  void startSweepsStaleOrphansBeforeLaunch() {
+    service(d -> SessionSnapshot.empty()).start("1", now());
+
+    org.mockito.InOrder inOrder = org.mockito.Mockito.inOrder(wdm);
+    inOrder.verify(wdm).killOrphanProfileChrome(any());
+    inOrder.verify(wdm).getWebDriver(eq(WebDriverManager.BROWSER_NAME_CHROME), any());
+  }
+
+  @Test
+  @DisplayName("기동이 던지면 값으로 실패하고 핸드셰이크 고아를 마저 정리한다 — 락 잔류가 다음 시도를 못 막는다")
+  void startLaunchFailureKillsOrphans() {
+    when(wdm.getWebDriver(eq(WebDriverManager.BROWSER_NAME_CHROME), any()))
+        .thenThrow(new RuntimeException("session not created"));
+    SessionCaptureService svc = service(d -> SessionSnapshot.empty());
+
+    CaptureResult r = svc.start("1", now());
+
+    assertEquals(Outcome.LAUNCH_FAILED, r.outcome());
+    // 기동 전 예방 정리 + 실패 후 정리, 두 번 닿는다.
+    verify(wdm, times(2)).killOrphanProfileChrome(any());
+    // 실패가 활성으로 남지 않아 다음 start 가 ALREADY_ACTIVE 로 막히지 않는다.
+    assertEquals(Outcome.NO_ACTIVE_CAPTURE, svc.status("1").outcome());
   }
 
   // ── capture ────────────────────────────────────────────────────────────────
