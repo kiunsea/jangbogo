@@ -1861,9 +1861,14 @@
                     var html = '';
                     rows.forEach(function(c) {
                         var style = HEALTH_STYLE[c.health] || HEALTH_STYLE.NEVER_RAN;
+                        // 한 번도 안 돈 몰은 브레이커 행이 없어 수집기 이름을 알 수 없다(스키마상
+                        // 없는 값이라 DAO 가 지어내지 않고 null 로 두고, 서버가 "" 로 내보낸다).
+                        // 그대로 찍으면 굵은 빈칸 + '미실행' 배지만 남아, 사각지대를 드러내 놓고
+                        // 정작 어느 몰인지 못 알리는 배너가 된다. 몰 이름으로 대신한다.
+                        var who = c.collector || c.mallName || '(이름 미상)';
                         html += '<div class="alert ' + style.cls + ' py-2 px-3 mb-2">'
                               + '<i class="bi ' + style.icon + '"></i> '
-                              + '<strong>' + escapeHtml(c.collector) + '</strong> '
+                              + '<strong>' + escapeHtml(who) + '</strong> '
                               + '<span class="badge bg-secondary">' + style.label + '</span><br>'
                               + '<small>' + escapeHtml(c.message) + '</small>'
                               + '</div>';

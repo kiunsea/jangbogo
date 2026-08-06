@@ -1,9 +1,40 @@
 package com.jiniebox.jangbogo.dao;
 
+import com.jiniebox.jangbogo.util.ExceptionUtil;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 public class CommonDataAccessObject {
+
+  private static final Logger commonLog = LogManager.getLogger(CommonDataAccessObject.class);
+
+  /**
+   * 트랜잭션을 되돌리되, 되돌리기가 실패해도 그 예외를 밖으로 내지 않는다.
+   *
+   * <p>왜 삼키는가 — 되돌리기는 이미 <b>다른 실패를 처리하는 도중</b>에 불린다. 여기서 나온 예외를 그대로 올리면 원래 실패 원인을 덮어써서 "왜 갱신이 깨졌나"
+   * 를 잃는다. 사람이 보는 것은 되돌리기가 실패했다는 사실뿐이고, 정작 고쳐야 할 원인은 사라진다. 그래서 되돌리기 실패는 로그로만 남기고 원래 예외를 그대로 올리게 둔다.
+   *
+   * <p>대가는 분명하다 — "되돌리기가 실패했다" 는 사실이 호출부로 전파되지 않는다. 트랜잭션이 정말로 안 닫힌 상황을 프로그램이 감지할 수단은 없고 로그가 유일한
+   * 단서다. 그래도 원인을 잃는 쪽이 더 나쁘다고 보고 이렇게 둔다.
+   *
+   * <p>여기 있는 이유 — 한때 이 메서드가 두 DAO 에 똑같이 복제돼 있었다. 복제된 예외 처리 규칙은 한쪽만 고쳐지면서 조용히 갈라진다. 트랜잭션을 여는 DAO 는
+   * 전부 이 클래스를 상속하므로 규칙을 여기 한 곳에 둔다.
+   *
+   * @param conn 되돌릴 연결. {@code null} 이면 아무 것도 하지 않는다
+   */
+  protected static void rollbackQuietly(LocalDBConnection conn) {
+    if (conn == null) {
+      return;
+    }
+    try {
+      conn.txRollBack();
+    } catch (SQLException rollbackFailure) {
+      commonLog.error("* 트랜잭션 되돌리기 실패 (원래 실패 원인은 뒤따르는 예외를 볼 것)");
+      commonLog.error(ExceptionUtil.getExceptionInfo(rollbackFailure));
+    }
+  }
 
   /**
    * DAO 를 만들기 전에 스키마가 최신 선언에 맞는지 보장한다 (Phase 3-10).

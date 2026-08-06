@@ -1,0 +1,339 @@
+package com.jiniebox.jangbogo.svc.mall;
+
+import com.jiniebox.jangbogo.svc.util.CollectStep;
+import com.jiniebox.jangbogo.svc.util.SessionProfilePolicy;
+import com.jiniebox.jangbogo.svc.util.SessionSnapshot;
+import com.jiniebox.jangbogo.svc.util.SessionSnapshotStore;
+import com.jiniebox.jangbogo.svc.util.SessionTransfer;
+import com.jiniebox.jangbogo.svc.util.WebDriverManager;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Locale;
+import java.util.function.LongConsumer;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.json.simple.JSONArray;
+import org.openqa.selenium.WebDriver;
+
+/**
+ * ssg.com 을 <b>비밀번호 없이</b> 수집한다 — 저장된 세션을 주입해 회원 주문내역으로 직행한다 (Phase 5-9′ 파일럿).
+ *
+ * <h2>이 클래스가 존재하는 이유</h2>
+ *
+ * <p>{@link Ssg} 는 매 회차 {@code member.ssg.com} 로그인 폼에 아이디·비밀번호를 제출한다. 이 프로젝트가 줄이려는 것이 바로 그 반복 제출이다.
+ * 부품({@code SessionSnapshotStore.load}·{@code SessionTransfer.inject}·{@code
+ * WebDriverManager.getWebDriver(name, profileDir)})은 이미 있었고 <b>프로덕션 호출자가 0건</b>이었다. 여기가 그 호출자다.
+ *
+ * <p>{@link Ssg} 는 한 줄도 바뀌지 않는다. 목록 파싱은 이미 검증된 {@link Ssg#navigatePurchased(WebDriver)} 를 그대로 부른다 —
+ * 그 메서드는 로그인을 하지 않고 주문내역 페이지만 읽으므로, 로그인된 브라우저만 넘겨주면 그대로 성립한다.
+ *
+ * <h2>호출 순서 — 어긋나면 조용히 실패한다</h2>
+ *
+ * <p>{@code SeleniumSessionTransferProbe} 가 실측한 순서를 그대로 옮겼다.
+ *
+ * <ol>
+ *   <li>스냅샷을 먼저 읽는다 (아래 '왜 load 가 먼저인가')
+ *   <li>{@code getWebDriver("chrome", profileDir)} — <b>{@code profileDir} 이 있어야</b> 자동화 표식 제거와
+ *       {@code navigator.webdriver} 마스킹이 붙는다({@code WebDriverManager} 는 {@code profileDir} 이 null
+ *       이면 그 옵션을 하나도 달지 않는다)
+ *   <li><b>대상 도메인 선방문</b> — {@code about:blank} 상태에서 주입하면 일부 브라우저 버전이 <b>조용히 무시한다</b>({@code
+ *       SessionTransfer.inject} javadoc 의 근거). 이 한 줄이 빠지면 예외도 없이 로그인 화면으로 밀린다
+ *   <li>{@code SessionTransfer.inject}
+ *   <li>회원 주문내역으로 직행
+ * </ol>
+ *
+ * <p><b>왜 {@code load} 를 브라우저보다 먼저 하나.</b> 프로브는 드라이버를 먼저 띄웠지만, 그것은 프로브가 세션 파일이 있다는 전제로 돌기 때문이다. 무인
+ * 수집에서는 '아직 캡처하지 않았다' 가 가장 흔한 상태이고, 드라이버를 먼저 띄우면 <b>매 회차 브라우저를 띄웠다가 아무것도 못 하고 닫는다.</b> {@code load}
+ * 는 DB·파일만 만지므로 앞으로 당겨도 3~5 의 순서에는 영향이 없다. 지켜야 하는 불변식은 <b>선방문이 주입보다 앞</b>이라는 것 하나다.
+ *
+ * <h2>세션이 없거나 만료면 — 건너뛴다. 비밀번호로 폴백하지 않는다</h2>
+ *
+ * <p>{@code load} 는 부재·복호화 실패를 예외가 아니라 빈 스냅샷으로 준다. 여기서 <b>기존 아이디/비밀번호로 폴백하면</b> 화면에는 수집 성공으로 보이면서
+ * 실제로는 매 회차 로그인 폼에 비밀번호가 다시 제출된다 — '비밀번호 없이 수집' 이라는 목적이 <b>아무 로그도 남기지 않고</b> 무너진다. 그리고 그 상태에서는 세션이
+ * 왜 없는지 아무도 묻지 않게 되어 영원히 복구되지 않는다.
+ *
+ * <p>그래서 건너뛴다. 사유는 {@code jbg_collect_log} 에 SKIPPED 로 남고 화면에 그대로 나가므로, 사람이 '브라우저로 로그인' 을 다시 눌러 복구할
+ * 수 있다. 폴백은 그 신호를 지우지만 건너뜀은 남긴다.
+ *
+ * <h2>부분 주입은 만료로 보지 않는다</h2>
+ *
+ * <p>{@code inject} 는 되읽어 확인한 개수를 돌려주고, 요청보다 적으면 경고만 남긴다. 이 값이 적다는 것을 <b>만료로 단정하지 않는다.</b> 캡처는 CDP
+ * {@code Network.getAllCookies} 로 도메인을 가리지 않고 전량을 뜨므로 스냅샷에는 대상 몰과 무관한 호스트의 쿠키가 섞여 있고, 그중 일부가 거부되는
+ * 것은 <b>정상</b>이다. 만료로 보면 멀쩡한 세션이 매 회차 건너뛰어진다.
+ *
+ * <p>대신 두 가지는 가른다 — 반영이 <b>0개</b>면 주입이 성립하지 않은 것이므로 건너뛴다. 그리고 진짜 만료 판정은 <b>회원 페이지에 도달했는가</b>로 한다.
+ * 그것이 이 축에서 실측 가능한 유일한 신호다.
+ *
+ * <h2>프로필 락 — 캡처 프로필을 쓰지 않는다</h2>
+ *
+ * <p>주입용 드라이버도 {@code profileDir} 을 넘겨야 마스킹이 걸린다. 그런데 그 경로를 <b>캡처 프로필과 같게 두면</b> 사람이 '브라우저로 로그인' 창을
+ * 열어 둔 동안 주기 수집이 겹치는 순간 {@code "user data directory is already in use"} 로 수집이 통째로 죽는다. 캡처 창은 사람
+ * 페이스로 몇 분씩 열려 있어 겹칠 창이 넓다.
+ *
+ * <p>그래서 {@code <몰id>-inject} 라는 <b>별도 디렉터리</b>를 쓴다. 잃는 것이 없다 — 인증 쿠키가 세션 스코프라 프로필에는 애초에 남지 않고(그것이
+ * 이 국면의 출발점이다), 여기서 프로필을 넘기는 이유는 오직 마스킹 옵션을 켜기 위해서다. 덤으로 캡처 프로필이 자동화 흔적으로 오염되지 않는다.
+ *
+ * <p>기동 전에 이 프로필을 문 고아 Chrome 을 정리한다. ChromeDriver 는 chrome.exe 를 띄운 뒤에 핸드셰이크하므로, 핸드셰이크가 깨지면 {@code
+ * quit()} 으로 닿을 수 없는 브라우저가 락을 쥔 채 남는다 — 실측에서 고아 하나가 이후 시도 전부를 막았다.
+ *
+ * @author KIUNSEA
+ */
+public class SsgSessionCollector implements SessionCollector {
+
+  private static final Logger log = LogManager.getLogger(SsgSessionCollector.class);
+
+  /** {@code jbg_collect_log.collector}·브레이커 키에 쓰이는 이름. {@code MallRegistry} 선언과 같아야 한다. */
+  static final String COLLECTOR_NAME = "SsgSession";
+
+  /**
+   * 주입 전에 반드시 들르는 도메인.
+   *
+   * <p>{@code MallRegistry.SSG_GROUP.loginUrl()} 과 같은 값이지만 <b>일부러 그것을 참조하지 않는다.</b> 저쪽은 '사람을 착지시킬
+   * 로그인 지점' 이라 편의로 고를 수 있는 값이고(그 javadoc 이 그렇게 적고 있다), 이쪽은 '쿠키를 받을 도메인' 이라 바뀌면 주입이 조용히 무시된다. 뜻이 다른
+   * 두 값을 한 상수로 묶으면 저쪽을 편의로 바꾼 날 이쪽이 말없이 깨진다.
+   */
+  static final String HOME_URL = "https://www.ssg.com/";
+
+  /** 회원 주문내역. 프로브가 실측한 주소다. */
+  static final String MEMBER_URL =
+      "https://www.ssg.com/myssg/productMng/purchaseList.ssg?menu=purchaseList";
+
+  /** 회원 페이지에 도달했음을 가르는 표식(소문자 비교). 프로브가 쓰던 기준 그대로다. */
+  static final String MEMBER_MARKER = "purchaselist";
+
+  /** 로그인 화면으로 밀렸음을 가르는 표식(소문자 비교). */
+  static final String LOGIN_MARKER = "login";
+
+  /** 주입용 프로필 이름의 꼬리. 캡처 프로필({@code <몰id>})과 반드시 달라야 한다. */
+  static final String INJECT_PROFILE_SUFFIX = "-inject";
+
+  /** 몰 첫 화면을 연 뒤의 대기(ms). 프로브 실측값. */
+  static final long AFTER_HOME_MILLIS = 1500L;
+
+  /** 회원 페이지로 이동한 뒤의 대기(ms). 프로브 실측값. */
+  static final long AFTER_MEMBER_MILLIS = 3000L;
+
+  static final String REASON_NO_SESSION = "저장된 로그인 세션이 없다. 대시보드에서 '브라우저로 로그인' 을 먼저 실행할 것";
+
+  static final String REASON_NOTHING_APPLIED = "세션을 주입했으나 반영된 쿠키가 0개다. '브라우저로 로그인' 을 다시 실행할 것";
+
+  static final String REASON_EXPIRED = "저장된 세션이 만료되어 로그인 화면으로 밀렸다. '브라우저로 로그인' 을 다시 실행할 것";
+
+  // ── 협력자 (브라우저·DB·파일을 만지는 지점은 전부 여기로 모은다) ──────────────────────────
+  //
+  // 이렇게 나눈 이유는 하나다: 위 javadoc 이 적은 '호출 순서' 가 실제로 지켜지는지를 브라우저 없이
+  // 검사할 수 있어야 하기 때문이다. 순서가 어긋나면 예외가 아니라 '조용한 실패' 가 되므로,
+  // 실사이트에서만 드러나는 형태로 두면 아무도 회귀를 잡지 못한다.
+
+  /** 마스킹이 걸린 드라이버를 띄운다. */
+  @FunctionalInterface
+  interface DriverLauncher {
+    WebDriver launch(Path profileDir);
+  }
+
+  /** 저장된 스냅샷을 되읽는다. 없으면 빈 스냅샷이다 (예외를 던지지 않는다). */
+  @FunctionalInterface
+  interface SnapshotLoader {
+    SessionSnapshot load(String seqMall);
+  }
+
+  /** 스냅샷을 브라우저에 넣고, 되읽어 확인한 개수를 돌려준다. */
+  @FunctionalInterface
+  interface SnapshotInjector {
+    int inject(WebDriver driver, SessionSnapshot snapshot);
+  }
+
+  /** 열려 있는 회원 주문내역 페이지에서 주문 목록을 읽는다. */
+  @FunctionalInterface
+  interface PurchaseListReader {
+    JSONArray read(WebDriver driver);
+  }
+
+  private final String seqMall;
+  private final DriverLauncher launcher;
+  private final SnapshotLoader loader;
+  private final SnapshotInjector injector;
+  private final PurchaseListReader reader;
+  private final LongConsumer sleeper;
+
+  /**
+   * 프로덕션 배선.
+   *
+   * <p>여기서 만드는 것은 전부 <b>지연 실행</b>이다 — 생성자는 DB·파일·브라우저를 건드리지 않는다. {@code MallRegistry} 가 이 생성자를
+   * 참조하므로 (레지스트리를 읽기만 하는 코드에서) 생성만으로 부수효과가 나면 안 된다.
+   *
+   * @param seqMall {@code jbg_mall.seq}. 스냅샷을 찾는 키다
+   */
+  public SsgSessionCollector(String seqMall) {
+    this(
+        seqMall,
+        SsgSessionCollector::launchMaskedDriver,
+        new SessionSnapshotStore()::load,
+        SessionTransfer::inject,
+        // 파싱은 이미 검증된 Ssg 의 것을 그대로 쓴다. 자격증명은 navigatePurchased 가 읽지 않으므로
+        // null 로 만든다 — 이 경로에서 비밀번호가 메모리에 오르지 않는다는 사실이 여기서도 유지된다.
+        driver -> new Ssg(null, null).navigatePurchased(driver),
+        SsgSessionCollector::sleep);
+  }
+
+  /** 테스트가 협력자를 갈아 끼우는 생성자. */
+  SsgSessionCollector(
+      String seqMall,
+      DriverLauncher launcher,
+      SnapshotLoader loader,
+      SnapshotInjector injector,
+      PurchaseListReader reader,
+      LongConsumer sleeper) {
+    this.seqMall = seqMall;
+    this.launcher = launcher;
+    this.loader = loader;
+    this.injector = injector;
+    this.reader = reader;
+    this.sleeper = sleeper;
+  }
+
+  @Override
+  public Result collect() {
+    // 1) 세션부터 본다. 없으면 브라우저를 아예 띄우지 않는다 (클래스 javadoc 참조).
+    SessionSnapshot snapshot = loader.load(seqMall);
+    if (snapshot == null || snapshot.isEmpty()) {
+      log.warn("{} 건너뜀 — 저장된 세션이 없다 (seq={}). 브라우저를 띄우지 않는다.", COLLECTOR_NAME, seqMall);
+      return Result.skipped(REASON_NO_SESSION);
+    }
+
+    Path profileDir = SessionProfilePolicy.profileDir(injectProfileName(seqMall));
+    WebDriver driver = launcher.launch(profileDir);
+    if (driver == null) {
+      // 세션은 멀쩡한데 우리 쪽이 브라우저를 못 띄운 것이다. 건너뜀으로 뭉뚱그리면 사람이
+      // '세션을 다시 뜨라' 는 엉뚱한 안내를 받고, 진짜 원인은 어디에도 남지 않는다.
+      throw CollectStep.wrap(
+          null,
+          COLLECTOR_NAME,
+          "init-webdriver",
+          null,
+          new IllegalStateException("WebDriver 생성 실패 (프로필=" + profileDir.getFileName() + ")"));
+    }
+
+    try {
+      // 2) 대상 도메인 선방문. 이 줄을 주입 뒤로 옮기면 예외 없이 조용히 실패한다.
+      CollectStep.run(driver, COLLECTOR_NAME, "visit-home", () -> driver.get(HOME_URL));
+      sleeper.accept(AFTER_HOME_MILLIS);
+
+      // 3) 주입.
+      int applied =
+          CollectStep.call(
+              driver, COLLECTOR_NAME, "inject-session", () -> injector.inject(driver, snapshot));
+      if (applied <= 0) {
+        log.warn("{} 건너뜀 — 쿠키 {}개를 주입했으나 반영이 0개다.", COLLECTOR_NAME, snapshot.size());
+        return Result.skipped(REASON_NOTHING_APPLIED);
+      }
+      if (applied < snapshot.size()) {
+        // 만료가 아니다 — 스냅샷에는 대상 몰과 무관한 호스트의 쿠키가 섞여 있다 (클래스 javadoc 참조).
+        log.info("{} 세션 주입 — 요청 {}개 중 {}개 반영.", COLLECTOR_NAME, snapshot.size(), applied);
+      }
+
+      // 4) 회원 주문내역으로 직행. signin() 은 부르지 않는다.
+      CollectStep.run(
+          driver, COLLECTOR_NAME, "navigate-member", () -> driver.navigate().to(MEMBER_URL));
+      sleeper.accept(AFTER_MEMBER_MILLIS);
+
+      // 파싱 '앞' 에서 도달을 확인한다. 뒤로 미루면 만료가 셀렉터 실패로 둔갑해,
+      // 사람은 '다시 로그인' 대신 '사이트 구조가 바뀌었다' 를 뒤지게 된다.
+      String landed =
+          CollectStep.call(driver, COLLECTOR_NAME, "verify-member", driver::getCurrentUrl);
+      if (!reachedMemberPage(landed)) {
+        log.warn("{} 건너뜀 — 회원 페이지에 도달하지 못했다 (세션 만료로 본다).", COLLECTOR_NAME);
+        return Result.skipped(REASON_EXPIRED);
+      }
+
+      // Ssg.navigatePurchased 가 같은 주소를 한 번 더 연다. 한 번의 여분 로드를 감수한 것이다 —
+      // Ssg 를 무변경으로 두는 것이 이 국면의 제약이고, 위 도달 확인은 파싱 앞에 있어야 한다.
+      return Result.collected(
+          CollectStep.call(driver, COLLECTOR_NAME, "navigatePurchased", () -> reader.read(driver)));
+    } finally {
+      quitQuietly(driver);
+    }
+  }
+
+  // ── 순수 함수 (브라우저·네트워크·DB·파일을 건드리지 않는다) ─────────────────────────
+
+  /**
+   * 주입용 프로필 이름.
+   *
+   * <p><b>캡처 프로필과 달라야 한다.</b> 캡처는 {@code MallRegistry.mallId()} 를 그대로 디렉터리 이름으로 쓴다({@code
+   * SessionCaptureService.start}). 같은 이름을 쓰면 캡처 창이 열려 있는 동안 수집이 락 충돌로 죽는다.
+   *
+   * @param seqMall {@code jbg_mall.seq}
+   * @return {@code <몰id>-inject}. 등록되지 않은 seq 면 {@code session-inject}
+   */
+  static String injectProfileName(String seqMall) {
+    String base = MallRegistry.bySeq(seqMall).map(MallRegistry::mallId).orElse("session");
+    return base + INJECT_PROFILE_SUFFIX;
+  }
+
+  /**
+   * 회원 페이지에 도달했는지 판정한다.
+   *
+   * <p>표식이 있다는 것만으로는 부족하다 — SSG 는 만료된 세션을 로그인 페이지로 보내면서 <b>원래 가려던 주소를 되돌아갈 파라미터로 달아 준다.</b> 그러면 로그인
+   * 화면의 URL 안에도 {@code purchaseList} 가 들어 있어, 표식만 보면 만료를 도달로 읽는다. 그래서 {@code login} 이 섞여 있으면 도달이
+   * 아니다. 프로브가 쓰던 기준 그대로다.
+   *
+   * @param currentUrl 지금 열려 있는 주소
+   * @return 회원 페이지로 보이면 true
+   */
+  static boolean reachedMemberPage(String currentUrl) {
+    if (currentUrl == null || currentUrl.isBlank()) {
+      return false;
+    }
+    String lower = currentUrl.toLowerCase(Locale.ROOT);
+    return lower.contains(MEMBER_MARKER) && !lower.contains(LOGIN_MARKER);
+  }
+
+  // ── 프로덕션 협력자 구현 ──────────────────────────────────────────────
+
+  /**
+   * 마스킹이 걸린 드라이버를 띄운다.
+   *
+   * <p>{@code profileDir} 을 넘기는 것이 핵심이다 — {@code WebDriverManager} 는 이 값이 null 이면 자동화 표식 제거도 {@code
+   * navigator.webdriver} 마스킹도 붙이지 않는다.
+   */
+  private static WebDriver launchMaskedDriver(Path profileDir) {
+    try {
+      Files.createDirectories(profileDir);
+    } catch (IOException e) {
+      // 프로필 디렉터리를 못 만들면 마스킹 없이 도는 것이 아니라 아예 기동이 어긋난다.
+      // 삼키면 '왜 매번 로그인 화면이지' 로만 보이므로 올린다 — 호출부가 FAIL 로 기록한다.
+      throw new UncheckedIOException("주입용 프로필 디렉터리를 만들지 못했다: " + profileDir.getFileName(), e);
+    }
+    WebDriverManager wdm = new WebDriverManager();
+    // 이 디렉터리는 주입 경로만 쓴다. 지금 이 경로를 문 크롬이 있다면 이전 실패가 남긴 고아다.
+    int orphans = wdm.killOrphanProfileChrome(profileDir);
+    if (orphans > 0) {
+      log.info("주입용 프로필을 물고 있던 고아 브라우저 {}개를 정리했다.", orphans);
+    }
+    return wdm.getWebDriver(WebDriverManager.BROWSER_NAME_CHROME, profileDir);
+  }
+
+  /** 페이지 전환 뒤의 대기. 인터럽트를 삼키지 않고 플래그를 되살린다. */
+  private static void sleep(long millis) {
+    try {
+      Thread.sleep(millis);
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+    }
+  }
+
+  /** 정리 단계다 — 여기서 던지면 수집 결과가 통째로 사라진다. */
+  private static void quitQuietly(WebDriver driver) {
+    if (driver == null) {
+      return;
+    }
+    try {
+      driver.quit();
+    } catch (RuntimeException e) {
+      log.debug("드라이버 종료 중 예외({})", e.getClass().getSimpleName());
+    }
+  }
+}

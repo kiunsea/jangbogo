@@ -5,6 +5,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Pattern;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.simple.JSONObject;
@@ -20,9 +21,45 @@ public class JbgItemDataAccessObject extends CommonDataAccessObject {
 
   private static final Logger log = LogManager.getLogger(JbgItemDataAccessObject.class);
 
+  /** seq · seq_order 는 둘 다 SQLite INTEGER 컬럼 값이다. 10진 숫자 외에는 존재할 수 없다. */
+  private static final Pattern SEQ_DIGITS = Pattern.compile("[0-9]+");
+
   public JbgItemDataAccessObject() {
     // 기본 생성자
   }
+
+  /**
+   * seq 계열 문자열을 바인딩할 숫자로 바꾼다. 10진 숫자가 아니면 {@code null}.
+   *
+   * <p><b>숫자 필터로 깎지 않는다.</b> {@code replaceAll("[^0-9]", "")} 는 거르는 게 아니라 깎는 것이라, 숫자가 섞인 문자열을 남은
+   * 숫자만 이어 붙인 <b>다른 유효한 seq</b> 로 바꿔 놓는다. 이 파일에는 {@code deleteByOrder} 가 있다 — 대상이 조용히 바뀌면 <b>남의 주문에
+   * 딸린 아이템이 지워진다.</b> 못 알아보는 값은 깎지 말고 아무 것도 고르지 않아야 한다.
+   */
+  private static Long parseSeq(String value) {
+    if (value == null) {
+      return null;
+    }
+    String trimmed = value.trim();
+    if (!SEQ_DIGITS.matcher(trimmed).matches()) {
+      return null;
+    }
+    try {
+      return Long.valueOf(trimmed);
+    } catch (NumberFormatException tooManyDigits) {
+      // long 범위를 넘은 자릿수. 존재할 수 없는 seq 라 '해당 없음' 과 같다.
+      return null;
+    }
+  }
+
+  /**
+   * 열려 있던 트랜잭션을 되돌린다. <b>되돌리기가 실패해도 던지지 않는다.</b>
+   *
+   * <p>{@code delete}/{@code deleteByOrder} 가 {@code catch (SQLException)} 에서 롤백 없이 그대로 다시 던지고 있었다.
+   * DELETE 가 깨질 때 실제로 타는 것이 그 쪽이라, 정작 되돌려야 할 경우에만 되돌리지 않고 있었다.
+   *
+   * <p>던지지 않는 이유: 롤백 실패 예외가 원래 실패 원인을 덮으면 "왜 삭제가 깨졌나" 를 잃는다. 진단 가치가 큰 쪽은 원인이다.
+   */
+  // rollbackQuietly 는 CommonDataAccessObject 로 올렸다 (JbgMallDataAccessObject 와 복제였다).
 
   // ========== 아이템 조회 메서드 ==========
 
@@ -76,22 +113,26 @@ public class JbgItemDataAccessObject extends CommonDataAccessObject {
   /**
    * 특정 아이템의 전체 정보 조회 (모든 필드)
    *
-   * @param seq 아이템 시퀀스
-   * @return 아이템 전체 정보 (모든 필드)
+   * @param seq 아이템 시퀀스. 숫자가 아니면 없는 아이템과 같게 본다
+   * @return 아이템 전체 정보 (모든 필드). 없으면 null
    * @throws Exception
    */
   public JSONObject getItem(String seq) throws Exception {
+    Long seqNo = parseSeq(seq);
+    if (seqNo == null) {
+      return null;
+    }
     LocalDBConnection conn = null;
     try {
       conn = new LocalDBConnection();
 
       StringBuffer querySb = new StringBuffer("SELECT seq, name, seq_order, qty, insert_time");
       querySb.append(" FROM jbg_item");
-      querySb.append(" WHERE seq=" + seq);
+      querySb.append(" WHERE seq=?");
       log.debug(
           "LOCALDB-QUERY------------------------------------------------------------------------------");
       log.debug(querySb);
-      ResultSet rset = conn.executeQuery(querySb.toString());
+      ResultSet rset = conn.executeQuery(querySb.toString(), seqNo);
 
       if (rset != null) {
         JSONObject itemJson = null;
@@ -121,23 +162,29 @@ public class JbgItemDataAccessObject extends CommonDataAccessObject {
   /**
    * 주문 시퀀스로 아이템 목록 조회
    *
-   * @param seqOrder 주문 시퀀스
-   * @return 아이템 목록
+   * @param seqOrder 주문 시퀀스. 숫자가 아니면 딸린 아이템이 없는 것과 같게 본다
+   * @return 아이템 목록. 없으면 빈 목록
    * @throws Exception
    */
   public List<JSONObject> getItemsByOrder(String seqOrder) throws Exception {
+    Long orderNo = parseSeq(seqOrder);
+    if (orderNo == null) {
+      // 내보내기(ExportService)가 주문마다 부른다. null 대신 빈 목록을 주는 이유는, 행이 없을 때
+      // 이미 빈 목록이 나오기 때문이다 — 두 경우의 반환 형태를 다르게 두면 호출부가 한쪽만 방어한다.
+      return new ArrayList<JSONObject>();
+    }
     LocalDBConnection conn = null;
     try {
       conn = new LocalDBConnection();
 
       StringBuffer querySb = new StringBuffer("SELECT seq, name, seq_order, qty, insert_time");
       querySb.append(" FROM jbg_item");
-      querySb.append(" WHERE seq_order=" + seqOrder);
+      querySb.append(" WHERE seq_order=?");
       querySb.append(" ORDER BY seq DESC");
       log.debug(
           "LOCALDB-QUERY------------------------------------------------------------------------------");
       log.debug(querySb);
-      ResultSet rset = conn.executeQuery(querySb.toString());
+      ResultSet rset = conn.executeQuery(querySb.toString(), orderNo);
 
       List<JSONObject> items = null;
       if (rset != null) {
@@ -210,16 +257,12 @@ public class JbgItemDataAccessObject extends CommonDataAccessObject {
     } catch (SQLException e) {
       log.error("* 아이고!! ㅜ.ㅜ 데이터베이스 업데이트 에러 발생");
       log.error(ExceptionUtil.getExceptionInfo(e));
-      if (conn != null) {
-        conn.txRollBack();
-      }
+      rollbackQuietly(conn);
       throw e;
     } catch (Exception e) {
       log.error("* 데이터베이스 업데이트 에러 발생");
       log.error(ExceptionUtil.getExceptionInfo(e));
-      if (conn != null) {
-        conn.txRollBack();
-      }
+      rollbackQuietly(conn);
       throw e;
     } finally {
       if (conn != null) {
@@ -307,37 +350,39 @@ public class JbgItemDataAccessObject extends CommonDataAccessObject {
    * 아이템 삭제
    *
    * @param seq 아이템 시퀀스
-   * @return 삭제 성공 여부
+   * @return 삭제 성공 여부. 숫자가 아닌 seq 는 아무 것도 지우지 않고 false
    * @throws Exception
    */
   public boolean delete(String seq) throws Exception {
+    Long seqNo = parseSeq(seq);
+    if (seqNo == null) {
+      // 예외로 올리지 않고 값으로 돌린다. 삭제 실패를 예외로 던지면 위쪽 포괄 catch 가 이를
+      // 다른 사고로 오인해 계정 연결을 끊은 전례가 있다. "아무 것도 안 지웠다" 가 정확한 사실이다.
+      log.warn("삭제 요청의 아이템 seq 가 숫자가 아니다 — 아무 것도 지우지 않는다.");
+      return false;
+    }
     LocalDBConnection conn = null;
     try {
       conn = new LocalDBConnection();
       conn.txOpen();
 
-      StringBuffer querySb = new StringBuffer();
-      querySb.append("DELETE FROM jbg_item");
-      querySb.append(" WHERE seq=" + seq);
-
-      String query = querySb.toString();
+      String query = "DELETE FROM jbg_item WHERE seq=?";
       log.debug(
           "LOCALDB-QUERY------------------------------------------------------------------------------");
       log.debug(query);
-      conn.txExecuteUpdate(query);
+      conn.txPstmtExecuteUpdate(query, seqNo);
       conn.txCommit();
 
       return true;
     } catch (SQLException e) {
       log.error("* 아이고!! ㅜ.ㅜ 데이터베이스 업데이트 에러 발생");
       log.error(ExceptionUtil.getExceptionInfo(e));
+      rollbackQuietly(conn);
       throw e;
     } catch (Exception e) {
       log.error("* 아이고!! ㅜ.ㅜ 데이터베이스 업데이트 에러 발생");
       log.error(ExceptionUtil.getExceptionInfo(e));
-      if (conn != null) {
-        conn.txRollBack();
-      }
+      rollbackQuietly(conn);
       throw e;
     } finally {
       if (conn != null) {
@@ -350,37 +395,39 @@ public class JbgItemDataAccessObject extends CommonDataAccessObject {
    * 주문 시퀀스로 연관된 모든 아이템 삭제
    *
    * @param seqOrder 주문 시퀀스
-   * @return 삭제 성공 여부
+   * @return 삭제 성공 여부. 숫자가 아닌 seqOrder 는 아무 것도 지우지 않고 false
    * @throws Exception
    */
   public boolean deleteByOrder(String seqOrder) throws Exception {
+    Long orderNo = parseSeq(seqOrder);
+    if (orderNo == null) {
+      // 이 파일에서 가장 위험한 자리다. WHERE 절이 깨지면 지우려던 한 주문이 아니라 테이블 전체가
+      // 대상이 될 수 있다. 못 알아보는 값은 숫자만 골라 뽑지 말고 아예 문장을 만들지 않는다.
+      log.warn("삭제 요청의 주문 seq 가 숫자가 아니다 — 아무 것도 지우지 않는다.");
+      return false;
+    }
     LocalDBConnection conn = null;
     try {
       conn = new LocalDBConnection();
       conn.txOpen();
 
-      StringBuffer querySb = new StringBuffer();
-      querySb.append("DELETE FROM jbg_item");
-      querySb.append(" WHERE seq_order=" + seqOrder);
-
-      String query = querySb.toString();
+      String query = "DELETE FROM jbg_item WHERE seq_order=?";
       log.debug(
           "LOCALDB-QUERY------------------------------------------------------------------------------");
       log.debug(query);
-      conn.txExecuteUpdate(query);
+      conn.txPstmtExecuteUpdate(query, orderNo);
       conn.txCommit();
 
       return true;
     } catch (SQLException e) {
       log.error("* 아이고!! ㅜ.ㅜ 데이터베이스 업데이트 에러 발생");
       log.error(ExceptionUtil.getExceptionInfo(e));
+      rollbackQuietly(conn);
       throw e;
     } catch (Exception e) {
       log.error("* 아이고!! ㅜ.ㅜ 데이터베이스 업데이트 에러 발생");
       log.error(ExceptionUtil.getExceptionInfo(e));
-      if (conn != null) {
-        conn.txRollBack();
-      }
+      rollbackQuietly(conn);
       throw e;
     } finally {
       if (conn != null) {

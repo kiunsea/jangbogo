@@ -6,7 +6,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 /**
- * 브라우저 동시 실행 수 제한 (Phase 5-11).
+ * 수집이 동시에 띄우는 브라우저 수 제한 (Phase 5-11). <b>범위는 수집 경로다</b> — 아래 "범위" 절 참조.
  *
  * <h2>{@link MallProfileLock} 과 무엇이 다른가</h2>
  *
@@ -15,11 +15,37 @@ import org.apache.logging.log4j.Logger;
  * <ul>
  *   <li>{@code MallProfileLock} — <b>프로필 하나</b>를 <b>프로세스 사이</b>에서 보호한다. 같은 프로필을 두 Chrome 이 열면 세션이
  *       깨지기 때문이다.
- *   <li>이 클래스 — <b>브라우저 총 개수</b>를 <b>이 JVM 안</b>에서 제한한다. 프로필이 서로 달라도 Chrome 을 동시에 여럿 띄우면 메모리·CPU 가
- *       무너지고, 같은 시각에 여러 몰로 나가는 트래픽은 그 자체가 눈에 띄는 패턴이다.
+ *   <li>이 클래스 — <b>수집이 띄우는 브라우저 개수</b>를 <b>이 JVM 안</b>에서 제한한다. 프로필이 서로 달라도 Chrome 을 동시에 여럿 띄우면
+ *       메모리·CPU 가 무너지고, 같은 시각에 여러 몰로 나가는 트래픽은 그 자체가 눈에 띄는 패턴이다.
  * </ul>
  *
  * <p>그래서 프로필 락을 통과해도 이 제한에 걸릴 수 있고, 그 반대도 성립한다.
+ *
+ * <h2>⚠ 범위 — "브라우저 총 개수" 가 아니다 (2026-08-07 정정)</h2>
+ *
+ * <p>이 javadoc 은 오래 <b>"브라우저 총 개수를 이 JVM 안에서 제한한다"</b> 고 적고 있었다. <b>실제 배선은 수집 경로 한 곳뿐이다</b> —
+ * {@code JangBoGoManager} 가 {@code CollectAdmission} 을 통해 잡는 자리 하나이며, 스케줄 수집과 즉시수집이 5-19 에서 그 통로로
+ * 합쳐졌다. 그 밖에서 브라우저를 띄우는 경로가 <b>둘</b> 있고 둘 다 이 제한기 밖이다.
+ *
+ * <ul>
+ *   <li><b>계정 연결</b>({@code JangBoGoManager.connectToMall}) — 자리를 잡지 않고 곧바로 {@code getWebDriver()}
+ *       를 부른다.
+ *   <li><b>세션 캡처</b>({@code SessionCaptureService}) — <b>일부러</b> 잡지 않는다. 캡처 창은 사람 페이스로 몇 분씩 열려 있어,
+ *       자리를 쥐면 그동안 주기 수집이 통째로 굶는다. 그쪽 javadoc 에 그 판단이 적혀 있다.
+ * </ul>
+ *
+ * <p>문구를 실제 범위로 좁힌 이유는, 총량 보장으로 읽으면 <b>"제한기가 있으니 동시에 하나뿐" 이라는 전제로 다른 코드를 짜게 되기</b> 때문이다. 실제로는 수집이
+ * 도는 중에 사람이 계정 연결이나 세션 캡처를 누르면 Chrome 이 둘 뜬다.
+ *
+ * <h3>배선을 넓히지 않는 이유</h3>
+ *
+ * <p>넓히는 것이 옳아 보이지만 <b>지금은 하지 않는다.</b> 계정 연결은 {@code connectToMall} 이 {@code int} 로
+ * <b>1(성공)/0(실패)/2(시간경과필요)</b> 를 돌려주는 규약이고, 자리를 못 잡은 경우는 셋 중 어느 것도 아니다. 실패(0)로 접으면 화면이 <b>"계정 정보가
+ * 유효하지 않다"</b> 로 안내한다 — 사용자가 비밀번호를 의심하게 만드는 <b>거짓 진단</b>이고, 계정을 다시 입력하게 만드는 쪽이라 나쁘다. 제대로 하려면 {@code
+ * BROWSER_BUSY} 를 네 번째 값으로 두고 호출부와 화면 안내까지 함께 고쳐야 한다.
+ *
+ * <p>그 변경은 이 클래스의 문제가 아니라 계정 연결 경로의 계약 변경이므로 별도 작업으로 둔다. 그때까지 <b>여기 적힌 범위가 사실</b>이다 — 지키지 못할 보장을
+ * 문구로 약속하지 않는다.
  *
  * <h2>왜 기다리는가 — 프로필 락과 반대 판단이다</h2>
  *
@@ -39,7 +65,7 @@ public final class BrowserConcurrencyLimiter {
 
   private static final Logger logger = LogManager.getLogger(BrowserConcurrencyLimiter.class);
 
-  /** 동시에 띄울 수 있는 브라우저 수. */
+  /** 수집이 동시에 띄울 수 있는 브라우저 수. */
   public static final String PERMITS_PROPERTY = "jangbogo.browser.concurrency";
 
   /** 차례를 기다리는 상한(초). */
@@ -92,7 +118,8 @@ public final class BrowserConcurrencyLimiter {
   /**
    * 이 JVM 이 공유하는 제한기.
    *
-   * <p>브라우저 총량 제한이므로 인스턴스가 여럿이면 의미가 없다. 설정은 최초 호출 시점에 한 번만 읽는다.
+   * <p>수집 경로가 세는 자리를 하나로 모으는 것이 목적이라 인스턴스가 여럿이면 의미가 없다(각자 제 몫의 자리를 따로 세게 된다). 설정은 최초 호출 시점에 한 번만
+   * 읽는다.
    */
   public static BrowserConcurrencyLimiter shared() {
     BrowserConcurrencyLimiter local = shared;

@@ -3,10 +3,13 @@ package com.jiniebox.jangbogo.svc;
 import com.jiniebox.jangbogo.dao.JbgCollectBreakerDataAccessObject;
 import com.jiniebox.jangbogo.dao.JbgMallDataAccessObject;
 import com.jiniebox.jangbogo.svc.mall.MallRegistry;
+import com.jiniebox.jangbogo.svc.mall.SessionCollector;
 import com.jiniebox.jangbogo.svc.util.CollectBreakerPolicy;
 import com.jiniebox.jangbogo.svc.util.CollectStep;
+import com.jiniebox.jangbogo.svc.util.SessionProfilePolicy;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.function.Supplier;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -68,12 +71,64 @@ public class MallOrderUpdater {
     }
   }
 
+  /**
+   * 이번 회차에 돌릴 수집기 한 자리 (Phase 5-9′).
+   *
+   * <p>자격증명 경로와 세션 주입 경로 중 <b>하나만</b> 채워진다. 두 목록을 따로 들고 다니지 않는 이유는 <b>선언 순서를 지키기 위해서</b>다 — seq=1 은
+   * SSG 다음 Emart 순으로 돌게 선언돼 있고, 세션 경로가 SSG 자리를 대체해도 그 순서는 그대로여야 한다. 목록을 나누면 대체된 자리가 맨 뒤로 밀린다.
+   *
+   * @param name 수집기 이름 (로그·브레이커 키)
+   * @param credential 자격증명 수집기. 세션 자리면 null
+   * @param session 세션 주입 수집기. 자격증명 자리면 null
+   */
+  record PlannedCollector(
+      String name,
+      MallRegistry.CollectorSpec credential,
+      MallRegistry.SessionCollectorSpec session) {
+
+    static PlannedCollector of(MallRegistry.CollectorSpec spec) {
+      return new PlannedCollector(spec.name(), spec, null);
+    }
+
+    static PlannedCollector of(MallRegistry.SessionCollectorSpec spec) {
+      return new PlannedCollector(spec.name(), null, spec);
+    }
+
+    boolean isSession() {
+      return session != null;
+    }
+  }
+
+  /**
+   * 몰별 세션 옵트인({@code jbg_mall.session_profile_enabled})을 읽는 자리.
+   *
+   * <p>DB 를 붙잡는 유일한 지점이라 여기만 갈아 끼우면 이중 게이트 판정을 DB 없이 검사할 수 있다. 실패를 삼키지 않고 올린다 — 삼키면 '옵트인이 꺼져 있다' 와
+   * '읽지 못했다' 가 같은 값이 되어, 옵트인을 켜 뒀는데 조회가 깨진 상태를 아무도 못 본다.
+   */
+  @FunctionalInterface
+  interface MallOptInReader {
+    boolean isOptedIn(String seqMall) throws Exception;
+  }
+
   /** 이번 수집에서 각 수집기가 어떻게 끝났는지. */
   private final List<CollectOutcome> outcomes = new ArrayList<>();
 
   /** 브레이커 상태 저장소. 판정 규칙은 {@link CollectBreakerPolicy} 가 갖는다. */
   private final JbgCollectBreakerDataAccessObject breakerDao =
       new JbgCollectBreakerDataAccessObject();
+
+  /** 몰별 세션 옵트인 조회. 기본값은 DB 다. */
+  private final MallOptInReader optInReader;
+
+  /** 프로덕션 배선. */
+  public MallOrderUpdater() {
+    this(MallOrderUpdater::readOptInFromDatabase);
+  }
+
+  /** 테스트가 옵트인 조회를 갈아 끼우는 생성자. */
+  MallOrderUpdater(MallOptInReader optInReader) {
+    this.optInReader = optInReader;
+  }
 
   /**
    * 이번 수집의 수집기별 결과를 반환한다. 호출측(runner)이 각각을 jbg_collect_log 에 기록해야 한다.
@@ -133,17 +188,35 @@ public class MallOrderUpdater {
     // 어떤 수집기를 돌릴지는 MallRegistry 한 곳이 선언한다 (Phase 3-12).
     // 수집기가 여럿인 몰(seq=1)에서 한쪽이 실패해도 다른 쪽은 반드시 시도한다 — SSG 온라인몰과
     // Emart 오프라인 영수증은 서로 독립적인 데이터원이라 하나의 실패가 다른 하나를 막을 이유가 없다.
-    List<MallRegistry.CollectorSpec> specs =
-        MallRegistry.bySeq(seqMallInt).map(MallRegistry::collectors).orElseGet(List::of);
-    if (specs.isEmpty()) {
+    //
+    // 세션 주입 경로는 이중 게이트(마스터 킬스위치 + 몰별 옵트인) 뒤에 있다 (Phase 5-9′).
+    // 게이트가 꺼져 있으면 아래 plan 은 예전과 완전히 같은 목록이 되고, 아래 루프도 예전과 같은
+    // 분기만 탄다 — 옵트인 OFF 몰의 런타임 동작이 바뀌지 않는다는 보장이 거기서 나온다.
+    MallRegistry mall = MallRegistry.bySeq(seqMallInt).orElse(null);
+    List<PlannedCollector> plan =
+        planCollectors(mall, sessionRouteApplies(mall, String.valueOf(seqMallInt)));
+    if (plan.isEmpty()) {
       logger.warn("등록되지 않은 쇼핑몰 seq={} — 수집기가 없다", seqMall);
     }
 
-    int attempted = specs.size();
-    for (MallRegistry.CollectorSpec spec : specs) {
-      itemArr.addAll(
-          collectFrom(
-              spec.name(), seqMallInt, interval, () -> spec.create(mallId, mallPw).getItems()));
+    int attempted = plan.size();
+    for (PlannedCollector planned : plan) {
+      if (planned.isSession()) {
+        MallRegistry.SessionCollectorSpec spec = planned.session();
+        // seq 는 정규화한 값을 넘긴다 — 스냅샷 파일명·DB 키로 쓰이므로 공백이 섞인 원문을 그대로
+        // 넘기면 캡처가 쓴 자리와 수집이 읽는 자리가 갈릴 수 있다.
+        itemArr.addAll(
+            collectFromSession(
+                spec.name(),
+                seqMallInt,
+                interval,
+                () -> spec.create(String.valueOf(seqMallInt)).collect()));
+      } else {
+        MallRegistry.CollectorSpec spec = planned.credential();
+        itemArr.addAll(
+            collectFrom(
+                spec.name(), seqMallInt, interval, () -> spec.create(mallId, mallPw).getItems()));
+      }
     }
 
     List<CollectFailure> failures = getPartialFailures();
@@ -159,6 +232,105 @@ public class MallOrderUpdater {
     logger.info(
         "전체 수집 완료 - 총 {} 건 (부분 실패 {} 건, 브레이커 건너뜀 {} 건)", itemArr.size(), failures.size(), skipped);
     return itemArr;
+  }
+
+  /**
+   * 이 몰에 세션 주입 경로를 적용할지 판정한다 — <b>이중 게이트</b> (Phase 5-9′).
+   *
+   * <p>순서가 곧 비용 순서다. 값싼 것부터 본다.
+   *
+   * <ol>
+   *   <li><b>마스터 킬스위치.</b> {@code System.getProperty} 하나라 I/O 가 없다. 기본값이 꺼짐이므로 <b>대부분의 실행은 여기서
+   *       끝난다</b> — 그 아래 어떤 코드도, DB 조회조차 돌지 않는다.
+   *   <li><b>그 몰이 세션 수집기를 선언했는가.</b> 메모리 조회다. 선언하지 않은 몰(oasis·hanaro)은 킬스위치가 켜져 있어도 여기서 끝나므로 조회가 늘지
+   *       않는다.
+   *   <li><b>몰별 옵트인.</b> 여기서 처음 DB 를 읽는다. 즉 추가 조회는 <b>세션 경로를 실제로 쓸 수 있는 몰</b>에서만 생긴다.
+   * </ol>
+   *
+   * <p><b>조회가 실패하면 기존 경로로 간다.</b> 앞의 {@code SsgSessionCollector} 는 "세션이 없으면 비밀번호로 폴백하지 않는다"고 정했는데,
+   * 여기는 반대로 정한 것처럼 보인다. 다른 질문이라 그렇다 — 저기는 <b>옵트인한 것이 확실한</b> 몰에서 세션만 없는 상황이고(그때 폴백하면 사용자가 켠 설정을 코드가
+   * 몰래 뒤집는다), 여기는 <b>옵트인했는지 자체를 모르는</b> 상황이다. 모르면 기능 전체의 기본값인 '꺼짐' 으로 읽는 것이 킬스위치의 계약과 같다.
+   *
+   * @param mall 등록된 몰. 등록되지 않은 seq 면 null
+   * @param seqMall {@code jbg_mall.seq} (숫자 문자열)
+   * @return 세션 주입 경로를 쓸지
+   */
+  boolean sessionRouteApplies(MallRegistry mall, String seqMall) {
+    if (!SessionProfilePolicy.isEnabled()) {
+      return false;
+    }
+    if (mall == null || mall.sessionCollectors().isEmpty()) {
+      return false;
+    }
+    try {
+      return optInReader.isOptedIn(seqMall);
+    } catch (Exception e) {
+      logger.warn("세션 옵트인 조회 실패({}) — 기존 경로로 진행한다. seq={}", e.getClass().getSimpleName(), seqMall);
+      return false;
+    }
+  }
+
+  /**
+   * 이번 회차에 돌릴 수집기 목록을 정한다.
+   *
+   * <p>순수 함수다 — DB·브라우저·시스템 프로퍼티를 읽지 않는다. 판정 결과({@code sessionRouteApplies})를 값으로 받는다.
+   *
+   * <p>세션 수집기는 자기가 선언한 {@code replaces} 자리를 <b>대체</b>한다. 덧붙이지 않는 이유는, 둘 다 돌리면 비밀번호 로그인이 그대로 남아 이
+   * 국면의 목적이 성립하지 않기 때문이다. 대체되지 않은 자리(seq=1 의 Emart)는 그대로 자격증명 경로로 돈다.
+   *
+   * @param mall 등록된 몰. null 이면 빈 목록
+   * @param sessionRouteApplies 이중 게이트 판정 결과
+   * @return 선언 순서를 유지한 실행 계획
+   */
+  static List<PlannedCollector> planCollectors(MallRegistry mall, boolean sessionRouteApplies) {
+    if (mall == null) {
+      return List.of();
+    }
+    List<MallRegistry.SessionCollectorSpec> sessions =
+        sessionRouteApplies ? mall.sessionCollectors() : List.of();
+
+    List<PlannedCollector> plan = new ArrayList<>();
+    List<String> substituted = new ArrayList<>();
+    for (MallRegistry.CollectorSpec spec : mall.collectors()) {
+      Optional<MallRegistry.SessionCollectorSpec> replacement =
+          sessions.stream().filter(s -> spec.name().equals(s.replaces())).findFirst();
+      if (replacement.isPresent()) {
+        plan.add(PlannedCollector.of(replacement.get()));
+        substituted.add(replacement.get().name());
+      } else {
+        plan.add(PlannedCollector.of(spec));
+      }
+    }
+
+    // replaces 가 어느 수집기와도 맞지 않는 세션 수집기는 뒤에 덧붙인다. 레지스트리 선언 오류이고
+    // MallRegistryTest 가 막고 있지만, 만약 뚫린다면 '조용히 없애는' 쪽이 더 나쁘다 — 그러면
+    // 비밀번호 경로가 소리 없이 되살아나고 로그에는 아무 흔적도 남지 않는다. 덧붙이면 로그에
+    // 수집기가 둘 다 찍혀 즉시 눈에 띈다.
+    for (MallRegistry.SessionCollectorSpec session : sessions) {
+      if (!substituted.contains(session.name())) {
+        plan.add(PlannedCollector.of(session));
+      }
+    }
+    return plan;
+  }
+
+  /**
+   * 몰별 세션 옵트인을 DB 에서 읽는 기본 구현.
+   *
+   * @param seqMall {@code jbg_mall.seq} (숫자 문자열)
+   * @return {@code session_profile_enabled} 가 1 이면 true
+   * @throws Exception 조회 실패
+   */
+  private static boolean readOptInFromDatabase(String seqMall) throws Exception {
+    JSONObject mall = new JbgMallDataAccessObject().getMall(seqMall);
+    if (mall == null) {
+      return false;
+    }
+    Object value = mall.get("session_profile_enabled");
+    if (value instanceof Number number) {
+      return number.intValue() == 1;
+    }
+    return value != null && "1".equals(String.valueOf(value).trim());
   }
 
   /**
@@ -191,49 +363,119 @@ public class MallOrderUpdater {
   JSONArray collectFrom(
       String name, int seqMall, int intervalMinutes, Supplier<JSONArray> collector) {
 
-    if (seqMall > 0) {
-      CollectBreakerPolicy.State state = breakerDao.getState(seqMall, name);
-      CollectBreakerPolicy.Decision decision =
-          CollectBreakerPolicy.decide(state, intervalMinutes, System.currentTimeMillis());
-      if (!decision.shouldRun()) {
-        logger.warn(
-            "{} 수집 건너뜀 ({}) - 재시도 예정: {}",
-            name,
-            decision.reason,
-            new java.util.Date(decision.notBefore));
-        outcomes.add(new CollectOutcome(name, CollectOutcome.SKIPPED, null, decision.reason));
-        return new JSONArray();
-      }
+    if (breakerBlocks(name, seqMall, intervalMinutes)) {
+      return new JSONArray();
     }
 
     logger.info("{} 구매 내역 수집 시작", name);
     try {
-      JSONArray items = collector.get();
-      int count = (items != null) ? items.size() : 0;
-
-      if (count == 0) {
-        // 예외도 없고 로그인도 됐는데 0건이다. 성공으로 뭉뚱그리지 않는다 (Phase 3-4).
-        logger.warn("{} 수집 0건 — 조회 기간에 구매가 없었거나 셀렉터가 어긋났다. 한 회차로는 구분할 수 없어 EMPTY 로 기록한다.", name);
-        outcomes.add(new CollectOutcome(name, CollectOutcome.EMPTY, null, "수집 0건"));
-        recordBreaker(seqMall, name, CollectOutcome.EMPTY, null);
-        return new JSONArray();
-      }
-
-      logger.info("{} 수집 완료 - {} 건", name, count);
-      outcomes.add(new CollectOutcome(name, CollectOutcome.SUCCESS, null, null));
-      recordBreaker(seqMall, name, CollectOutcome.SUCCESS, null);
-      return items;
+      return recordItems(name, seqMall, collector.get());
     } catch (Exception e) {
-      CollectException ce = unwrapCollectException(e);
-      if (ce == null) {
-        ce = CollectStep.wrap(null, name, "collect", null, e);
-      }
-      outcomes.add(new CollectOutcome(name, CollectOutcome.FAIL, ce, null));
-      recordBreaker(seqMall, name, CollectOutcome.FAIL, ce.getMessage());
-      logger.error(
-          "{} 수집 실패 (다른 수집기는 계속 진행) - 단계: {}, 원인: {}", name, ce.getStepName(), e.getMessage());
+      return recordFailure(name, seqMall, e);
+    }
+  }
+
+  /**
+   * 브레이커 판정을 거쳐 <b>세션 주입</b> 수집기 하나를 실행한다 (Phase 5-9′).
+   *
+   * <p>{@link #collectFrom} 과 다른 점은 하나다 — 이 경로는 <b>건너뜀을 스스로 판단</b>한다. 세션이 없거나 만료된 회차는 실패가 아니라
+   * SKIPPED 이고, 그때는 <b>브레이커를 건드리지 않는다.</b> 건드리면 두 가지가 함께 망가진다.
+   *
+   * <ul>
+   *   <li>실패로 세면 세션이 없다는 이유만으로 연속 실패가 쌓여 수집기가 자동 차단되고, 사람이 세션을 다시 떠도 쿨다운이 끝날 때까지 돌지 않는다.
+   *   <li>성공으로 세면 {@code last_nonempty_time} 판정이 흐려져, 조용한 실패를 잡아내는 유일한 신호가 사라진다.
+   * </ul>
+   *
+   * <p>사유 문자열은 수집기가 준 것을 그대로 쓴다. 그것이 {@code jbg_collect_log} 에 남고 화면에 나가 사람이 다음 행동(다시 캡처)을 알게 되는
+   * 경로다.
+   *
+   * @param name 수집기 이름
+   * @param seqMall 쇼핑몰 seq ({@code 0} 이면 브레이커를 적용하지 않는다 — 단위테스트용)
+   * @param intervalMinutes 몰의 수집 주기 (백오프 기준값)
+   * @param collector 수집 동작. 예외가 아니라 값으로 건너뜀을 알린다
+   * @return 수집 결과 (실패·건너뜀이면 빈 배열)
+   */
+  JSONArray collectFromSession(
+      String name, int seqMall, int intervalMinutes, Supplier<SessionCollector.Result> collector) {
+
+    if (breakerBlocks(name, seqMall, intervalMinutes)) {
       return new JSONArray();
     }
+
+    logger.info("{} 세션 주입 수집 시작 (로그인 폼을 밟지 않는다)", name);
+    try {
+      SessionCollector.Result result = collector.get();
+      if (result == null) {
+        // 계약 위반이다. 빈 결과로 정규화하면 '0건 성공' 으로 묻히므로 실패로 올린다.
+        throw new IllegalStateException("세션 수집기가 결과를 돌려주지 않았다: " + name);
+      }
+      if (result.isSkipped()) {
+        logger.warn("{} 세션 주입 수집 건너뜀 — {}", name, result.skipReason());
+        outcomes.add(new CollectOutcome(name, CollectOutcome.SKIPPED, null, result.skipReason()));
+        return new JSONArray();
+      }
+      return recordItems(name, seqMall, result.items());
+    } catch (Exception e) {
+      return recordFailure(name, seqMall, e);
+    }
+  }
+
+  /**
+   * 브레이커가 이번 회차를 막는지 본다. 막으면 SKIPPED 를 기록한다.
+   *
+   * <p><b>판정을 수집기 진입 전에 한다.</b> 브라우저는 각 수집기 안에서 뜨므로, 여기서 걸러내면 로그인 시도도 브라우저 기동도 일어나지 않는다 — 차단된 사이트를
+   * 그만 두드린다는 목적이 그대로 달성된다. (Phase 3-3)
+   *
+   * @return 막혔으면 true
+   */
+  private boolean breakerBlocks(String name, int seqMall, int intervalMinutes) {
+    if (seqMall <= 0) {
+      return false;
+    }
+    CollectBreakerPolicy.State state = breakerDao.getState(seqMall, name);
+    CollectBreakerPolicy.Decision decision =
+        CollectBreakerPolicy.decide(state, intervalMinutes, System.currentTimeMillis());
+    if (decision.shouldRun()) {
+      return false;
+    }
+    logger.warn(
+        "{} 수집 건너뜀 ({}) - 재시도 예정: {}",
+        name,
+        decision.reason,
+        new java.util.Date(decision.notBefore));
+    outcomes.add(new CollectOutcome(name, CollectOutcome.SKIPPED, null, decision.reason));
+    return true;
+  }
+
+  /** 수집 결과를 SUCCESS/EMPTY 로 기록한다. 두 수집 경로가 같은 규칙을 쓰도록 한 곳에 둔다. */
+  private JSONArray recordItems(String name, int seqMall, JSONArray items) {
+    int count = (items != null) ? items.size() : 0;
+
+    if (count == 0) {
+      // 예외도 없고 로그인도 됐는데 0건이다. 성공으로 뭉뚱그리지 않는다 (Phase 3-4).
+      logger.warn("{} 수집 0건 — 조회 기간에 구매가 없었거나 셀렉터가 어긋났다. 한 회차로는 구분할 수 없어 EMPTY 로 기록한다.", name);
+      outcomes.add(new CollectOutcome(name, CollectOutcome.EMPTY, null, "수집 0건"));
+      recordBreaker(seqMall, name, CollectOutcome.EMPTY, null);
+      return new JSONArray();
+    }
+
+    logger.info("{} 수집 완료 - {} 건", name, count);
+    outcomes.add(new CollectOutcome(name, CollectOutcome.SUCCESS, null, null));
+    recordBreaker(seqMall, name, CollectOutcome.SUCCESS, null);
+    return items;
+  }
+
+  /** 수집 실패를 컨텍스트와 함께 기록한다. 두 수집 경로가 같은 규칙을 쓰도록 한 곳에 둔다. */
+  private JSONArray recordFailure(String name, int seqMall, Exception e) {
+    CollectException ce = unwrapCollectException(e);
+    if (ce == null) {
+      ce = CollectStep.wrap(null, name, "collect", null, e);
+    }
+    outcomes.add(new CollectOutcome(name, CollectOutcome.FAIL, ce, null));
+    recordBreaker(seqMall, name, CollectOutcome.FAIL, ce.getMessage());
+    logger.error(
+        "{} 수집 실패 (다른 수집기는 계속 진행) - 단계: {}, 원인: {}", name, ce.getStepName(), e.getMessage());
+    return new JSONArray();
   }
 
   /**

@@ -152,13 +152,44 @@ public class JbgCollectBreakerDataAccessObject extends CommonDataAccessObject {
   }
 
   /**
-   * 모든 수집기의 하트비트 행을 반환한다 (Phase 3-5).
+   * 모든 수집기의 하트비트 행을 반환한다 (Phase 3-5, 사각지대 보완).
    *
    * <p>몰의 수집 주기를 함께 붙여 준다 — 건강도 판정이 "마지막 성공 이후 주기의 N배"라 주기 없이는 판정할 수 없다.
    *
+   * <h2>왜 몰 쪽에서도 한 번 더 긁는가 — 없는 행은 경보를 만들지 못한다</h2>
+   *
+   * <p>예전에는 이 조회가 {@code jbg_collect_breaker} 만 훑었다. 그런데 그 표는 <b>수집기가 실제로 돈 회차에만</b> 갱신된다. 즉 자동수집을
+   * 켜 놓고 한 번도 돌지 않은 몰은 행이 아예 없고, 행이 없으니 건강도 API 의 목록에도 안 나오고, 안 나오니 "이상 없음"으로 보인다. <b>가장 나쁜 고장이 가장
+   * 조용했다.</b> 옵트인해 둔 몰이 한 회차도 돌지 못한 채 두 달을 무증상으로 지나간 장애가 정확히 이 형태였다.
+   *
+   * <p>그래서 두 번째 SELECT 를 {@code jbg_mall} 쪽에서 시작해 브레이커 행이 <b>없는</b> 몰을 뽑는다. 시각이 전부 0 이므로 {@link
+   * com.jiniebox.jangbogo.svc.util.CollectHealthPolicy#judge} 가 그대로 {@code NEVER_RAN} 으로 판정한다 — 판정
+   * 규칙은 손대지 않는다.
+   *
+   * <p><b>스케줄러에서 브레이커 행을 미리 만들어 두는 방법은 쓰지 않는다.</b> 그 표의 뜻은 "이 수집기가 돈 결과"이고, 돌지 않은 회차까지 행을 만들면
+   * {@code last_success_time = 0} 인 행이 성공 이력과 섞여 트립 판정의 근거가 흐려진다. 없는 사실을 만들어 채우는 대신, 없다는 사실을 조회가
+   * 드러내게 한다.
+   *
+   * <h2>왜 단순히 조인 방향만 뒤집지 않는가</h2>
+   *
+   * <p>{@code jbg_mall} 기준 한 방향 LEFT JOIN 으로 바꾸면 <b>몰 행이 사라진 브레이커 행이 통째로 빠진다.</b> 몰을 지워도 브레이커 이력은
+   * 남고, 그 이력이 화면에서 조용히 증발하는 것은 이 메서드가 막으려는 바로 그 형태다. 그래서 기존 방향을 그대로 두고 반대 방향의 안티조인을 {@code UNION
+   * ALL} 로 덧댄다. 두 다리는 겹치지 않는다 — 두 번째 다리의 조건이 "브레이커 행이 없을 것"이라 같은 몰이 두 줄로 나오지 않는다.
+   *
+   * <p>두 번째 다리의 대상 조건({@code auto_collect = 1} 이고 주기 &gt; 0)은 {@code StartupTasks} 가 1회 수집과 스케줄 복원에
+   * 쓰는 조건과 <b>같은 것이어야 한다.</b> 여기가 더 넓으면 애초에 돌 예정이 없던 몰까지 경보로 뜨고, 더 좁으면 돌 예정인데 안 도는 몰을 또 놓친다.
+   *
+   * <h2>아직 남아 있는 구멍 — 몰 단위까지만 본다</h2>
+   *
+   * <p>안티조인의 단위가 <b>몰</b>이라, 수집기가 둘인 몰(seq=1 은 SSG·Emart)에서 <b>한쪽만 돌고 다른 쪽이 한 번도 안 돈</b> 경우는 여기서
+   * 잡히지 않는다. 그 몰에는 브레이커 행이 이미 있어 두 번째 다리에서 빠지기 때문이다. SQL 만으로는 메울 수 없다 — "이 몰에 어떤 수집기가 있어야 하는가"는 DB
+   * 가 아니라 코드({@code MallRegistry})가 아는 사실이라, 메우려면 기대 수집기 목록을 넘겨받아 서비스 계층에서 맞춰 봐야 한다. 지금 닫은 것은 <b>몰
+   * 전체가 통째로 조용한</b> 경우이고, 그것이 실제로 두 달을 삼킨 형태다.
+   *
    * @return {@code seq_mall}, {@code mall_name}, {@code collector}, {@code
    *     collect_interval_minutes}, {@code last_success_time}, {@code last_nonempty_time}, {@code
-   *     consecutive_failures}, {@code tripped_time}, {@code last_reason} 을 담은 JSON 목록
+   *     consecutive_failures}, {@code tripped_time}, {@code last_reason} 을 담은 JSON 목록. 한 번도 돌지 않은
+   *     몰의 행은 {@code collector} 가 {@code null} 이고 시각·횟수가 모두 0 이다
    */
   @SuppressWarnings("unchecked")
   public List<JSONObject> getHeartbeats() {
@@ -168,13 +199,25 @@ public class JbgCollectBreakerDataAccessObject extends CommonDataAccessObject {
       conn = new LocalDBConnection();
       ResultSet rset =
           conn.executeQuery(
-              "SELECT b.seq_mall, m.name AS mall_name, b.collector,"
+              "SELECT b.seq_mall AS seq_mall, m.name AS mall_name, b.collector AS collector,"
                   + " COALESCE(m.collect_interval_minutes, 0) AS collect_interval_minutes,"
-                  + " b.last_success_time, b.last_nonempty_time, b.consecutive_failures,"
-                  + " b.tripped_time, b.last_reason"
+                  + " b.last_success_time AS last_success_time,"
+                  + " b.last_nonempty_time AS last_nonempty_time,"
+                  + " b.consecutive_failures AS consecutive_failures,"
+                  + " b.tripped_time AS tripped_time, b.last_reason AS last_reason"
                   + " FROM jbg_collect_breaker b"
                   + " LEFT JOIN jbg_mall m ON m.seq = b.seq_mall"
-                  + " ORDER BY b.seq_mall, b.collector");
+                  + " UNION ALL"
+                  + " SELECT m.seq AS seq_mall, m.name AS mall_name, NULL AS collector,"
+                  + " COALESCE(m.collect_interval_minutes, 0) AS collect_interval_minutes,"
+                  + " 0 AS last_success_time, 0 AS last_nonempty_time,"
+                  + " 0 AS consecutive_failures, 0 AS tripped_time, NULL AS last_reason"
+                  + " FROM jbg_mall m"
+                  + " LEFT JOIN jbg_collect_breaker b ON b.seq_mall = m.seq"
+                  + " WHERE b.seq_mall IS NULL"
+                  + " AND COALESCE(m.auto_collect, 0) = 1"
+                  + " AND COALESCE(m.collect_interval_minutes, 0) > 0"
+                  + " ORDER BY seq_mall, collector");
       while (rset != null && rset.next()) {
         JSONObject row = new JSONObject();
         row.put("seq_mall", rset.getInt("seq_mall"));

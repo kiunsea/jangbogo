@@ -200,12 +200,14 @@ public class JbgExportConfigDataAccessObject extends CommonDataAccessObject {
     } catch (SQLException e) {
       log.error("설정 저장 중 DB 에러 발생");
       log.error(ExceptionUtil.getExceptionInfo(e));
-      if (conn != null) conn.txRollBack();
+      // 되돌리기를 인라인 txRollBack() 으로 하면 그것이 던지는 순간 원래 실패 원인(e)이 사라진다.
+      // 여기는 FTP 비밀번호 암호화까지 묶인 다중 문장 트랜잭션이라 원인을 잃으면 추적이 어렵다.
+      rollbackQuietly(conn);
       throw e;
     } catch (Exception e) {
       log.error("설정 저장 중 에러 발생");
       log.error(ExceptionUtil.getExceptionInfo(e));
-      if (conn != null) conn.txRollBack();
+      rollbackQuietly(conn);
       throw e;
     } finally {
       if (conn != null) conn.close();

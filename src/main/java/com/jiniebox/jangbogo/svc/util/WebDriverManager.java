@@ -152,7 +152,19 @@ public class WebDriverManager {
   }
 
   /**
-   * 이미 떠 있는 Chrome 에 붙는다 (Phase 5-15 · 세션 캡처).
+   * 이미 떠 있는 Chrome 에 붙는다 (<b>휴면 보존 — 아래 "처분" 참조</b>).
+   *
+   * <h3>⚠ 처분 — 현역이 아니다 (2026-08-07)</h3>
+   *
+   * <p><b>{@code src/main} 안에 이 메서드를 부르는 코드는 없다.</b> ADR-0002 가 캡처 경로를 후보 (a)(Selenium + 마스킹)로
+   * 확정하면서 (b)(순정 chrome.exe 에 디버깅 포트로 붙기)가 기각됐고, 이 메서드는 (b) 전용이다. 지금 세션 캡처는 {@code
+   * SessionCaptureService} 가 {@link #getWebDriver(String, Path)} 로 직접 띄운 브라우저에서 한다.
+   *
+   * <p><b>그래도 지우지 않는다.</b> ADR-0002 의 측정표를 만드는 {@code SessionCaptureProbe} 가 이 메서드로 '붙은 뒤' 팔을 세운다 —
+   * 지우면 프로브가 컴파일되지 않고, "포트를 여는 것만으로 {@code navigator.webdriver} 가 켜진다" 는 그 문서의 핵심 근거를 다시 잴 수 없게 된다.
+   * 이 표기가 없던 동안 javadoc 이 {@code (Phase 5-15)} 를 달고 있어 <b>현역인데 호출자가 0건</b>인 모순으로 읽혔다.
+   *
+   * <p>아래 서술은 재측정을 위해 실측 그대로 보존한다.
    *
    * <p>여기서만 브라우저를 <b>새로 띄우지 않는다.</b> 사람이 순정 chrome.exe 로 로그인하는 그 브라우저에 밖에서 붙어 쿠키만 뜨는 것이 목적이다. 캡처는
    * 브라우저가 <b>살아 있는 동안</b> 해야 한다 — 인증 쿠키가 세션 스코프라 창을 닫으면 사라진다(ADR-0001).
@@ -176,7 +188,10 @@ public class WebDriverManager {
   }
 
   /**
-   * 붙어 있는 브라우저를 닫는다 (Phase 5-15).
+   * 붙어 있는 브라우저를 닫는다 (<b>휴면 보존 — {@link #attachToRunningChrome} 의 "처분" 과 같다</b>).
+   *
+   * <p>{@code src/main} 안 호출자가 없다. {@link #attachToRunningChrome} 이 붙은 브라우저를 닫는 유일한 수단이라 그것과 한 쌍이고,
+   * {@code SessionCaptureProbe} 의 '닫힌다' 확인이 이 메서드로 이뤄진다 — 그래서 함께 남긴다. 근거는 ADR-0002.
    *
    * <p>{@code quit()} 만으로는 닫히지 않는다 — 드라이버가 띄운 브라우저가 아니기 때문이다. 그대로 두면 <b>로그인된 브라우저와 인증 없는 디버깅 포트가
    * 그대로 남는다.</b> 같은 PC 의 아무 프로세스나 그 세션을 조작할 수 있으므로 캡처가 끝나면 반드시 닫는다.

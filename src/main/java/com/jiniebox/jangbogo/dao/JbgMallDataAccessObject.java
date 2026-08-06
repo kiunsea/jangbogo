@@ -6,7 +6,9 @@ import com.jiniebox.jangbogo.util.JinieboxUtil;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.regex.Pattern;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.simple.JSONObject;
@@ -117,11 +119,17 @@ public class JbgMallDataAccessObject extends CommonDataAccessObject {
   /**
    * 특정 쇼핑몰의 전체 정보 조회 (모든 필드)
    *
-   * @param seq 쇼핑몰 시퀀스
-   * @return 쇼핑몰 전체 정보 (모든 필드)
+   * @param seq 쇼핑몰 시퀀스. 숫자가 아니면 없는 몰과 같게 본다
+   * @return 쇼핑몰 전체 정보 (모든 필드). 없으면 null
    * @throws Exception
    */
   public JSONObject getMall(String seq) throws Exception {
+    // 여기가 확인된 주입 도달 경로였다. AdminController 의 @RequestParam("seq") 가 필터 하나 없이
+    // 이 자리까지 그대로 온다. 로그인 세션 뒤라는 사실은 완화지 방어가 아니다.
+    Long seqNo = readSeq(seq);
+    if (seqNo == null) {
+      return null;
+    }
     LocalDBConnection conn = null;
     try {
       conn = new LocalDBConnection();
@@ -130,11 +138,11 @@ public class JbgMallDataAccessObject extends CommonDataAccessObject {
           "encrypt_key, encrypt_iv, account_status, last_signin_time, auto_collect, collect_interval_minutes");
       querySb.append(SESSION_PROFILE_COLUMNS);
       querySb.append(" FROM jbg_mall");
-      querySb.append(" WHERE seq=" + seq);
+      querySb.append(" WHERE seq=?");
       log.debug(
           "LOCALDB-QUERY------------------------------------------------------------------------------");
       log.debug(querySb);
-      ResultSet rset = conn.executeQuery(querySb.toString());
+      ResultSet rset = conn.executeQuery(querySb.toString(), seqNo);
 
       if (rset != null) {
         JSONObject mJson = null;
@@ -208,31 +216,45 @@ public class JbgMallDataAccessObject extends CommonDataAccessObject {
       conn.txExecuteUpdate("UPDATE jbg_mall SET auto_collect=0");
 
       // 선택된 쇼핑몰은 auto_collect=1로 설정
+      //
+      // IN 목록의 길이가 입력에 따라 변하므로 자리표시자만 그 수만큼 만들고 값은 전부 바인딩한다.
+      // 숫자 필터로 깎아 이어 붙이던 예전 방식은 "1 OR ..." 같은 값을 "1..." 로 바꿔 엉뚱한 몰의
+      // 자동수집을 켜 놓을 수 있었다 — 화면에서 체크하지도 않은 몰이 돌기 시작한다.
       if (selectedSeqs != null && !selectedSeqs.isEmpty()) {
-        String inClause =
-            String.join(",", selectedSeqs.stream().map(s -> s.replaceAll("[^0-9]", "")).toList());
-        if (!inClause.isEmpty()) {
-          conn.txExecuteUpdate(
-              "UPDATE jbg_mall SET auto_collect=1 WHERE seq IN (" + inClause + ")");
+        List<Object> seqNos = new ArrayList<>();
+        for (String selected : selectedSeqs) {
+          Long seqNo = readSeq(selected);
+          if (seqNo == null) {
+            // 한 항목이 이상하다고 전체를 되돌리지 않는다. 되돌리면 위에서 이미 0 으로 초기화한
+            // 상태가 살아나는 게 아니라, 사용자가 방금 켠 나머지 몰들까지 통째로 취소된다.
+            log.warn("자동수집 대상에 숫자가 아닌 seq 가 섞여 있어 건너뛴다.");
+            continue;
+          }
+          seqNos.add(seqNo);
+        }
+        if (!seqNos.isEmpty()) {
+          String placeholders = String.join(",", Collections.nCopies(seqNos.size(), "?"));
+          conn.txPstmtExecuteUpdate(
+              "UPDATE jbg_mall SET auto_collect=1 WHERE seq IN (" + placeholders + ")",
+              seqNos.toArray());
         }
       }
 
       // 주기 시간 업데이트 (intervals 맵이 있으면)
       if (intervals != null && !intervals.isEmpty()) {
         for (java.util.Map.Entry<String, Integer> entry : intervals.entrySet()) {
-          String seq = entry.getKey().replaceAll("[^0-9]", "");
+          Long seqNo = readSeq(entry.getKey());
           Integer minutes = entry.getValue();
-          if (!seq.isEmpty() && minutes != null) {
+          if (seqNo != null && minutes != null) {
             // 하한 미만은 저장하지 않는다. 호출부(AdminController)가 미리 걸러내므로 여기까지 오면
             // API 직접 호출 등 화면을 거치지 않은 경로다. 트랜잭션을 되돌리고 사유를 알린다.
             if (!CollectIntervalPolicy.isAllowed(minutes)) {
               throw new IllegalArgumentException(
-                  "쇼핑몰 seq=" + seq + " " + CollectIntervalPolicy.rejectionMessage(minutes));
+                  "쇼핑몰 seq " + seqNo + " " + CollectIntervalPolicy.rejectionMessage(minutes));
             }
-            String updateQuery =
-                "UPDATE jbg_mall SET collect_interval_minutes=" + minutes + " WHERE seq=" + seq;
-            conn.txExecuteUpdate(updateQuery);
-            log.debug("쇼핑몰 seq={} 수집주기 업데이트 완료: {}분", seq, minutes);
+            conn.txPstmtExecuteUpdate(
+                "UPDATE jbg_mall SET collect_interval_minutes=? WHERE seq=?", minutes, seqNo);
+            log.debug("쇼핑몰 seq={} 수집주기 업데이트 완료: {}분", seqNo, minutes);
           }
         }
       }
@@ -241,12 +263,12 @@ public class JbgMallDataAccessObject extends CommonDataAccessObject {
     } catch (SQLException e) {
       log.error("* 아이고!! ㅜ.ㅜ 데이터베이스 업데이트 에러 발생");
       log.error(ExceptionUtil.getExceptionInfo(e));
-      if (conn != null) conn.txRollBack();
+      rollbackQuietly(conn);
       throw e;
     } catch (Exception e) {
       log.error("* 데이터베이스 업데이트 에러 발생");
       log.error(ExceptionUtil.getExceptionInfo(e));
-      if (conn != null) conn.txRollBack();
+      rollbackQuietly(conn);
       throw e;
     } finally {
       if (conn != null) conn.close();
@@ -265,36 +287,29 @@ public class JbgMallDataAccessObject extends CommonDataAccessObject {
       conn = new LocalDBConnection();
       conn.txOpen();
 
-      String cleanSeq = seq.replaceAll("[^0-9]", "");
-      if (cleanSeq.isEmpty()) {
-        throw new IllegalArgumentException("Invalid seq: " + seq);
-      }
+      long seqNo = writeSeq(seq);
 
       // 하한 강제. saveAutoCollectFlags 와 같은 규칙을 적용한다.
       if (!CollectIntervalPolicy.isAllowed(intervalMinutes)) {
         throw new IllegalArgumentException(
-            "쇼핑몰 seq=" + cleanSeq + " " + CollectIntervalPolicy.rejectionMessage(intervalMinutes));
+            "쇼핑몰 seq " + seqNo + " " + CollectIntervalPolicy.rejectionMessage(intervalMinutes));
       }
 
-      String query =
-          "UPDATE jbg_mall SET collect_interval_minutes="
-              + intervalMinutes
-              + " WHERE seq="
-              + cleanSeq;
+      String query = "UPDATE jbg_mall SET collect_interval_minutes=? WHERE seq=?";
       log.debug(
           "LOCALDB-QUERY------------------------------------------------------------------------------");
       log.debug(query);
-      conn.txExecuteUpdate(query);
+      conn.txPstmtExecuteUpdate(query, intervalMinutes, seqNo);
       conn.txCommit();
     } catch (SQLException e) {
       log.error("* 데이터베이스 업데이트 에러 발생");
       log.error(ExceptionUtil.getExceptionInfo(e));
-      if (conn != null) conn.txRollBack();
+      rollbackQuietly(conn);
       throw e;
     } catch (Exception e) {
       log.error("* 데이터베이스 업데이트 에러 발생");
       log.error(ExceptionUtil.getExceptionInfo(e));
-      if (conn != null) conn.txRollBack();
+      rollbackQuietly(conn);
       throw e;
     } finally {
       if (conn != null) conn.close();
@@ -359,6 +374,10 @@ public class JbgMallDataAccessObject extends CommonDataAccessObject {
    * @throws Exception
    */
   public JSONObject getAccessInfo(String seqMall) throws Exception {
+    Long seqNo = readSeq(seqMall);
+    if (seqNo == null) {
+      return null;
+    }
     LocalDBConnection conn = null;
     try {
       conn = new LocalDBConnection();
@@ -366,11 +385,11 @@ public class JbgMallDataAccessObject extends CommonDataAccessObject {
           new StringBuffer(
               "SELECT account_status status, encrypt_key, encrypt_iv, last_signin_time time");
       querySb.append(" FROM jbg_mall");
-      querySb.append(" WHERE seq = " + seqMall);
+      querySb.append(" WHERE seq = ?");
       log.debug(
           "LOCALDB-QUERY------------------------------------------------------------------------------");
       log.debug(querySb);
-      ResultSet rset = conn.executeQuery(querySb.toString());
+      ResultSet rset = conn.executeQuery(querySb.toString(), seqNo);
 
       if (rset != null) {
         JSONObject mJson = null;
@@ -459,16 +478,20 @@ public class JbgMallDataAccessObject extends CommonDataAccessObject {
    * @throws Exception
    */
   public String getName(String seq) throws Exception {
+    Long seqNo = readSeq(seq);
+    if (seqNo == null) {
+      return null;
+    }
     LocalDBConnection conn = null;
     try {
       conn = new LocalDBConnection();
       StringBuffer querySb = new StringBuffer("SELECT name from jbg_mall");
-      querySb.append(" WHERE seq=" + seq);
+      querySb.append(" WHERE seq=?");
 
       log.debug(
           "LOCALDB-QUERY------------------------------------------------------------------------------");
       log.debug(querySb);
-      ResultSet rset = conn.executeQuery(querySb.toString());
+      ResultSet rset = conn.executeQuery(querySb.toString(), seqNo);
 
       if (rset != null) {
         String name = null;
@@ -500,16 +523,23 @@ public class JbgMallDataAccessObject extends CommonDataAccessObject {
    * @throws Exception
    */
   public int checkAccountStatus(String seqJbgmall) throws Exception {
+    // getMall 과 함께 확인된 주입 도달 경로다. 숫자가 아니면 '미등록'(-1) 으로 본다 —
+    // 호출부(JangBoGoManager)는 -1 을 받으면 add(...) 로 넘어가고, 거기서 writeSeq 가 다시 막는다.
+    // 즉 잘못된 seq 가 조용히 성공으로 흐르지는 않는다.
+    Long seqNo = readSeq(seqJbgmall);
+    if (seqNo == null) {
+      return -1;
+    }
     LocalDBConnection conn = null;
     try {
       conn = new LocalDBConnection();
       StringBuffer querySb = new StringBuffer("SELECT account_status from jbg_mall");
-      querySb.append(" WHERE seq=" + seqJbgmall);
+      querySb.append(" WHERE seq=?");
 
       log.debug(
           "LOCALDB-QUERY------------------------------------------------------------------------------");
       log.debug(querySb);
-      ResultSet rset = conn.executeQuery(querySb.toString());
+      ResultSet rset = conn.executeQuery(querySb.toString(), seqNo);
 
       int status = -1;
       if (rset != null) {
@@ -561,7 +591,7 @@ public class JbgMallDataAccessObject extends CommonDataAccessObject {
         setSb.append(", encrypt_iv=?");
         params.add(encryptIv);
       }
-      params.add(Integer.parseInt(digitsOnly(seqJbgmall)));
+      params.add(writeSeq(seqJbgmall));
 
       String query = "UPDATE jbg_mall SET" + setSb + " WHERE seq=?";
       log.debug(
@@ -573,13 +603,12 @@ public class JbgMallDataAccessObject extends CommonDataAccessObject {
     } catch (SQLException e) {
       log.error("* 아이고!! ㅜ.ㅜ 데이터베이스 업데이트 에러 발생");
       log.error(ExceptionUtil.getExceptionInfo(e));
+      rollbackQuietly(conn);
       throw e;
     } catch (Exception e) {
       log.error("* 아이고!! ㅜ.ㅜ 데이터베이스 업데이트 에러 발생");
       log.error(ExceptionUtil.getExceptionInfo(e));
-      if (conn != null) {
-        conn.txRollBack();
-      }
+      rollbackQuietly(conn);
       throw e;
     } finally {
       if (conn != null) {
@@ -600,13 +629,16 @@ public class JbgMallDataAccessObject extends CommonDataAccessObject {
    * @throws Exception 조회 오류
    */
   public JSONObject getSessionSnapshotKeys(String seqMall) throws Exception {
+    Long seqNo = readSeq(seqMall);
+    if (seqNo == null) {
+      return null;
+    }
     LocalDBConnection conn = null;
     try {
       conn = new LocalDBConnection();
-      String seq = digitsOnly(seqMall);
       ResultSet rset =
           conn.executeQuery(
-              "SELECT session_snapshot_key, session_snapshot_iv FROM jbg_mall WHERE seq=" + seq);
+              "SELECT session_snapshot_key, session_snapshot_iv FROM jbg_mall WHERE seq=?", seqNo);
       if (rset != null && rset.next()) {
         JSONObject json = new JSONObject();
         json.put("snapshot_key", rset.getString("session_snapshot_key"));
@@ -646,14 +678,14 @@ public class JbgMallDataAccessObject extends CommonDataAccessObject {
     LocalDBConnection conn = null;
     try {
       conn = new LocalDBConnection();
-      int seq = Integer.parseInt(digitsOnly(seqMall));
+      long seqNo = writeSeq(seqMall);
       conn.txPstmtExecuteUpdate(
           "UPDATE jbg_mall SET session_snapshot_key=?, session_snapshot_iv=?,"
               + " session_profile_last_login=? WHERE seq=?",
           snapshotKey,
           snapshotIv,
           capturedAtMillis,
-          seq);
+          seqNo);
     } catch (Exception e) {
       log.error("* 세션 스냅샷 키 저장 에러");
       log.error(ExceptionUtil.getExceptionInfo(e));
@@ -695,8 +727,11 @@ public class JbgMallDataAccessObject extends CommonDataAccessObject {
    *
    * <h3>PreparedStatement 인 이유</h3>
    *
-   * <p>이 파일의 오래된 UPDATE 들은 문자열 concat 으로 SET 절을 만든다. 프로필 이름·OS 계정명은 따옴표가 섞일 수 있는 외부 입력이라 그 방식을 복제하지
-   * 않는다. {@link #saveSessionSnapshotKeys} 와 같은 {@code txPstmtExecuteUpdate} 패턴을 쓴다.
+   * <p>프로필 이름·OS 계정명은 따옴표가 섞일 수 있는 외부 입력이다. {@link #saveSessionSnapshotKeys} 와 같은 {@code
+   * txPstmtExecuteUpdate} 패턴을 쓴다.
+   *
+   * <p>이 파일에 남아 있던 문자열 조립은 숫자 자리까지 전부 걷어냈다. 따옴표로 감싸지 않은 {@code seq} 자리가 마지막까지 남아 있었고, 그 자리가 실제 주입
+   * 도달 경로였다.
    *
    * <p>키 저장과 <b>같은 문장에 합치지 않은</b> 이유는, 키 커밋은 {@code SessionSnapshotStore} 안쪽(몰 이름을 모르는 자리)에서 일어나고 이
    * 기록은 캡처 서비스(몰을 아는 자리)에서 일어나기 때문이다. SET 절이 겹치지 않아 서로를 지우지도 않는다.
@@ -711,14 +746,14 @@ public class JbgMallDataAccessObject extends CommonDataAccessObject {
     LocalDBConnection conn = null;
     try {
       conn = new LocalDBConnection();
-      int seq = Integer.parseInt(digitsOnly(seqMall));
+      long seqNo = writeSeq(seqMall);
       conn.txPstmtExecuteUpdate(
           "UPDATE jbg_mall SET session_profile_name=?, session_profile_owner=?,"
               + " session_profile_status=? WHERE seq=?",
           profileName,
           profileOwner,
           SESSION_PROFILE_STATUS_READY,
-          seq);
+          seqNo);
     } catch (Exception e) {
       log.error("* 세션 프로필 신원 저장 에러");
       log.error(ExceptionUtil.getExceptionInfo(e));
@@ -730,14 +765,61 @@ public class JbgMallDataAccessObject extends CommonDataAccessObject {
     }
   }
 
-  /** seq 문자열에서 숫자만 남긴다. 호출부(컨트롤러·서비스)에서 온 값이라 방어한다. 비어 있으면 실패로 본다. */
-  private static String digitsOnly(String seq) {
-    String d = seq == null ? "" : seq.replaceAll("[^0-9]", "");
-    if (d.isEmpty()) {
+  /** seq 는 전부 SQLite INTEGER 컬럼 값이다. 10진 숫자 외에는 존재할 수 없다. */
+  private static final Pattern SEQ_DIGITS = Pattern.compile("[0-9]+");
+
+  /**
+   * 조회에 쓸 seq. 10진 숫자가 아니면 {@code null} 을 돌린다.
+   *
+   * <p><b>예전의 {@code replaceAll("[^0-9]", "")} 를 되살리지 마라.</b> 그 필터는 거르는 것이 아니라 <b>깎는다</b> — 숫자가 섞인
+   * 공격 문자열을 남은 숫자만 이어 붙인 <b>다른 유효한 seq</b> 로 바꿔 놓고 아무 일도 없었다는 듯 남의 몰을 읽어 온다. 조립을 막으려고 깔아 둔 필터가 그
+   * 자체로 조용한 오조회가 되는 것이 필터 단독 방어의 실제 실패 형태다.
+   *
+   * <p>실패를 예외가 아니라 값으로 돌리는 이유: 조회 호출부(AdminController·MallSchedulerService·SessionSnapshotStore)는
+   * 이미 '몰 없음' 을 null 로 받아 처리한다. 예외로 올리면 무인 수집의 포괄 catch 가 계정 문제로 읽어 연결을 끊는다.
+   */
+  private static Long readSeq(String seq) {
+    if (seq == null) {
+      return null;
+    }
+    String trimmed = seq.trim();
+    if (!SEQ_DIGITS.matcher(trimmed).matches()) {
+      return null;
+    }
+    try {
+      return Long.valueOf(trimmed);
+    } catch (NumberFormatException tooManyDigits) {
+      // long 범위를 넘은 자릿수. 어차피 존재할 수 없는 seq 라 '결과 없음' 과 같다.
+      return null;
+    }
+  }
+
+  /**
+   * 갱신에 쓸 seq. 숫자가 아니면 던진다.
+   *
+   * <p>조회와 달리 갱신은 대상이 틀린 것을 조용히 넘기면 안 된다. seq 가 깨진 채로 흘러가면 WHERE 가 아무 행도 고르지 못한 것을 '성공' 으로 보고하고,
+   * 화면은 저장됐다고 말한다. 여기서 끊는다.
+   */
+  private static long writeSeq(String seq) {
+    Long parsed = readSeq(seq);
+    if (parsed == null) {
       throw new IllegalArgumentException("유효한 seq 가 아니다: " + seq);
     }
-    return d;
+    return parsed;
   }
+
+  /**
+   * 열려 있던 트랜잭션을 되돌린다. <b>되돌리기가 실패해도 던지지 않는다.</b>
+   *
+   * <p>이 파일의 갱신 여러 개가 {@code catch (SQLException)} 에서 롤백 없이 그대로 다시 던지고 있었다. DB 갱신이 깨질 때 실제로 타는 것은 그
+   * 쪽이다 — 뒤에 있는 {@code catch (Exception)} 의 롤백은 SQL 이 아닌 사유로 터질 때만 돈다. 즉 <b>정작 되돌려야 할 경우에만 안
+   * 되돌리고</b> 있었다.
+   *
+   * <p>던지지 않는 이유는 따로 있다. 롤백이 실패하면 그 예외가 <b>원래 실패 원인을 덮는다</b> — "왜 갱신이 깨졌나" 를 잃고 "롤백이 안 됐다" 만 남는다.
+   * 진단 가치가 큰 쪽은 원인이므로 롤백 실패는 로그로만 남기고 원래 예외를 그대로 위로 올린다.
+   */
+  // rollbackQuietly 는 CommonDataAccessObject 로 올렸다. 여기와 JbgItemDataAccessObject 에
+  // 같은 구현이 복제돼 있었는데, 복제된 예외 처리 규칙은 한쪽만 고쳐지면서 조용히 갈라진다.
 
   /**
    * 마지막 로그인 시간을 현재시간으로 설정 (통합 - 구 JbgAccessDataAccessObject.updateLastSigninTime)
@@ -751,27 +833,22 @@ public class JbgMallDataAccessObject extends CommonDataAccessObject {
       conn = new LocalDBConnection();
       conn.txOpen();
 
-      StringBuffer querySb = new StringBuffer();
-      querySb.append("UPDATE jbg_mall SET");
-      querySb.append(" last_signin_time=" + System.currentTimeMillis());
-      querySb.append(" WHERE seq=" + seqJbgmall);
-
-      String query = querySb.toString();
+      long seqNo = writeSeq(seqJbgmall);
+      String query = "UPDATE jbg_mall SET last_signin_time=? WHERE seq=?";
       log.debug(
           "LOCAL-QUERY------------------------------------------------------------------------------");
       log.debug(query);
-      conn.txExecuteUpdate(query);
+      conn.txPstmtExecuteUpdate(query, System.currentTimeMillis(), seqNo);
       conn.txCommit();
     } catch (SQLException e) {
       log.error("* 아이고!! ㅜ.ㅜ 데이터베이스 업데이트 에러 발생");
       log.error(ExceptionUtil.getExceptionInfo(e));
+      rollbackQuietly(conn);
       throw e;
     } catch (Exception e) {
       log.error("* 아이고!! ㅜ.ㅜ 데이터베이스 업데이트 에러 발생");
       log.error(ExceptionUtil.getExceptionInfo(e));
-      if (conn != null) {
-        conn.txRollBack();
-      }
+      rollbackQuietly(conn);
       throw e;
     } finally {
       if (conn != null) {
@@ -793,30 +870,31 @@ public class JbgMallDataAccessObject extends CommonDataAccessObject {
       conn = new LocalDBConnection();
       conn.txOpen();
 
-      StringBuffer querySb = new StringBuffer();
-      querySb.append("UPDATE jbg_mall SET");
-      querySb.append(" account_status=" + accountStatus);
+      // SET 절이 accountStatus 값에 따라 늘고 주는 형태만 남기고 값은 전부 자리표시자로 뺀다.
+      StringBuilder setSb = new StringBuilder(" account_status=?");
+      List<Object> params = new ArrayList<>();
+      params.add(accountStatus);
       if (accountStatus == 1) {
-        querySb.append(", last_signin_time=" + System.currentTimeMillis());
+        setSb.append(", last_signin_time=?");
+        params.add(System.currentTimeMillis());
       }
-      querySb.append(" WHERE seq=" + seqJbgmall);
+      params.add(writeSeq(seqJbgmall));
 
-      String query = querySb.toString();
+      String query = "UPDATE jbg_mall SET" + setSb + " WHERE seq=?";
       log.debug(
           "LOCAL-QUERY------------------------------------------------------------------------------");
       log.debug(query);
-      conn.txExecuteUpdate(query);
+      conn.txPstmtExecuteUpdate(query, params.toArray());
       conn.txCommit();
     } catch (SQLException e) {
       log.error("* 아이고!! ㅜ.ㅜ 데이터베이스 업데이트 에러 발생");
       log.error(ExceptionUtil.getExceptionInfo(e));
+      rollbackQuietly(conn);
       throw e;
     } catch (Exception e) {
       log.error("* 아이고!! ㅜ.ㅜ 데이터베이스 업데이트 에러 발생");
       log.error(ExceptionUtil.getExceptionInfo(e));
-      if (conn != null) {
-        conn.txRollBack();
-      }
+      rollbackQuietly(conn);
       throw e;
     } finally {
       if (conn != null) {
@@ -859,7 +937,7 @@ public class JbgMallDataAccessObject extends CommonDataAccessObject {
       }
       setSb.append(", last_signin_time=?");
       params.add(System.currentTimeMillis());
-      params.add(Integer.parseInt(digitsOnly(seqJbgmall)));
+      params.add(writeSeq(seqJbgmall));
 
       String query = "UPDATE jbg_mall SET" + setSb + " WHERE seq=?";
       log.debug(
@@ -873,13 +951,12 @@ public class JbgMallDataAccessObject extends CommonDataAccessObject {
     } catch (SQLException e) {
       log.error("* 아이고!! ㅜ.ㅜ 데이터베이스 업데이트 에러 발생");
       log.error(ExceptionUtil.getExceptionInfo(e));
+      rollbackQuietly(conn);
       throw e;
     } catch (Exception e) {
       log.error("* 데이터베이스 업데이트 에러 발생");
       log.error(ExceptionUtil.getExceptionInfo(e));
-      if (conn != null) {
-        conn.txRollBack();
-      }
+      rollbackQuietly(conn);
       throw e;
     } finally {
       if (conn != null) {

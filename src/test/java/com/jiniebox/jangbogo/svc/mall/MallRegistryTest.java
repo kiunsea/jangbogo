@@ -3,10 +3,12 @@ package com.jiniebox.jangbogo.svc.mall;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.jiniebox.jangbogo.svc.mall.MallRegistry.CollectorSpec;
+import com.jiniebox.jangbogo.svc.mall.MallRegistry.SessionCollectorSpec;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -15,6 +17,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -127,12 +130,58 @@ class MallRegistryTest {
     List<Integer> seqs = Arrays.stream(MallRegistry.values()).map(MallRegistry::seq).toList();
     assertEquals(seqs.size(), Set.copyOf(seqs).size(), "seq 가 중복됐다: " + seqs);
 
+    // 세션 주입 수집기도 같은 이름 공간을 쓴다. 자격증명 수집기와 겹치면 두 경로의 브레이커 상태가
+    // 한 키에 섞여, 세션 만료로 건너뛴 것이 비밀번호 로그인 실패로 계산된다.
     List<String> names =
         Arrays.stream(MallRegistry.values())
-            .flatMap(m -> m.collectors().stream())
-            .map(CollectorSpec::name)
+            .flatMap(
+                m ->
+                    Stream.concat(
+                        m.collectors().stream().map(CollectorSpec::name),
+                        m.sessionCollectors().stream().map(SessionCollectorSpec::name)))
             .toList();
     assertEquals(names.size(), Set.copyOf(names).size(), "수집기 이름이 중복됐다: " + names);
+  }
+
+  @Test
+  @DisplayName("세션 주입 수집기는 실재하는 수집기 자리를 대체한다 (Phase 5-9′)")
+  void sessionCollectorsReplaceADeclaredCollector() {
+    // replaces 가 어긋나면 그 자리가 대체되지 않아 비밀번호 로그인이 그대로 남는다. 즉 '비밀번호
+    // 없이 수집' 이 컴파일도 통과하고 테스트도 없이 조용히 무너진다. 여기서만 막을 수 있다.
+    for (MallRegistry mall : MallRegistry.values()) {
+      List<String> declared = mall.collectors().stream().map(CollectorSpec::name).toList();
+      for (SessionCollectorSpec session : mall.sessionCollectors()) {
+        assertTrue(
+            declared.contains(session.replaces()),
+            mall + " 의 세션 수집기가 없는 자리를 대체하려 한다: " + session.replaces() + " / 선언: " + declared);
+        assertNotEquals(
+            session.replaces(),
+            session.name(),
+            mall + " 의 세션 수집기 이름이 대체 대상과 같다 — 브레이커 상태가 한 키에 섞인다.");
+      }
+    }
+  }
+
+  @Test
+  @DisplayName("세션 주입 수집기를 선언한 몰은 아직 ssg 하나뿐이다")
+  void onlySsgDeclaresASessionCollector() {
+    // 파일럿 범위다. 나머지 몰은 '로그인 화면으로 밀렸다' 를 가를 마커를 실측하지 않았고,
+    // 추측해 넣으면 만료를 도달로 읽어 0건이 성공으로 굳는다.
+    assertEquals(1, MallRegistry.SSG_GROUP.sessionCollectors().size());
+    assertTrue(MallRegistry.OASIS.sessionCollectors().isEmpty(), "미실측 몰에 세션 경로를 넣었다.");
+    assertTrue(MallRegistry.HANARO.sessionCollectors().isEmpty(), "미실측 몰에 세션 경로를 넣었다.");
+  }
+
+  @Test
+  @DisplayName("ssg 의 세션 수집기는 SSG 자리를 대체하고 Emart 는 건드리지 않는다")
+  void ssgSessionCollectorReplacesOnlyTheOnlineMall() {
+    // Emart 는 eapp.emart.com 이라 도메인도 로그인 폼도 다르다. 그쪽 세션이 이 스냅샷에 담겨
+    // 있다는 근거가 없으므로 대체하면 조용히 0건이 된다.
+    SessionCollectorSpec spec = MallRegistry.SSG_GROUP.sessionCollectors().get(0);
+
+    assertEquals("SSG", spec.replaces());
+    assertEquals("SsgSession", spec.name());
+    assertInstanceOf(SsgSessionCollector.class, spec.create("1"));
   }
 
   @Test

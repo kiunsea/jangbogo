@@ -4,6 +4,7 @@ import com.jiniebox.jangbogo.svc.ifc.MallSession;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.BiFunction;
+import java.util.function.Function;
 
 /**
  * 쇼핑몰 seq 에 무엇이 딸려 있는지를 선언하는 단일 레지스트리 (Phase 3-12).
@@ -55,6 +56,10 @@ public enum MallRegistry {
       "ssg",
       "emart",
       List.of(new CollectorSpec("SSG", Ssg::new), new CollectorSpec("Emart", Emart::new)),
+      // 세션 주입 경로는 SSG 온라인몰 한 자리만 대체한다 (Phase 5-9′ 파일럿).
+      // Emart(오프라인 영수증)는 eapp.emart.com 이라 도메인도 로그인 폼도 다르고, 그쪽 세션이
+      // 이 스냅샷에 담겨 있다는 근거가 아직 없다. 근거 없이 대체하면 조용히 0건이 된다.
+      List.of(new SessionCollectorSpec("SsgSession", "SSG", SsgSessionCollector::new)),
       "Emart",
       "https://www.ssg.com/",
       // ADR-0001 T3 이 캡처된 쿠키에서 실제로 확인한 이름들. 같은 문단이 함께 적고 있는
@@ -67,6 +72,9 @@ public enum MallRegistry {
       "oasis",
       "oasis",
       List.of(new CollectorSpec("Oasis", Oasis::new)),
+      // 세션 주입 경로 미착수. 회원 페이지 URL 은 프로브가 알고 있으나 '로그인 화면으로 밀렸다' 를
+      // 가를 마커를 실측하지 않았다. 추측해 넣으면 만료를 정상으로 읽어 0건이 성공으로 굳는다.
+      List.of(),
       "Oasis",
       "https://www.oasis.co.kr/login",
       // 인증 쿠키 이름 미확정. 추측해 채우면 정상 로그인까지 튕겨 캡처가 불가능해진다 — 비워 둔다.
@@ -78,6 +86,8 @@ public enum MallRegistry {
       "hanaro",
       "hanaro",
       List.of(new CollectorSpec("Hanaro", Hanaro::new)),
+      // 세션 주입 경로 미착수. OASIS 와 같은 이유다.
+      List.of(),
       "Hanaro",
       "https://www.nonghyupmall.com/BC41000R/loginViewPage.nh",
       // 인증 쿠키 이름 미확정. OASIS 와 같은 이유로 비워 둔다.
@@ -101,10 +111,37 @@ public enum MallRegistry {
     }
   }
 
+  /**
+   * 세션 주입 수집기 하나의 선언 (Phase 5-9′).
+   *
+   * <h2>왜 {@link CollectorSpec} 에 합치지 않았나</h2>
+   *
+   * <p><b>만드는 데 필요한 재료가 다르다.</b> {@link CollectorSpec} 은 (아이디, 비밀번호) 2인자로 고정돼 있고, 이 경로는 비밀번호를 아예 쓰지
+   * 않는 대신 저장된 스냅샷을 찾을 {@code seq} 를 받는다. 한 record 에 억지로 합치면 세션 경로가 <b>쓰지도 않을 비밀번호를 인자로 들고 다니게</b>
+   * 되고, 그러려면 호출부가 그것을 먼저 복호화해야 한다 — '비밀번호를 메모리에 올리지 않는다' 는 이 국면의 목적이 배선 단계에서 무너진다.
+   *
+   * <p>기존 2인자 경로는 한 줄도 바뀌지 않는다. 이 목록이 비어 있는 몰은 옵트인을 켜도 예전 그대로 돈다.
+   *
+   * @param name 수집기 이름. {@code jbg_collect_log.collector} 와 브레이커 키에 그대로 쓰인다. <b>대체 대상과 달라야 한다</b> —
+   *     같으면 두 경로의 브레이커 상태가 한 키에 섞여, 세션이 만료돼 건너뛴 것과 비밀번호 로그인이 실패한 것이 같은 카운터로 계산된다
+   * @param replaces 이 수집기가 대신할 {@link CollectorSpec#name()}. 세션 경로가 켜지면 그 자리를 <b>대체</b>한다 — 둘 다 돌리면
+   *     비밀번호 로그인이 그대로 남아 '비밀번호 없이 수집' 이 성립하지 않는다
+   * @param factory {@code jbg_mall.seq} 로 수집기를 만드는 함수
+   */
+  public record SessionCollectorSpec(
+      String name, String replaces, Function<String, SessionCollector> factory) {
+
+    /** 수집기 인스턴스를 만든다. */
+    public SessionCollector create(String seqMall) {
+      return factory.apply(seqMall);
+    }
+  }
+
   private final int seq;
   private final String mallId;
   private final String exportId;
   private final List<CollectorSpec> collectors;
+  private final List<SessionCollectorSpec> sessionCollectors;
   private final String verificationCollectorName;
   private final String loginUrl;
   private final List<String> authCookieNames;
@@ -114,6 +151,7 @@ public enum MallRegistry {
       String mallId,
       String exportId,
       List<CollectorSpec> collectors,
+      List<SessionCollectorSpec> sessionCollectors,
       String verificationCollectorName,
       String loginUrl,
       List<String> authCookieNames) {
@@ -121,6 +159,7 @@ public enum MallRegistry {
     this.mallId = mallId;
     this.exportId = exportId;
     this.collectors = collectors;
+    this.sessionCollectors = sessionCollectors;
     this.verificationCollectorName = verificationCollectorName;
     this.loginUrl = loginUrl;
     this.authCookieNames = authCookieNames;
@@ -144,6 +183,22 @@ public enum MallRegistry {
   /** 이 몰에서 돌릴 수집기들. 선언 순서대로 실행된다. */
   public List<CollectorSpec> collectors() {
     return collectors;
+  }
+
+  /**
+   * 이 몰에서 쓸 수 있는 세션 주입 수집기들 (Phase 5-9′).
+   *
+   * <p><b>선언만으로는 아무 일도 하지 않는다.</b> 실제로 이 목록이 쓰이려면 마스터 킬스위치({@code
+   * SessionProfilePolicy.isEnabled()})와 그 몰의 {@code session_profile_enabled} 가 <b>둘 다</b> 켜져 있어야
+   * 한다. 판정은 {@code MallOrderUpdater} 가 하고, 여기는 "무엇이 있는가" 만 적는다.
+   *
+   * <p>비어 있으면 그 몰은 세션 경로가 없다 — 옵트인을 켜도 기존 2인자 경로 그대로 돈다. 지금 비어 있지 않은 것은 ssg 하나뿐이고, 그것이 이 국면의
+   * 범위다(계약이 옳은지 먼저 증명한다). 나머지 몰은 회원 페이지 도달 판정 마커를 실측한 뒤에 채운다.
+   *
+   * @return 세션 주입 수집기 선언. 없으면 빈 목록
+   */
+  public List<SessionCollectorSpec> sessionCollectors() {
+    return sessionCollectors;
   }
 
   /**

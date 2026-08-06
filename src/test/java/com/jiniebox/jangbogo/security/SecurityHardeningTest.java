@@ -13,6 +13,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.DisplayName;
@@ -46,15 +47,41 @@ class SecurityHardeningTest {
    * <p>그래서 특정 표현이 아니라 <b>리터럴 경계에 붙은 작은따옴표</b>를 본다. 여는 쪽({@code ='"} 뒤에 {@code +})과 닫는 쪽({@code +}
    * 뒤에 {@code "'})을 모두 잡으므로 두 형태가 한 번에 걸리고, {@code \s*} 라 줄바꿈을 사이에 두고 이어 붙인 것도 걸린다.
    *
-   * <p><b>아직 못 보는 형태가 있다 — 따옴표 없이 붙는 숫자 자리다.</b> {@code " WHERE seq=" + seq} 처럼 값을 따옴표로 감싸지 않는 조립은
-   * 이 정규식에 걸리지 않는다. 그런 자리가 {@code JbgMallDataAccessObject}·{@code JbgItemDataAccessObject} 에 여럿 남아
-   * 있고, 일부는 {@code replaceAll("[^0-9]", "")} 로 숫자만 남기지만 <b>전부는 아니다</b> — {@code getMall}/{@code
-   * checkAccountStatus} 는 {@code @RequestParam("seq")} 로 들어온 문자열을 그대로 붙인다.
-   *
-   * <p>그러니 아래 스캔이 초록이라는 것을 "dao 에 주입 지점이 없다" 로 읽지 마라. 보증 범위는 <b>따옴표로 감싼 값</b>까지다. 숫자 자리까지 막으려면 그
-   * 호출부들을 바인딩으로 옮기는 별도 작업이 필요하고, 그때 이 정규식도 함께 넓혀야 한다.
+   * <p>따옴표 없이 붙는 숫자 자리는 <b>원리상</b> 이 정규식에 걸리지 않는다. 그 형태는 {@link #SQL_NUMERIC_CONCAT} 가 맡는다 — 둘을 함께
+   * 봐야 "dao 에 조립이 없다" 가 성립한다.
    */
   private static final Pattern SQL_QUOTE_CONCAT = Pattern.compile("'\"\\s*\\+|\\+\\s*\"'");
+
+  /**
+   * 따옴표 없이 붙는 <b>숫자 자리</b> 조립.
+   *
+   * <p>{@link #SQL_QUOTE_CONCAT} 만 있던 시절의 사각지대다. 값을 따옴표로 감싸지 않는 자리는 리터럴이 {@code =} 로 끝나고 바로 값이 이어
+   * 붙는다. 그 형태가 {@code JbgMallDataAccessObject}·{@code JbgItemDataAccessObject} 에 열 곳 넘게 남아 있었고,
+   * <b>그 중 절반은 숫자 필터조차 거치지 않았다</b> — {@code getMall} 과 {@code checkAccountStatus} 는 {@code
+   * AdminController} 의 {@code @RequestParam} 문자열을 필터 하나 없이 WHERE 절까지 흘려보냈다. 로그인 세션 뒤라는 사실은 완화지 방어가
+   * 아니다.
+   *
+   * <p>그래서 <b>리터럴 끝의 {@code =}</b> 를 본다. {@code =} 와 닫는 큰따옴표 사이, 큰따옴표와 {@code +} 사이 모두 {@code \s*}
+   * 라 공백을 넣거나 줄을 바꿔 붙인 것도 걸린다. 자리표시자를 쓰면 리터럴이 {@code =?} 로 끝나므로 걸리지 않는다.
+   *
+   * <p><b>오탐처럼 보이는 것에 예외 목록으로 답하지 마라.</b> dao 패키지에서 리터럴이 {@code =} 로 끝나며 값이 이어 붙는 형태는 SQL 조립 말고 쓸
+   * 데가 거의 없다. 로그·예외 메시지가 걸린다면 log4j 의 {@code {}} 자리표시자를 쓰거나 구분자를 바꿔라 — 실제로 이 통합에서 {@code
+   * JbgMallDataAccessObject} 의 메시지 두 개를 그렇게 고쳤다. 목록을 만드는 순간 그 파일 안에서 새로 생기는 조립은 못 잡는다.
+   */
+  private static final Pattern SQL_NUMERIC_CONCAT = Pattern.compile("=\\s*\"\\s*\\+");
+
+  /**
+   * {@code catch (SQLException)} 이 그대로 다시 던지는 형태.
+   *
+   * <p>여러 갱신이 {@code catch (SQLException)} 에서는 <b>롤백 없이</b> 던지고, 뒤에 오는 {@code catch (Exception)}
+   * 에서만 되돌리고 있었다. 순서상 SQL 실패는 앞쪽에서 잡히므로 <b>정작 되돌려야 할 경우에만 안 되돌린다.</b> 두 catch 를 나란히 놓고 읽으면 대칭처럼 보여서
+   * 오래 살아남은 형태다.
+   *
+   * <p>{@code [^{}]} 로 중괄호 없는 구간만 훑는다 — catch 블록 하나를 벗어나지 않는다는 뜻이다. {@code throw} 에 닿지 않는 catch(로그만
+   * 남기고 삼키는 자리)는 애초에 걸리지 않는다.
+   */
+  private static final Pattern SQLEXCEPTION_RETHROW =
+      Pattern.compile("catch \\(SQLException \\w+\\) \\{[^{}]*?throw");
 
   // 예외 목록(CONCAT_DEBT)은 없앴다. 통합 단계에서 남아 있던 두 건을 실제로 처리했기 때문이다.
   //
@@ -65,10 +92,32 @@ class SecurityHardeningTest {
   // 목록이 있는 한 아래 스캔은 "이 파일들만 빼고" 라는 조건부 보증이었다. 이제 무조건이다.
   // 다시 목록을 만들어 예외를 추가하지 마라 — 예외가 하나라도 있으면 통과 건수는 그 지점에 대해
   // 아무 것도 보증하지 않는다는 것이 이 가드가 처음 놓쳤던 실패의 형태다.
+  //
+  // 숫자 자리 스캔에는 아직 한 자리가 남아 있는데, 그것도 "이름 목록" 이 아니라 "int 파라미터라
+  // 주입이 성립하지 않는다" 는 근거에 묶여 있다. 근거가 사라지면 단언이 먼저 깨진다 —
+  // noNumericSlotConcatenationAppearsInDaoPackage 를 볼 것.
 
-  /** 줄 전체 주석을 걷어낸 소스. 죽은 코드를 주석으로 남겨 둔 자리가 있어 그대로 두면 오탐이 된다. */
+  /**
+   * 주석을 걷어낸 소스. 실행되는 코드만 남긴다.
+   *
+   * <p>줄 주석은 처음부터 걷어냈다 — 죽은 코드를 주석으로 남겨 둔 자리가 있어 그대로 두면 오탐이 된다. <b>블록 주석(javadoc)까지 걷어내는 것은 이번에
+   * 추가했다.</b> 금지하려는 형태를 javadoc 에 예시로 적는 순간 그 파일이 스스로 걸리기 때문이다. 이 통합에서 DAO javadoc 에 "이렇게 하면 안 된다"
+   * 를 적어야 했고, 걷어내지 않았으면 설명을 적을수록 가드가 빨개지는 상태가 됐다.
+   *
+   * <p>줄 주석을 먼저 지운다. {@code JbgMallDataAccessObject} 에는 메서드 통째로 {@code //} 로 묶어 둔 자리가 있고 그 안에
+   * javadoc 여는 표시가 들어 있다 — 블록부터 지우면 주석 경계가 엉뚱하게 잡힌다.
+   */
   private static String codeOf(Path path) throws Exception {
-    return Files.readString(path, StandardCharsets.UTF_8).replaceAll("(?m)^\\s*//.*$", "");
+    return Files.readString(path, StandardCharsets.UTF_8)
+        .replaceAll("(?m)^\\s*//.*$", "")
+        .replaceAll("(?s)/\\*.*?\\*/", "");
+  }
+
+  /** dao 패키지의 자바 소스 전부. 목록을 손으로 적으면 새 DAO 가 감시 밖에 남는다. */
+  private static List<Path> daoSources() throws Exception {
+    try (Stream<Path> files = Files.list(DAO_DIR)) {
+      return files.filter(p -> p.getFileName().toString().endsWith(".java")).toList();
+    }
   }
 
   // ---------------------------------------------------------------
@@ -115,6 +164,9 @@ class SecurityHardeningTest {
       assertFalse(
           SQL_QUOTE_CONCAT.matcher(code).find(),
           dao + " 에 SQL 문자열 조립(작은따옴표 + 값)이 남아 있다. 바인딩 파라미터를 쓸 것.");
+      assertFalse(
+          SQL_NUMERIC_CONCAT.matcher(code).find(),
+          dao + " 에 따옴표 없는 숫자 자리 조립이 남아 있다. 바인딩 파라미터를 쓸 것.");
       assertTrue(code.contains("txPstmtExecuteUpdate"), dao + " 가 PreparedStatement 를 쓰지 않는다.");
     }
   }
@@ -125,12 +177,8 @@ class SecurityHardeningTest {
     // 파일 목록을 손으로 적어 두면 새로 만든 DAO 가 감시 밖에 남는다. 실제로 이번에 드러난 지점도
     // "그 DAO 는 목록에 없었다" 는 이유로 오래 살아남았다. 그래서 디렉터리를 통째로 훑는다.
     List<String> offenders = new ArrayList<>();
-    List<Path> sources;
-    try (Stream<Path> files = Files.list(DAO_DIR)) {
-      sources = files.filter(p -> p.getFileName().toString().endsWith(".java")).toList();
-    }
 
-    for (Path path : sources) {
+    for (Path path : daoSources()) {
       // 예외 없이 전부 본다. 면제 목록을 두면 그 파일 안에서 새 조립이 생겨도 못 잡는다.
       if (SQL_QUOTE_CONCAT.matcher(codeOf(path)).find()) {
         offenders.add(path.getFileName().toString());
@@ -138,6 +186,74 @@ class SecurityHardeningTest {
     }
 
     assertTrue(offenders.isEmpty(), "SQL 문자열 조립이 새로 생겼다(바인딩으로 쓸 것): " + offenders);
+  }
+
+  @Test
+  @DisplayName("dao 패키지 어디에도 따옴표 없는 숫자 자리 조립이 새로 생기지 않는다")
+  void noNumericSlotConcatenationAppearsInDaoPackage() throws Exception {
+    List<String> offenders = new ArrayList<>();
+    for (Path path : daoSources()) {
+      if (SQL_NUMERIC_CONCAT.matcher(codeOf(path)).find()) {
+        offenders.add(path.getFileName().toString());
+      }
+    }
+
+    // 예외 없는 전수 스캔이다. 한때 JbgCollectLogDataAccessObject.getLog 한 자리가 조건부로
+    // 허용돼 있었다 — 파라미터가 int 라 자바 타입이 숫자 외의 문자를 만들 수 없다는 근거였다.
+    // 그 자리도 바인딩으로 옮겨져 허용이 사라졌고, 그래서 목록을 두지 않는다.
+    //
+    // 다시 목록을 만들지 마라. "이 자리는 int 라 안전하다" 는 논증은 시그니처가 바뀌는 순간
+    // 조용히 무효가 되는데, 그 사실을 알려 주는 것은 아무것도 없다. 새 offender 가 나오면
+    // 예외로 등록할 게 아니라 바인딩으로 옮겨라.
+    assertTrue(offenders.isEmpty(), "따옴표 없는 숫자 자리 조립이 새로 생겼다(바인딩으로 쓸 것): " + offenders);
+  }
+
+  @Test
+  @DisplayName("seq 는 숫자 필터로 깎지 않고 바인딩으로 넘긴다")
+  void seqIsBoundInsteadOfDigitFiltered() throws Exception {
+    // 필터를 방어로 착각하면 안 된다. replaceAll("[^0-9]", "") 는 거르는 게 아니라 깎는다 —
+    // 숫자가 섞인 문자열을 남은 숫자만 이어 붙인 '다른 유효한 seq' 로 바꿔 놓는다. 즉 SQL 은 안
+    // 깨지는데 대상이 조용히 바뀐다. JbgItemDataAccessObject.deleteByOrder 에서 그 일이 나면
+    // 남의 주문에 딸린 아이템이 지워진다.
+    for (String dao : new String[] {"JbgMallDataAccessObject", "JbgItemDataAccessObject"}) {
+      String code = codeOf(DAO_DIR.resolve(dao + ".java"));
+
+      assertFalse(
+          code.contains("replaceAll(\"[^0-9]\""),
+          dao + " 가 seq 를 숫자만 남기고 깎는다. 못 알아보는 값은 깎지 말고 아무 것도 고르지 않아야 한다.");
+      assertTrue(code.contains("WHERE seq=?"), dao + " 의 seq 조회·갱신이 자리표시자를 쓰지 않는다.");
+    }
+  }
+
+  @Test
+  @DisplayName("트랜잭션을 여는 DAO 는 SQLException 에서도 되돌린 뒤 던진다")
+  void sqlExceptionPathsRollBackBeforeRethrow() throws Exception {
+    // 트랜잭션을 여는 DAO 전부가 대상이다. LocalDBConnection 만 빠져 있는데, 그쪽의 SQLException
+    // 재던지기는 close() 의 자원 정리라 되돌릴 트랜잭션이 자체가 없다 — 봐 준 게 아니라 대상이
+    // 다르다.
+    //
+    // 되돌리기는 반드시 rollbackQuietly(CommonDataAccessObject) 를 거쳐야 한다. 인라인
+    // conn.txRollBack() 은 그것이 던지는 순간 원래 실패 원인을 덮어써서, 정작 고쳐야 할 원인이
+    // 사라지고 "되돌리기가 실패했다" 만 남는다.
+    for (String dao :
+        new String[] {
+          "JbgMallDataAccessObject",
+          "JbgItemDataAccessObject",
+          "JbgExportConfigDataAccessObject",
+          "JbgOrderDataAccessObject"
+        }) {
+      String code = codeOf(DAO_DIR.resolve(dao + ".java"));
+
+      List<String> naked = new ArrayList<>();
+      Matcher matcher = SQLEXCEPTION_RETHROW.matcher(code);
+      while (matcher.find()) {
+        if (!matcher.group().contains("rollbackQuietly")) {
+          naked.add(matcher.group().replaceAll("\\s+", " ").trim());
+        }
+      }
+
+      assertTrue(naked.isEmpty(), dao + " 의 SQLException 경로가 되돌리지 않고 다시 던진다: " + naked);
+    }
   }
 
   @Test

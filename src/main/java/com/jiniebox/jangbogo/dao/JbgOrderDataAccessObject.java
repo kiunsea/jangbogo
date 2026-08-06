@@ -76,16 +76,14 @@ public class JbgOrderDataAccessObject extends CommonDataAccessObject {
     } catch (SQLException e) {
       log.error("* 아이고!! ㅜ.ㅜ 데이터베이스 업데이트 에러 발생");
       log.error(ExceptionUtil.getExceptionInfo(e));
-      if (conn != null) {
-        conn.txRollBack();
-      }
+      // 주문 1건 + 아이템 N건이 한 트랜잭션에 묶여 있다. 인라인 txRollBack() 이 던지면 원래 실패
+      // 원인이 그 예외로 덮여, "어느 아이템에서 깨졌나" 를 잃는다.
+      rollbackQuietly(conn);
       throw e;
     } catch (Exception e) {
       log.error("* 데이터베이스 업데이트 에러 발생");
       log.error(ExceptionUtil.getExceptionInfo(e));
-      if (conn != null) {
-        conn.txRollBack();
-      }
+      rollbackQuietly(conn);
       throw e;
     } finally {
       if (conn != null) {

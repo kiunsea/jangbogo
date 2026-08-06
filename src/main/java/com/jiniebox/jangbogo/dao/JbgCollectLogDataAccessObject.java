@@ -182,8 +182,13 @@ public class JbgCollectLogDataAccessObject extends CommonDataAccessObject {
     LocalDBConnection conn = null;
     try {
       conn = new LocalDBConnection();
-      String query = SELECT_COLUMNS + " FROM jbg_collect_log WHERE seq = " + seq;
-      ResultSet rset = conn.executeQuery(query);
+      // seq 가 int 라 오늘은 주입이 성립하지 않는다. 그래도 바인딩으로 두는 이유는, 이 자리가
+      // dao 패키지에 마지막으로 남은 숫자 자리 조립이었고 그 하나 때문에
+      // SecurityHardeningTest.noNumericSlotConcatenationAppearsInDaoPackage 가 조건부 허용을
+      // 안고 있었기 때문이다. 여기를 옮기면 전수 스캔이 무조건이 되어, 나중에 시그니처가
+      // String 으로 넓어져도 사람이 '예외였는데 괜찮았지' 하고 넘길 여지가 사라진다.
+      String query = SELECT_COLUMNS + " FROM jbg_collect_log WHERE seq=?";
+      ResultSet rset = conn.executeQuery(query, seq);
       if (rset != null && rset.next()) {
         return mapRow(rset);
       }
@@ -258,7 +263,28 @@ public class JbgCollectLogDataAccessObject extends CommonDataAccessObject {
     return result;
   }
 
-  /** 요약 통계 조회 (전체 실행 횟수, 성공 건수, 실패 건수) */
+  /**
+   * 요약 통계 조회 (전체 실행 횟수, 성공 건수, 실패 건수).
+   *
+   * <h2>집계식은 {@code total = success + fail} 이다 — SKIPPED 는 어느 칸에도 안 들어간다</h2>
+   *
+   * <p>초기 계획서는 {@code total = success + fail + skipped} 로 적혀 있었다. 그 쪽을 택하지 않은 것은 누락이 아니라
+   * <b>결정</b>이고, 근거가 두 가지다.
+   *
+   * <ul>
+   *   <li><b>건너뜀은 시도가 아니다.</b> 브레이커·세션 게이트·브라우저 자리 부족이 막은 회차는 사이트를 두드린 적조차 없다. 그것을 분모에 넣으면 성공률이 차단한
+   *       횟수에 비례해 떨어진다 — 즉 <b>보호 장치가 잘 동작할수록 지표가 나빠 보인다.</b>
+   *   <li><b>같은 사실을 두 번 세지 않는다.</b> 건너뛴 사유는 브레이커 상태와 건강도 경보에 이미 드러나 있다. 요약 카드가 그것을 또 세면 사람이 두 화면의
+   *       숫자를 맞춰 보다가 어느 쪽이 진짜인지 모르게 된다.
+   * </ul>
+   *
+   * <p>계획서 쪽으로 되돌리면 <b>기존 대시보드 숫자가 소급해서 달라진다</b> — 지금까지 쌓인 SKIPPED 행이 한꺼번에 전체 실행 수에 얹히기 때문이다. 그래서
+   * 구현을 유지하고 계획서를 이 문서에 맞춘다. 이 식은 {@code CollectLogSummaryTest} 가 못 박고 있으니, 바꾸려면 그 테스트를 먼저 읽어라.
+   *
+   * <p>건너뛴 회차 자체가 사라지는 것은 아니다. 목록 조회에는 그대로 나오고 화면이 중립 배지로 따로 표시한다({@code collect-logs.html}).
+   *
+   * @return {@code total}, {@code success}, {@code fail} 을 담은 JSON. 조회에 실패하면 셋 다 0
+   */
   @SuppressWarnings("unchecked")
   public JSONObject getSummary() {
     JSONObject result = new JSONObject();
