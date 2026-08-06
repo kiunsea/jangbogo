@@ -33,15 +33,16 @@ public class JbgCollectBreakerDataAccessObject extends CommonDataAccessObject {
     LocalDBConnection conn = null;
     try {
       conn = new LocalDBConnection();
+      // 직접 이스케이프는 바인딩의 대체가 아니다. 지금 collector 가 MallRegistry 의 내부 상수라
+      // 외부 입력이 아닌 것은 맞지만, 그 사실은 호출부가 하나 늘어나는 순간 조용히 깨진다.
+      // 안전한지 여부를 값의 출처로 논증해야 하는 코드는 언젠가 틀린다.
       ResultSet rset =
           conn.executeQuery(
               "SELECT consecutive_failures, streak_started_time, last_failure_time, tripped_time"
                   + " FROM jbg_collect_breaker"
-                  + " WHERE seq_mall = "
-                  + seqMall
-                  + " AND collector = '"
-                  + escape(collector)
-                  + "'");
+                  + " WHERE seq_mall = ? AND collector = ?",
+              seqMall,
+              collector);
       if (rset != null && rset.next()) {
         return new CollectBreakerPolicy.State(
             rset.getInt("consecutive_failures"),
@@ -195,10 +196,8 @@ public class JbgCollectBreakerDataAccessObject extends CommonDataAccessObject {
     return result;
   }
 
-  /** 작은따옴표만 막으면 되는 자리다. 값은 코드가 정한 수집기 이름이라 외부 입력이 아니다. */
-  private static String escape(String value) {
-    return value == null ? "" : value.replace("'", "''");
-  }
+  // escape(String) 은 지웠다. 유일한 호출부였던 getState 가 바인딩으로 바뀌었고, 이스케이프 헬퍼를
+  // 남겨 두면 다음에 조회를 추가하는 사람이 바인딩 대신 그것을 집는다.
 
   private static void close(LocalDBConnection conn) {
     if (conn != null) {

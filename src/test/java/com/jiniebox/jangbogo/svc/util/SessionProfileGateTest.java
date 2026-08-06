@@ -122,6 +122,18 @@ class SessionProfileGateTest {
   }
 
   @Test
+  @DisplayName("프로필이 없다는 사유는 화면에 실제로 있는 버튼을 가리킨다")
+  void theMissingProfileReasonNamesTheRealButton() {
+    // 이 문자열은 jbg_collect_log 의 SKIPPED 사유로 저장되고 대시보드에도 그대로 나간다.
+    // 예전 문구는 '몰 로그인 세션 만들기' 라는 존재하지 않는 메뉴를 지목해서, 막힌 이유를 읽은
+    // 사람이 할 수 있는 일이 없었다 — 사유가 행동으로 이어지지 않으면 남기는 의미가 없다.
+    String reason = PROFILE_MISSING.reason();
+
+    assertTrue(reason.contains("브라우저로 로그인"), "실제 버튼 이름이 사유에 없다: " + reason);
+    assertFalse(reason.contains("몰 로그인 세션 만들기"), "없는 메뉴를 여전히 지목한다: " + reason);
+  }
+
+  @Test
   @DisplayName("다른 OS 계정이 만든 프로필이면 막는다")
   void blocksOnOwnerMismatch() {
     // 열어도 세션이 살아나지 않는다. 시도하면 '로그인 화면에서 멈춤' 이 된다.

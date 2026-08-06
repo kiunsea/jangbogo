@@ -56,7 +56,10 @@ public enum MallRegistry {
       "emart",
       List.of(new CollectorSpec("SSG", Ssg::new), new CollectorSpec("Emart", Emart::new)),
       "Emart",
-      "https://www.ssg.com/"),
+      "https://www.ssg.com/",
+      // ADR-0001 T3 이 캡처된 쿠키에서 실제로 확인한 이름들. 같은 문단이 함께 적고 있는
+      // JSESSIONID·FSID 는 일부러 뺐다 — 사유는 authCookieNames() javadoc 참조.
+      List.of("LOGIN_YN", "MEMBER_ID", "MBR_ID_ED_NO")),
 
   /** 오아시스마켓. */
   OASIS(
@@ -65,7 +68,9 @@ public enum MallRegistry {
       "oasis",
       List.of(new CollectorSpec("Oasis", Oasis::new)),
       "Oasis",
-      "https://www.oasis.co.kr/login"),
+      "https://www.oasis.co.kr/login",
+      // 인증 쿠키 이름 미확정. 추측해 채우면 정상 로그인까지 튕겨 캡처가 불가능해진다 — 비워 둔다.
+      List.of()),
 
   /** 하나로마트. */
   HANARO(
@@ -74,7 +79,9 @@ public enum MallRegistry {
       "hanaro",
       List.of(new CollectorSpec("Hanaro", Hanaro::new)),
       "Hanaro",
-      "https://www.nonghyupmall.com/BC41000R/loginViewPage.nh");
+      "https://www.nonghyupmall.com/BC41000R/loginViewPage.nh",
+      // 인증 쿠키 이름 미확정. OASIS 와 같은 이유로 비워 둔다.
+      List.of());
 
   /** {@code mall_id} 를 못 찾았을 때 내보내기가 쓰는 값. */
   public static final String UNKNOWN_EXPORT_ID = "unknown";
@@ -100,6 +107,7 @@ public enum MallRegistry {
   private final List<CollectorSpec> collectors;
   private final String verificationCollectorName;
   private final String loginUrl;
+  private final List<String> authCookieNames;
 
   MallRegistry(
       int seq,
@@ -107,13 +115,15 @@ public enum MallRegistry {
       String exportId,
       List<CollectorSpec> collectors,
       String verificationCollectorName,
-      String loginUrl) {
+      String loginUrl,
+      List<String> authCookieNames) {
     this.seq = seq;
     this.mallId = mallId;
     this.exportId = exportId;
     this.collectors = collectors;
     this.verificationCollectorName = verificationCollectorName;
     this.loginUrl = loginUrl;
+    this.authCookieNames = authCookieNames;
   }
 
   /** {@code jbg_mall.seq}. */
@@ -146,6 +156,32 @@ public enum MallRegistry {
    */
   public String loginUrl() {
     return loginUrl;
+  }
+
+  /**
+   * 캡처한 스냅샷이 <b>로그인된 세션</b>인지 가를 때 이름을 볼 인증 쿠키들 (Phase 5-15).
+   *
+   * <p><b>왜 필요한가.</b> 캡처 성공 판정이 "스냅샷이 비어 있지 않다" 뿐이면 로그인하지 않아도 통과한다. 몰 첫 화면만 열어도 세션·추적 쿠키는 생기므로, 사람이
+   * 로그인을 건너뛴 채 [로그인을 마쳤습니다] 를 눌러도 미인증 스냅샷이 저장된다. 그 실패는 나중에 주입 수집이 로그인 화면으로 밀릴 때에야 드러나고, 그 시점에는 원인을
+   * 캡처까지 되짚을 단서가 없다.
+   *
+   * <p><b>비어 있으면 검사하지 않고 통과시킨다.</b> 이름이 실측된 것은 ssg 뿐이고(ADR-0001 T3 이 캡처된 쿠키 목록에서 확인했다) oasis·hanaro
+   * 는 어느 쿠키가 인증을 나르는지 모른다. 모르는 몰까지 막으면 정상적으로 로그인한 사람도 계속 튕겨 <b>그 몰의 캡처 자체가 불가능해진다</b> — 미인증 스냅샷 한
+   * 건보다 나쁜 역전이다. 그래서 모르는 것은 비워 두고 통과시킨다.
+   *
+   * <p>같은 이유로 <b>실측하지 않은 이름을 추측해 적지 않는다.</b> 틀린 이름 하나가 그 몰의 캡처를 전부 막는다. 캡처된 쿠키 목록으로 확인한 뒤에만 채운다.
+   *
+   * <p><b>왜 JSESSIONID·FSID 를 뺐나.</b> ADR-0001 은 ssg 의 세션 스코프 쿠키로 {@code LOGIN_YN}·{@code
+   * MEMBER_ID}·{@code MBR_ID_ED_NO} 와 함께 {@code JSESSIONID}(www·member 양쪽)·{@code FSID} 계열도 적고 있으나,
+   * 뒤 둘은 서블릿 세션·추적 식별자라 <b>로그인 전에도 발급된다.</b> 판정에 넣으면 첫 화면만 열어도 통과해 이 검사가 있으나 마나가 된다 — 그것이 바로 여기서
+   * 막으려는 상황이다.
+   *
+   * <p>판정은 <b>하나라도 있으면 인증</b>이다. 전부를 요구하면 몰이 쿠키 구성을 조금만 바꿔도 정상 로그인이 막히는데, 그 역시 위와 같은 역전 사고다.
+   *
+   * @return 인증 쿠키 이름. 실측으로 확정되지 않았으면 빈 목록
+   */
+  public List<String> authCookieNames() {
+    return authCookieNames;
   }
 
   /**

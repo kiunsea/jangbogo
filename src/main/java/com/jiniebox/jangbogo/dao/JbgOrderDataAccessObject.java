@@ -358,6 +358,15 @@ public class JbgOrderDataAccessObject extends CommonDataAccessObject {
   /**
    * 구매정보를 조회
    *
+   * <p><b>수집 경로가 매 회차 부르는 살아 있는 조회다.</b> 중복 방지 판정({@code MallOrderUpdaterRunner}, {@code
+   * svc.mall.Hanaro})이 여기로 들어온다. 그리고 넘어오는 {@code serialNum} 은 <b>페이지 텍스트에서 합성한 영수증 번호</b>라 숫자 필터를
+   * 거치지 않는다 — 이 자리는 "외부 입력 경로는 이미 다 막았다" 는 판단에서 빠져 있었고, 실제로는 값을 그대로 WHERE 절에 이어 붙이고 있었다. 따옴표 하나면
+   * 조회가 깨지고, 깨진 조회는 중복 판정을 무너뜨려 같은 주문을 다시 쌓는다.
+   *
+   * <p>{@code dateTime} 은 문자열 그대로 바인딩한다. {@code date_time} 은 INTEGER 컬럼이라 SQLite 가 비교 시 숫자 친화도를 적용해
+   * 예전 동작과 같은 결과를 낸다. 여기서 미리 파싱하지 <b>않는</b> 이유는 호출부가 정규화 전 원본 문자열을 넘기기 때문이다 — 파싱을 끼우면 중복 판정 기준이 조용히
+   * 달라진다.
+   *
    * @param serialNum 필수
    * @param dateTime 필수 (YYYYMMDD 형식 문자열)
    * @param seqUser 옵션 (null 가능, 현재 schema에는 seq_user 컬럼이 없지만 호환성을 위해 유지)
@@ -369,14 +378,13 @@ public class JbgOrderDataAccessObject extends CommonDataAccessObject {
     LocalDBConnection conn = null;
     try {
       conn = new LocalDBConnection();
-      StringBuffer querySb = new StringBuffer("SELECT seq, seq_mall FROM jbg_order");
-      querySb.append(" WHERE serial_num='" + serialNum + "'");
-      querySb.append(" AND date_time=" + dateTime);
-      // seq_user 컬럼이 schema에 없으므로 제외
+      // seq_user 컬럼이 schema에 없으므로 조건에서 제외
+      String query = "SELECT seq, seq_mall FROM jbg_order WHERE serial_num=? AND date_time=?";
       log.debug(
           "LOCALDB-QUERY------------------------------------------------------------------------------");
-      log.debug(querySb);
-      ResultSet rset = conn.executeQuery(querySb.toString());
+      // 값은 로그에 싣지 않는다. 예전에는 조립된 쿼리를 찍어 영수증 번호와 구매일자가 그대로 로그에 남았다.
+      log.debug(query);
+      ResultSet rset = conn.executeQuery(query, serialNum, dateTime);
 
       JSONObject jsonObj = null;
       if (rset != null) {

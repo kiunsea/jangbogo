@@ -20,6 +20,14 @@ import java.util.function.Supplier;
  *   <li>{@link Decision#PROFILE_LOCKED} — 다른 프로세스가 그 프로필을 쓰고 있다.
  * </ul>
  *
+ * <h2>이 판정이 읽는 두 값을 누가 쓰는가</h2>
+ *
+ * <p>{@code session_profile_name}·{@code session_profile_owner} 는 <b>세션 캡처가 성공한 그 순간에만</b>
+ * 채워진다({@code JbgMallDataAccessObject.saveSessionProfileIdentity}). v0.16.0 까지는 캡처가 키/IV/마지막 로그인
+ * 시각만 커밋하고 이 두 값을 쓰는 코드가 저장소에 하나도 없어서, 몰 옵트인을 켜는 순간 <b>수집이 코드 한 줄 돌기 전에 전부 {@link
+ * Decision#PROFILE_MISSING} 로 건너뛰어졌다.</b> 이 게이트를 고칠 때는 그 쓰기 경로가 살아 있는지를 함께 봐야 한다 — 판정 함수만 맞아서는 아무
+ * 일도 일어나지 않는다.
+ *
  * <h2>꺼져 있으면 아무것도 하지 않는다</h2>
  *
  * <p>마스터 킬스위치가 꺼져 있거나 그 몰이 옵트인하지 않았으면 <b>무조건 {@link Decision#PROCEED}</b> 다. 즉 이 게이트를 수집 경로에 끼워도 기존
@@ -39,8 +47,14 @@ public final class SessionProfileGate {
     PROCEED(null),
     /** 세션 0 — 사람이 로그인한 세션이 필요하다. */
     REQUIRES_USER_SESSION("세션 프로필을 쓰려면 사람이 로그인한 세션에서 실행해야 한다 (현재 세션 0)"),
-    /** 쓸 프로필이 없다. */
-    PROFILE_MISSING("세션 프로필이 없다. '몰 로그인 세션 만들기' 를 먼저 실행할 것"),
+    /**
+     * 쓸 프로필이 없다.
+     *
+     * <p>사유 문구가 가리키는 것은 <b>대시보드에 실제로 있는 버튼 이름</b>이어야 한다. 이 문자열은 {@code jbg_collect_log} 의 SKIPPED
+     * 사유로 저장되고 화면에도 그대로 나가는데, 예전 문구는 '몰 로그인 세션 만들기' 라는 <b>존재하지 않는 메뉴</b>를 지목하고 있었다 — 읽은 사람이 할 수 있는
+     * 일이 없어서 막힌 채로 방치된다.
+     */
+    PROFILE_MISSING("세션 프로필이 없다. 대시보드에서 '브라우저로 로그인' 을 먼저 실행할 것"),
     /** 다른 OS 계정이 만든 프로필이다. */
     PROFILE_OWNER_MISMATCH("세션 프로필을 만든 OS 계정이 현재 계정과 다르다"),
     /** 다른 프로세스가 쓰고 있다. */

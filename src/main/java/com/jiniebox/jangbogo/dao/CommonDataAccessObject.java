@@ -1,18 +1,9 @@
 package com.jiniebox.jangbogo.dao;
 
-import com.jiniebox.jangbogo.dto.JangbogoConfig;
-import com.jiniebox.jangbogo.util.ExceptionUtil;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.springframework.beans.factory.annotation.Autowired;
 
 public class CommonDataAccessObject {
-
-  private static final Logger logger = LogManager.getLogger(CommonDataAccessObject.class);
-
-  @Autowired private JangbogoConfig jangbogoConfig;
 
   /**
    * DAO 를 만들기 전에 스키마가 최신 선언에 맞는지 보장한다 (Phase 3-10).
@@ -28,48 +19,16 @@ public class CommonDataAccessObject {
     SchemaMigrator.ensureMigrated();
   }
 
-  /**
-   * AUTO_INCREMENT 컬럼의 다음 시퀀스
-   *
-   * @param tableName
-   * @return
-   * @throws Exception
-   */
-  protected int getNextSeq(String tableName) throws Exception {
-    LocalDBConnection conn = null;
-    try {
-      conn = new LocalDBConnection();
-      StringBuffer querySb =
-          new StringBuffer(
-              "SELECT AUTO_INCREMENT seq "
-                  + "FROM information_schema.tables "
-                  + "WHERE table_schema = '"
-                  + jangbogoConfig.get("LOCALDB_NAME")
-                  + "' AND table_name = '"
-                  + tableName
-                  + "';");
-      logger.debug(
-          "LOCALDB-QUERY------------------------------------------------------------------------------");
-      logger.debug(querySb);
-      ResultSet rset = conn.executeQuery(querySb.toString());
-
-      if (rset != null) {
-        if (rset.next()) {
-          return rset.getInt("seq");
-        }
-        return -1;
-      }
-      return -1;
-    } catch (Exception e) {
-      logger.error("* 프로그램 수행중 에러 발생");
-      logger.error(ExceptionUtil.getExceptionInfo(e));
-      throw e;
-    } finally {
-      if (conn != null) {
-        conn.close();
-      }
-    }
-  }
+  // getNextSeq(String) 은 지웠다. 세 가지 이유가 겹쳐 되살릴 수 없는 코드였다.
+  //
+  //  1. 호출부가 하나도 없다 (protected 였고 어떤 하위 DAO 도 부르지 않았다).
+  //  2. information_schema.tables 는 MySQL 의 것이고 SQLite 에는 없다. 불렸다면 매번 예외였다.
+  //  3. 테이블 스키마명을 jangbogoConfig 에서 읽는데, 이 프로젝트의 DAO 는 Spring 빈이 아니라
+  //     new 로 만든다. 즉 그 필드는 주입된 적이 없어 NPE 가 먼저 났을 것이다.
+  //
+  // 남겨 두면 손해만 있었다 — 시퀀스 채번 수단이 있는 것처럼 보여 다음 사람이 집어 들고,
+  // SQL 조립 가드는 이 파일 하나 때문에 예외 목록을 들고 있어야 했다. 새 시퀀스가 필요하면
+  // getLastInsertSeq(conn)(SQLite 의 last_insert_rowid) 를 쓴다.
 
   /**
    * 가장 최근에 성공적으로 수행된 INSERT 구문의 첫번째 AUTO_INCREMENT column의 값을 반환받는 쿼리 SQLite에서는 last_insert_rowid()

@@ -15,10 +15,10 @@ jobs:
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
-      
+      uses: actions/checkout@v7
+
     - name: Set up JDK 21
-      uses: actions/setup-java@v4
+      uses: actions/setup-java@v5
       with:
         java-version: '21'
         distribution: 'temurin'
@@ -38,18 +38,23 @@ jobs:
         Copy-Item "build\distributions\Jangbogo-distribution.zip" "Jangbogo-v$version.zip"
       shell: pwsh
       
+    # 유일한 서드파티 액션이라 버전을 방치하면 위험이 가장 크다(v1 은 Node 16 런타임까지
+    # 거슬러 올라간다). v3 은 Node 24 기준이다.
+    # 토큰을 env(GITHUB_TOKEN)로 넘기는 방식은 fallback 으로만 남고 deprecated 됐다.
+    # 지금은 둘 다 동작하지만 env 만 두면 다음 메이저에서 조용히 끊길 자리라 입력으로 옮겼다.
+    # 위 permissions: contents: write 가 이 스텝 때문에 필요하다 — 빼면 릴리스 생성이 403 난다.
+    # body_path 가 가리키는 릴리스 노트 파일이 태그 커밋에 없으면 이 스텝에서 실패한다.
     - name: Create Release
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@v3
       with:
         files: Jangbogo-v*.zip
         body_path: release/RELEASE_NOTES_v${{ steps.get_version.outputs.VERSION }}.md
         draft: false
         prerelease: false
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        
+        token: ${{ secrets.GITHUB_TOKEN }}
+
     - name: Upload artifacts
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: jangbogo-v${{ steps.get_version.outputs.VERSION }}
         path: Jangbogo-v*.zip

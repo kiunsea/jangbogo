@@ -15,6 +15,7 @@ import org.openqa.selenium.Alert;
 import org.openqa.selenium.By;
 import org.openqa.selenium.JavascriptExecutor;
 import org.openqa.selenium.NoSuchElementException;
+import org.openqa.selenium.StaleElementReferenceException;
 import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.WebElement;
 import org.openqa.selenium.WindowType;
@@ -114,7 +115,12 @@ public class Ssg extends MallSession implements PurchasedCollector {
    * 원인을 구분할 수 없었다. 여기서는 로그인을 "완벽하게" 만들지 않고, **관측된 상태를 정직하게 반환**하는 데까지만 책임진다. 로그인 안정화 자체는 세션 프로필
    * 재사용으로 다룬다.
    *
-   * <p>판정은 로그아웃 어포던스의 존재로 한다. {@code findElements} 를 쓰므로 요소가 없어도 예외가 아니라 {@code false} 가 된다.
+   * <p>판정 기준은 로그아웃 어포던스의 <b>존재</b>가 아니라 <b>보임</b>이다. SSG 홈은 로그아웃 어포던스를 로그아웃 상태에서도 DOM 에 심어두고 JS 로
+   * 감춘다 — 세션 프로필 재사용 실측에서 로그아웃 상태의 홈을 열었을 때 존재=1, 보임=0 이 나왔다. 그래서 {@code
+   * findElements(...).isEmpty()} 로 존재만 보면 로그아웃 상태에서도 true 가 나오고, 로그인 실패가 성공으로 둔갑해 수집이 뒤쪽의 엉뚱한 단계에서
+   * 깨진다. 실패 원인을 구분하지 못하던 원래 문제로 되돌아가는 것이니 {@code isEmpty()} 기준으로 되돌리지 말 것.
+   *
+   * <p>{@code findElements} 를 쓰므로 요소가 아예 없어도 예외가 아니라 {@code false} 가 된다.
    *
    * @param driver WebDriver 인스턴스
    * @return 로그인된 상태로 관측되면 true
@@ -123,12 +129,62 @@ public class Ssg extends MallSession implements PurchasedCollector {
     driver.navigate().to("https://www.ssg.com/");
     this.delayTime(1500);
 
-    boolean byId = !driver.findElements(By.id("logoutBtn")).isEmpty();
-    boolean byHref = !driver.findElements(By.cssSelector("a[href*='logout']")).isEmpty();
+    return judgeSignedIn(
+        driver.findElements(By.id("logoutBtn")),
+        driver.findElements(By.cssSelector("a[href*='logout']")));
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // 아래 두 메서드는 판정 규칙만 갖는다 — 페이지 이동·지연·셀렉터 선택을 포함하지 않는다. 아래쪽 파서들과
+  // 같은 이유로 분리했다: 브라우저 없이 '보임' 기준이 지켜지는지 검사할 수 있는 지점을 만들기 위해서다.
+  // 셀렉터가 실사이트와 맞는지는 원리상 단위테스트로 알 수 없다. 여기서 검증되는 것은 '무엇을 로그인으로
+  // 볼 것인가' 뿐이다.
+  // ---------------------------------------------------------------------------------------------
+
+  /**
+   * 로그아웃 어포던스 후보들로 로그인 여부를 판정한다.
+   *
+   * <p>두 셀렉터를 OR 로 보는 범위는 원래 판정에서 그대로 가져왔다. 이번에 바뀐 것은 '존재' 를 '보임' 으로 좁힌 것뿐이다.
+   *
+   * @param logoutById {@code #logoutBtn} 으로 찾은 요소들
+   * @param logoutByHref {@code a[href*='logout']} 으로 찾은 요소들
+   * @return 어느 쪽이든 화면에 보이는 요소가 하나라도 있으면 true
+   */
+  boolean judgeSignedIn(List<WebElement> logoutById, List<WebElement> logoutByHref) {
+    boolean byId = anyVisible(logoutById);
+    boolean byHref = anyVisible(logoutByHref);
     boolean signedIn = byId || byHref;
 
-    log.debug("SSG 로그인 판정: signedIn={} (logoutBtn={}, logoutHref={})", signedIn, byId, byHref);
+    log.debug(
+        "SSG 로그인 판정: signedIn={} (보이는 logoutBtn={}, 보이는 logoutHref={})", signedIn, byId, byHref);
     return signedIn;
+  }
+
+  /**
+   * 목록 안에 화면에 실제로 보이는 요소가 하나라도 있는지 본다.
+   *
+   * <p>{@link StaleElementReferenceException} 은 <b>요소 하나 단위로</b> 삼킨다. 홈 진입 직후에는 헤더가 비동기로 다시 그려질 수
+   * 있어 {@code findElements} 로 받아둔 핸들 일부가 곧바로 무효가 될 수 있는데, 이걸 목록 전체를 감싸서 잡으면 뒤에 남은 멀쩡한 어포던스를 보지 못하고
+   * 로그인 성공을 실패로 판정한다. 오탐의 방향만 반대로 바뀔 뿐이다.
+   *
+   * @param candidates {@code findElements} 결과. null 이나 빈 목록이면 false
+   * @return 보이는 요소가 하나라도 있으면 true
+   */
+  boolean anyVisible(List<WebElement> candidates) {
+    if (candidates == null) {
+      return false;
+    }
+    for (WebElement candidate : candidates) {
+      try {
+        if (candidate.isDisplayed()) {
+          return true;
+        }
+      } catch (StaleElementReferenceException stale) {
+        // 이 후보 하나만 버리고 다음으로 간다. 남은 후보까지 버리면 판정이 반대로 틀린다.
+        log.debug("SSG 로그인 판정 중 요소가 DOM 에서 사라짐 — 이 후보만 건너뜀: {}", stale.getMessage());
+      }
+    }
+    return false;
   }
 
   @Override

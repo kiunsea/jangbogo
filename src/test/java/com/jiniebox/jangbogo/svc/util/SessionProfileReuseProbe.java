@@ -336,7 +336,11 @@ class SessionProfileReuseProbe {
 
       // 존재만이 아니라 '보이는지' 까지 본다. ssg 홈은 로그아웃 어포던스를 DOM 에 두고
       // JS 로 감춘다 — findElements 만 쓰면 로그아웃 상태에서도 true 가 나온다.
-      // (수집기의 Ssg.isSignedIn 이 지금 그렇게 판정한다. 별건으로 남겼다.)
+      //
+      // 여기서 나온 실측치(존재=1, 보임=0)가 근거가 되어 수집기의 Ssg.isSignedIn 도 '보임'
+      // 기준으로 고쳐졌다(별건으로 남겨 뒀던 그 건이다). 이제 프로브와 수집기가 같은 기준을
+      // 쓰므로, 아래 판정을 존재 기준으로 되돌리면 프로브가 수집기보다 후하게 판정해 실사이트
+      // 관측과 수집 결과가 어긋난다.
       int present = 0;
       int visible = 0;
       for (By locator : target.loggedInLocators) {

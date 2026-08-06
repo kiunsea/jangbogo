@@ -157,6 +157,53 @@ class MallRegistryTest {
   }
 
   @Test
+  @DisplayName("실측된 몰만 인증 쿠키 이름을 선언한다 (Phase 5-15)")
+  void onlyMeasuredMallsDeclareAuthCookieNames() {
+    // 실측된 것은 ssg 뿐이다(ADR-0001 T3). 모르는 몰까지 인증 검사로 막으면 정상 로그인한 사람도
+    // 계속 튕겨 그 몰의 캡처 자체가 불가능해진다 — 미인증 스냅샷 한 건보다 나쁜 역전이다.
+    assertFalse(MallRegistry.SSG_GROUP.authCookieNames().isEmpty(), "실측된 ssg 에 이름이 없다.");
+    assertTrue(MallRegistry.OASIS.authCookieNames().isEmpty(), "미실측 몰에 이름을 추측해 넣었다.");
+    assertTrue(MallRegistry.HANARO.authCookieNames().isEmpty(), "미실측 몰에 이름을 추측해 넣었다.");
+  }
+
+  @Test
+  @DisplayName("ssg 의 인증 쿠키 이름은 실측값으로 고정한다")
+  void ssgAuthCookieNamesArePinned() {
+    // 캡처 성공 판정이 통째로 이 목록에 달려 있다. 여기를 손대는 것은 판정 기준을 바꾸는 일이므로
+    // 캡처된 쿠키 목록으로 다시 확인한 뒤에만 한다.
+    assertEquals(
+        List.of("LOGIN_YN", "MEMBER_ID", "MBR_ID_ED_NO"), MallRegistry.SSG_GROUP.authCookieNames());
+  }
+
+  @Test
+  @DisplayName("로그인 전에도 발급되는 쿠키는 인증 판정에 쓰지 않는다")
+  void authCookieNamesExcludeCookiesIssuedBeforeLogin() {
+    // JSESSIONID(서블릿 세션)·FSID(추적 식별자)는 첫 화면만 열어도 생긴다. 판정에 넣으면
+    // 로그인하지 않아도 통과해 이 검사가 있으나 마나가 된다 — 그것이 막으려던 상황 자체다.
+    for (MallRegistry mall : MallRegistry.values()) {
+      for (String name : mall.authCookieNames()) {
+        assertFalse(name.startsWith("JSESSIONID"), mall + " 가 로그인 전에도 생기는 쿠키를 판정에 쓴다: " + name);
+        assertFalse(name.startsWith("FSID"), mall + " 가 로그인 전에도 생기는 쿠키를 판정에 쓴다: " + name);
+      }
+    }
+  }
+
+  @Test
+  @DisplayName("인증 쿠키 목록에 빈 이름이 섞이지 않는다")
+  void authCookieNamesHaveNoBlankEntries() {
+    // 빈 이름은 어떤 스냅샷과도 매치되지 않는다. 목록이 '선언됐다' 로만 보이면서 실제로는
+    // 그 몰의 캡처를 전부 막게 된다.
+    for (MallRegistry mall : MallRegistry.values()) {
+      List<String> names = mall.authCookieNames();
+      assertNotNull(names, mall + " 의 인증 쿠키 목록이 null 이다.");
+      for (String name : names) {
+        assertNotNull(name, mall + " 의 인증 쿠키 이름이 null 이다.");
+        assertFalse(name.isBlank(), mall + " 에 빈 인증 쿠키 이름이 있다.");
+      }
+    }
+  }
+
+  @Test
   @DisplayName("coupang 은 아직 등록하지 않는다")
   void coupangIsNotRegistered() {
     // 컴파일만 되는 껍데기다. 여기 넣으면 "지원되는 몰"로 보인다. Phase 4B 통과 후에 추가한다.

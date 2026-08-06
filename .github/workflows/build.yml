@@ -13,10 +13,10 @@ jobs:
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
-      
+      uses: actions/checkout@v7
+
     - name: Set up JDK 21
-      uses: actions/setup-java@v4
+      uses: actions/setup-java@v5
       with:
         java-version: '21'
         distribution: 'temurin'
@@ -32,17 +32,21 @@ jobs:
     - name: Run tests
       run: .\gradlew test --no-daemon
       
+    # upload-artifact 는 v4 부터 한 워크플로 실행 안에서 같은 name 으로 두 번 올리면
+    # 덮어쓰기가 아니라 그대로 실패한다(아티팩트가 불변이 됐다). 아래 두 스텝의 name 이
+    # 서로 다른 것은 우연이 아니라 이 제약 때문이며, 새 업로드 스텝을 추가할 때도
+    # name 을 반드시 다르게 잡아야 한다.
     - name: Upload build artifacts
       if: success()
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: jangbogo-jar
         path: build/libs/*.jar
         retention-days: 7
-        
+
     - name: Upload test results
       if: always()
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: test-results
         path: build/test-results/

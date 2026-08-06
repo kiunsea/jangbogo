@@ -1,0 +1,10 @@
+# EnvironmentPostProcessor 등록.
+#
+# 이 인터페이스만은 Spring Boot 3.5 에서도 여전히 spring.factories 로 찾는다
+# (자동설정처럼 META-INF/spring/*.imports 로 옮겨가지 않았다). 컨텍스트가 만들어지기
+# 전에 돌아야 하는 것들이라 스캔 대상이 될 수 없기 때문이다.
+#
+# 이 줄이 사라지면 SessionProfilePropertyBridge 는 그냥 실행되지 않는다 — 컴파일도 되고
+# 테스트도 통과하는데 배포본에서만 설정이 먹지 않는, 알아채기 어려운 상태가 된다.
+org.springframework.boot.env.EnvironmentPostProcessor=\
+com.jiniebox.jangbogo.boot.SessionProfilePropertyBridge

@@ -25,7 +25,22 @@
        install.bat 은 설치 시점에 폴더의 실제 JAR 이름으로 이 노드를 한 번 더 덮어쓴다
        (JAR 만 교체하고 재설치하는 경우 대비). 두 장치는 서로를 대체하지 않는다. -->
   <arguments>-Xms256m -Xmx1024m -jar "%BASE%\..\@JAR_NAME@" --service</arguments>
-  
+
+  <!-- 앱 설정을 여기에 -D 로 적지 마라 (세션 프로필 킬스위치 jangbogo.session-profile.enabled 포함).
+
+       install.bat 이 설치할 때마다 /service/arguments 노드를 통째로 새로 쓴다(바로 위 주석 참조).
+       여기에 적은 -D 는 그 순간 사라진다 — 켠 줄 알았는데 꺼진 채로 도는, 로그만 봐서는 알 수 없는
+       상태가 된다. install.bat 쪽에도 같은 -D 를 적어 두는 방법은 값의 사본을 둘로 만드는 일이라
+       쓰지 않는다.
+
+       대신 설치 폴더의 config\application.yml 에 적는다. 이 서비스의 작업 디렉터리는 %BASE%\..
+       (설치 루트)이고 Spring Boot 는 그 아래 config\ 를 기본 설정 위치로 읽는다. Jangbogo.bat 으로
+       직접 띄울 때도 작업 디렉터리가 같으므로, 파일 하나로 양쪽이 함께 동작한다.
+
+       설정값을 System property 로 옮기는 일은 SessionProfilePropertyBridge 가 기동 시 처리한다.
+       항목별 설명은 고급가이드.txt 에 있다. -->
+
+
   <!-- 작업 디렉토리 -->
   <workingdirectory>%BASE%\..</workingdirectory>
   

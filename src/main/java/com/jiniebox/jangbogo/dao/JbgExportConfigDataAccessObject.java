@@ -134,45 +134,65 @@ public class JbgExportConfigDataAccessObject extends CommonDataAccessObject {
         log.debug("FTP 비밀번호 변경 없음 - 기존 암호화된 값 유지");
       }
 
+      // 값을 이어 붙이지 않는다. 특히 ftp_pass 는 PasswordEncryptor 가 만든 Base64 라 '+' 와 '/' 가 섞여 있고,
+      // 저장 경로·Public Key 도 사용자가 붙여 넣는 값이다. 따옴표가 하나만 들어와도 설정 저장이 통째로 깨지고
+      // 그 자리는 그대로 주입 지점이 된다.
+      //
+      // 문자열 인자는 여기서 빈 문자열로 보정한다. 해당 컬럼들이 NOT NULL 이라 null 을 그대로 바인딩하면
+      // 제약 위반으로 저장이 실패한다 — 이어 붙이던 시절에는 "null" 이라는 네 글자가 저장돼 실패처럼 보이지
+      // 않았을 뿐이다. save_format 만 컬럼 기본값과 같은 'json' 으로 맞춘다 (빈 값이면 내보내기 포맷이 사라진다).
+      String path = savePath != null ? savePath : "";
+      String format = (saveFormat != null && !saveFormat.isEmpty()) ? saveFormat : "json";
+      String address = ftpAddress != null ? ftpAddress : "";
+      String id = ftpId != null ? ftpId : "";
+      String pubKey = publicKey != null ? publicKey : "";
+      // 기존 행의 ftp_pass 가 NULL 이면 위 유지 분기가 null 을 그대로 물고 온다.
+      String pass = encryptedPass != null ? encryptedPass : "";
+
       if (exists) {
         // 업데이트
-        StringBuffer querySb = new StringBuffer();
-        querySb.append("UPDATE jbg_export_config SET");
-        querySb.append(" save_path='" + savePath + "'");
-        querySb.append(", save_format='" + saveFormat + "'");
-        querySb.append(", auto_save_enabled=" + autoSaveEnabled);
-        querySb.append(", save_to_jiniebox=" + saveToJiniebox);
-        querySb.append(", ftp_address='" + (ftpAddress != null ? ftpAddress : "") + "'");
-        querySb.append(", ftp_id='" + (ftpId != null ? ftpId : "") + "'");
-        querySb.append(", ftp_pass='" + encryptedPass + "'"); // 암호화된 비밀번호 저장
-        querySb.append(", public_key='" + (publicKey != null ? publicKey : "") + "'");
-        querySb.append(", ftp_encrypt_enabled=" + ftpEncryptEnabled);
-        querySb.append(" WHERE id=1");
+        String query =
+            "UPDATE jbg_export_config SET save_path=?, save_format=?, auto_save_enabled=?,"
+                + " save_to_jiniebox=?, ftp_address=?, ftp_id=?, ftp_pass=?, public_key=?,"
+                + " ftp_encrypt_enabled=? WHERE id=1";
 
         log.debug(
             "LOCALDB-QUERY------------------------------------------------------------------------------");
-        log.debug(querySb);
-        conn.txExecuteUpdate(querySb.toString());
+        // 값은 싣지 않는다. 예전에는 조립된 쿼리를 찍어 암호화된 비밀번호가 그대로 로그에 남았다.
+        log.debug(query);
+        conn.txPstmtExecuteUpdate(
+            query,
+            path,
+            format,
+            autoSaveEnabled,
+            saveToJiniebox,
+            address,
+            id,
+            pass, // 암호화된 비밀번호 저장
+            pubKey,
+            ftpEncryptEnabled);
         log.info("파일 저장 설정 업데이트 완료 (FTP 비밀번호 암호화됨)");
       } else {
         // 삽입
-        StringBuffer querySb = new StringBuffer();
-        querySb.append(
-            "INSERT INTO jbg_export_config (id, save_path, save_format, auto_save_enabled, ");
-        querySb.append(
-            "save_to_jiniebox, ftp_address, ftp_id, ftp_pass, public_key, ftp_encrypt_enabled)");
-        querySb.append(
-            " VALUES (1, '" + savePath + "', '" + saveFormat + "', " + autoSaveEnabled + ", ");
-        querySb.append(saveToJiniebox + ", '" + (ftpAddress != null ? ftpAddress : "") + "', ");
-        querySb.append(
-            "'" + (ftpId != null ? ftpId : "") + "', '" + encryptedPass + "', "); // 암호화된 비밀번호 저장
-        querySb.append(
-            "'" + (publicKey != null ? publicKey : "") + "', " + ftpEncryptEnabled + ")");
+        String query =
+            "INSERT INTO jbg_export_config (id, save_path, save_format, auto_save_enabled,"
+                + " save_to_jiniebox, ftp_address, ftp_id, ftp_pass, public_key,"
+                + " ftp_encrypt_enabled) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
         log.debug(
             "LOCALDB-QUERY------------------------------------------------------------------------------");
-        log.debug(querySb);
-        conn.txExecuteUpdate(querySb.toString());
+        log.debug(query);
+        conn.txPstmtExecuteUpdate(
+            query,
+            path,
+            format,
+            autoSaveEnabled,
+            saveToJiniebox,
+            address,
+            id,
+            pass, // 암호화된 비밀번호 저장
+            pubKey,
+            ftpEncryptEnabled);
         log.info("파일 저장 설정 생성 완료 (FTP 비밀번호 암호화됨)");
       }
 

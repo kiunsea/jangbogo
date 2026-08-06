@@ -29,6 +29,14 @@ public class JbgMallDataAccessObject extends CommonDataAccessObject {
       ", session_profile_enabled, session_profile_name, session_profile_status,"
           + " session_profile_last_login, session_profile_owner";
 
+  /**
+   * {@code session_profile_status} 에 이 프로그램이 쓰는 <b>유일한</b> 값.
+   *
+   * <p>스키마 주석은 {@code NONE / READY / EXPIRED / LOCKED} 를 열거하지만, 쓰기는 READY 하나로 좁힌다 — 이유는 {@link
+   * #saveSessionProfileIdentity} javadoc 참조.
+   */
+  public static final String SESSION_PROFILE_STATUS_READY = "READY";
+
   /** 조회 결과의 세션 프로필 컬럼을 JSON 에 옮긴다. */
   private void putSessionProfileFields(java.sql.ResultSet rset, org.json.simple.JSONObject mJson)
       throws java.sql.SQLException {
@@ -539,18 +547,28 @@ public class JbgMallDataAccessObject extends CommonDataAccessObject {
       conn = new LocalDBConnection();
       conn.txOpen();
 
-      StringBuffer querySb = new StringBuffer();
-      querySb.append("UPDATE jbg_mall SET");
-      querySb.append(" account_status=" + accountStatus);
-      if (!JinieboxUtil.isEmpty(encryptKey)) querySb.append(", encrypt_key='" + encryptKey + "'");
-      if (!JinieboxUtil.isEmpty(encryptIv)) querySb.append(", encrypt_iv='" + encryptIv + "'");
-      querySb.append(" WHERE seq=" + seqJbgmall);
+      // 값을 이어 붙이지 않는다. encrypt_key/encrypt_iv 는 base64 라 '+' 와 '/' 가 섞여 있고,
+      // 이 값이 깨지면 계정 비밀번호를 다시 열 수 없다 — 조용히 복호화만 실패하는 형태로 나타나
+      // 원인을 찾기 어렵다. SET 절이 값에 따라 늘고 주는 형태만 그대로 두고 자리를 ? 로 바꾼다.
+      StringBuilder setSb = new StringBuilder(" account_status=?");
+      List<Object> params = new ArrayList<>();
+      params.add(accountStatus);
+      if (!JinieboxUtil.isEmpty(encryptKey)) {
+        setSb.append(", encrypt_key=?");
+        params.add(encryptKey);
+      }
+      if (!JinieboxUtil.isEmpty(encryptIv)) {
+        setSb.append(", encrypt_iv=?");
+        params.add(encryptIv);
+      }
+      params.add(Integer.parseInt(digitsOnly(seqJbgmall)));
 
-      String query = querySb.toString();
+      String query = "UPDATE jbg_mall SET" + setSb + " WHERE seq=?";
       log.debug(
           "LOCAL-QUERY------------------------------------------------------------------------------");
+      // 값은 싣지 않는다. 예전에는 조립된 쿼리를 찍어 암호화 키가 그대로 로그에 남았다.
       log.debug(query);
-      conn.txExecuteUpdate(query);
+      conn.txPstmtExecuteUpdate(query, params.toArray());
       conn.txCommit();
     } catch (SQLException e) {
       log.error("* 아이고!! ㅜ.ㅜ 데이터베이스 업데이트 에러 발생");
@@ -638,6 +656,71 @@ public class JbgMallDataAccessObject extends CommonDataAccessObject {
           seq);
     } catch (Exception e) {
       log.error("* 세션 스냅샷 키 저장 에러");
+      log.error(ExceptionUtil.getExceptionInfo(e));
+      throw e;
+    } finally {
+      if (conn != null) {
+        conn.close();
+      }
+    }
+  }
+
+  /**
+   * 세션 프로필의 신원(이름·소유자·상태)을 기록한다. <b>캡처가 성공한 순간에만 부른다.</b>
+   *
+   * <h3>왜 이 메서드가 따로 있어야 했나</h3>
+   *
+   * <p>{@code SessionProfileGate.evaluate} 는 <b>프로필 디렉터리 모델</b>로 판정한다 — {@code
+   * session_profile_name} 이 비면 {@code PROFILE_MISSING} 으로 막고, {@code session_profile_owner} 로 OS
+   * 계정을 대조한다. 그런데 v0.16.0 의 캡처가 커밋하는 것은 {@link #saveSessionSnapshotKeys} 의 세 값(키·IV·마지막 로그인 시각)뿐이었고
+   * 이 세 컬럼을 쓰는 코드가 저장소에 하나도 없었다. 그 상태로 몰 옵트인을 켜면 <b>수집이 한 줄도 돌기 전에 전량 SKIPPED</b> 된다. 그 구멍을 닫는 것이 이
+   * 메서드다.
+   *
+   * <h3>넘기는 값이 정해져 있다</h3>
+   *
+   * <ul>
+   *   <li>{@code profileName} 은 반드시 {@code MallRegistry.mallId()} — 게이트가 통과시킨 이 이름이 그대로 {@code
+   *       SessionProfilePolicy.profileDir()} 에 들어간다. 캡처가 실제로 만든 디렉터리와 다르면 <b>게이트는 통과하는데 수집이 빈 프로필을
+   *       연다</b>(로그인 화면에서 멈춘 채 타임아웃 — 로그만 보고는 원인을 못 가린다).
+   *   <li>{@code profileOwner} 는 반드시 {@code System.getProperty("user.name")} — 게이트에 현재 계정으로 넘어가는 값과
+   *       <b>같은 소스</b>여야 한다. 다른 소스(환경변수 USERNAME 등)로 적으면 표기가 갈리는 순간 {@code PROFILE_OWNER_MISMATCH}
+   *       라는 새 차단이 생긴다. null 이면 owner 를 비워 두는 셈이고, 게이트는 미기록 소유자를 검사하지 않으므로 막히지는 않는다.
+   * </ul>
+   *
+   * <h3>상태는 READY 만 쓴다</h3>
+   *
+   * <p>{@code session_profile_status} 에 {@code EXPIRED} 를 <b>쓰지 않는다.</b> 만료는 시간이 흘러서 생기는 것인데 그 값을
+   * 때맞춰 갱신해 줄 주체가 이 프로그램에 없다 — 한 번 굳으면 세션이 멀쩡히 살아 있어도 만료로 남는다. 만료 여부는 {@code
+   * session_profile_last_login} 에서 <b>파생 계산</b>할 것이고, 이 컬럼은 '캡처가 성공해 프로필이 준비됐다' 는 사실만 담는다.
+   *
+   * <h3>PreparedStatement 인 이유</h3>
+   *
+   * <p>이 파일의 오래된 UPDATE 들은 문자열 concat 으로 SET 절을 만든다. 프로필 이름·OS 계정명은 따옴표가 섞일 수 있는 외부 입력이라 그 방식을 복제하지
+   * 않는다. {@link #saveSessionSnapshotKeys} 와 같은 {@code txPstmtExecuteUpdate} 패턴을 쓴다.
+   *
+   * <p>키 저장과 <b>같은 문장에 합치지 않은</b> 이유는, 키 커밋은 {@code SessionSnapshotStore} 안쪽(몰 이름을 모르는 자리)에서 일어나고 이
+   * 기록은 캡처 서비스(몰을 아는 자리)에서 일어나기 때문이다. SET 절이 겹치지 않아 서로를 지우지도 않는다.
+   *
+   * @param seqMall 쇼핑몰 시퀀스
+   * @param profileName 프로필 디렉터리 이름. {@code MallRegistry.mallId()} 값
+   * @param profileOwner 프로필을 만든 OS 계정. {@code System.getProperty("user.name")} 값
+   * @throws Exception 저장 오류
+   */
+  public void saveSessionProfileIdentity(String seqMall, String profileName, String profileOwner)
+      throws Exception {
+    LocalDBConnection conn = null;
+    try {
+      conn = new LocalDBConnection();
+      int seq = Integer.parseInt(digitsOnly(seqMall));
+      conn.txPstmtExecuteUpdate(
+          "UPDATE jbg_mall SET session_profile_name=?, session_profile_owner=?,"
+              + " session_profile_status=? WHERE seq=?",
+          profileName,
+          profileOwner,
+          SESSION_PROFILE_STATUS_READY,
+          seq);
+    } catch (Exception e) {
+      log.error("* 세션 프로필 신원 저장 에러");
       log.error(ExceptionUtil.getExceptionInfo(e));
       throw e;
     } finally {
@@ -762,19 +845,28 @@ public class JbgMallDataAccessObject extends CommonDataAccessObject {
       conn = new LocalDBConnection();
       conn.txOpen();
 
-      StringBuffer querySb = new StringBuffer();
-      querySb.append("UPDATE jbg_mall SET");
-      querySb.append(" account_status=" + accountStatus);
-      if (!JinieboxUtil.isEmpty(encryptKey)) querySb.append(", encrypt_key='" + encryptKey + "'");
-      if (!JinieboxUtil.isEmpty(encryptIv)) querySb.append(", encrypt_iv='" + encryptIv + "'");
-      querySb.append(", last_signin_time=" + System.currentTimeMillis());
-      querySb.append(" WHERE seq=" + seqJbgmall);
+      // update(...) 와 같은 이유로 바인딩을 쓴다 — 여기 base64 키가 깨지면 계정 복호화가 조용히 실패한다.
+      StringBuilder setSb = new StringBuilder(" account_status=?");
+      List<Object> params = new ArrayList<>();
+      params.add(accountStatus);
+      if (!JinieboxUtil.isEmpty(encryptKey)) {
+        setSb.append(", encrypt_key=?");
+        params.add(encryptKey);
+      }
+      if (!JinieboxUtil.isEmpty(encryptIv)) {
+        setSb.append(", encrypt_iv=?");
+        params.add(encryptIv);
+      }
+      setSb.append(", last_signin_time=?");
+      params.add(System.currentTimeMillis());
+      params.add(Integer.parseInt(digitsOnly(seqJbgmall)));
 
-      String query = querySb.toString();
+      String query = "UPDATE jbg_mall SET" + setSb + " WHERE seq=?";
       log.debug(
           "LOCALDB-QUERY------------------------------------------------------------------------------");
+      // 값은 싣지 않는다. 예전에는 조립된 쿼리를 찍어 암호화 키가 그대로 로그에 남았다.
       log.debug(query);
-      conn.txExecuteUpdate(query);
+      conn.txPstmtExecuteUpdate(query, params.toArray());
       conn.txCommit();
 
       return true;

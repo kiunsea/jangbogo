@@ -291,68 +291,15 @@ public class JbgItemDataAccessObject extends CommonDataAccessObject {
   // qty 컬럼 보정을 DAO 의 다섯 경로가 각자 호출하고 있었다. 선언은 schema.sql 로 옮겼고
   // (그전에는 schema.sql 에 없이 런타임 ALTER 에만 있었다), 보정은 SchemaMigrator 가 한다.
 
-  /**
-   * 아이템 정보 업데이트
-   *
-   * @param seq 아이템 시퀀스 (필수)
-   * @param name 아이템명 (옵션, null 가능)
-   * @param seqOrder 주문 시퀀스 (옵션, null 가능)
-   * @throws Exception
-   */
-  public void update(String seq, String name, String seqOrder) throws Exception {
-    LocalDBConnection conn = null;
-    try {
-      conn = new LocalDBConnection();
-      conn.txOpen();
-
-      StringBuffer querySb = new StringBuffer();
-      querySb.append("UPDATE jbg_item SET");
-      boolean hasUpdate = false;
-      if (name != null && !name.isEmpty()) {
-        querySb.append(" name='" + name + "'");
-        hasUpdate = true;
-      }
-      if (seqOrder != null) {
-        if (hasUpdate) {
-          querySb.append(",");
-        }
-        if (seqOrder.isEmpty()) {
-          querySb.append(" seq_order=NULL");
-        } else {
-          querySb.append(" seq_order=" + seqOrder);
-        }
-        hasUpdate = true;
-      }
-      if (!hasUpdate) {
-        log.warn("업데이트할 항목이 없습니다. seq={}", seq);
-        conn.txRollBack();
-        return;
-      }
-      querySb.append(" WHERE seq=" + seq);
-
-      String query = querySb.toString();
-      log.debug(
-          "LOCALDB-QUERY------------------------------------------------------------------------------");
-      log.debug(query);
-      conn.txExecuteUpdate(query);
-      conn.txCommit();
-    } catch (SQLException e) {
-      log.error("* 아이고!! ㅜ.ㅜ 데이터베이스 업데이트 에러 발생");
-      log.error(ExceptionUtil.getExceptionInfo(e));
-      throw e;
-    } catch (Exception e) {
-      log.error("* 아이고!! ㅜ.ㅜ 데이터베이스 업데이트 에러 발생");
-      log.error(ExceptionUtil.getExceptionInfo(e));
-      if (conn != null) {
-        conn.txRollBack();
-      }
-      throw e;
-    } finally {
-      if (conn != null) {
-        conn.close();
-      }
-    }
-  }
+  // 여기 있던 update(seq, name, seqOrder) 는 제거했다.
+  //
+  // 아이템명을 SET 절에 이어 붙이던(name='...') 마지막 조립 지점이었는데, 고칠 대상이 아니라
+  // 지울 대상이었다 — 호출부가 MallOrderUpdater 의 주석 처리된 updateItems 하나뿐이었고 그마저도
+  // 이 프로젝트에 없는 클래스(ItemDataAccessObject)를 부르고 있었다. 살아 있는 수집 경로는
+  // addWithConnection 만 쓴다.
+  //
+  // 죽은 코드를 PreparedStatement 로 고쳐 두면 "여기도 안전하다" 는 인상만 남기고 실제로는
+  // 아무 것도 지키지 않는다. 되살릴 일이 생기면 그때 바인딩으로 새로 쓴다.
 
   // ========== 아이템 삭제 메서드 ==========
 

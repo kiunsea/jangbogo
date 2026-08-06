@@ -396,23 +396,34 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v3
-      
+      - uses: actions/checkout@v7
+
       - name: Set up JDK 21
-        uses: actions/setup-java@v3
+        uses: actions/setup-java@v5
         with:
           java-version: '21'
           distribution: 'temurin'
-      
+
       - name: Build with Gradle
         run: .\gradlew clean bootJar createJre packageDist
-      
+
       - name: Upload Distribution
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v7
         with:
           name: Jangbogo-distribution
           path: build/distributions/Jangbogo-distribution.zip
 ```
+
+> **액션 버전 주의**
+> - 위 버전은 예시 시점 기준이다. 실제 워크플로우는 `.github/workflows/` 를 보고,
+>   버전 갱신은 `.github/dependabot.yml` 이 주간 PR 로 챙긴다. 이 문서를 복사해 쓸 때
+>   구 버전이 다시 퍼지지 않도록 실제 워크플로우 쪽을 기준으로 삼는다.
+> - `actions/upload-artifact` 는 v4 부터 **한 워크플로 실행 안에서 같은 `name` 으로
+>   두 번 업로드할 수 없다.** 예전처럼 여러 스텝이 같은 이름에 파일을 덧붙이는 패턴은
+>   덮어쓰기가 아니라 실패로 끝나므로, 업로드 스텝마다 `name` 을 다르게 준다.
+> - `actions/checkout` 은 v7 부터 `pull_request_target`·`workflow_run` 에서 포크 PR
+>   코드를 기본적으로 체크아웃하지 않는다(이른바 "pwn request" 차단). 위 예시처럼
+>   태그 push 로만 도는 워크플로우는 영향이 없다.
 
 ---
 

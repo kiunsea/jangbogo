@@ -1,0 +1,73 @@
+# Dependabot 설정
+#
+# 이 파일이 없어서 워크플로우의 액션들이 3~6 메이저씩 뒤처진 채로 방치됐고, 결국 사람이
+# 한 번에 몰아서 올려야 했다(그때 upload-artifact v4 의 "같은 이름 재업로드 금지" 같은
+# 파괴적 변경을 한꺼번에 검토해야 했다). 주간 PR 로 잘게 쪼개 오게 해서 그 상황을 막는다.
+version: 2
+
+updates:
+  # --- GitHub Actions -----------------------------------------------------
+  # directory 를 "/" 로 두면 .github/workflows/ 전체를 훑는다(워크플로 경로를 따로 적지 않는다).
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Asia/Seoul
+    open-pull-requests-limit: 5
+    # labels 는 일부러 지정하지 않는다 — 저장소에 없는 라벨을 적으면 Dependabot 이 붙이지
+    # 못하고 로그에만 남는다. 기본 dependencies 라벨로 충분하고, ci/build 구분은 아래
+    # commit-message prefix 로 한다.
+    commit-message:
+      prefix: "ci"
+    groups:
+      # minor/patch 는 사실상 런타임 갱신·버그픽스라 묶어서 한 PR 로 받는다.
+      # major 는 일부러 묶지 않는다 — 액션마다 파괴적 변경이 제각각이라(체크아웃의 포크 PR
+      # 차단, upload-artifact 의 아티팩트 불변화 등) 하나씩 따로 읽고 판단해야 한다.
+      actions-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+
+  # --- Gradle -------------------------------------------------------------
+  # gradle 도 켠다. 이 프로그램은 실제 쇼핑몰 계정으로 로그인하는 크롤러라 Selenium·
+  # sqlite-jdbc·Spring Boot 의 보안 패치를 놓치면 손해가 크고, PR 마다 ci.yml/build.yml 이
+  # 빌드+테스트를 돌려 주므로 회귀는 머지 전에 걸린다.
+  #
+  # 다만 build.gradle 에는 버전 정합성 전제가 두 군데 박혀 있다.
+  #   - jackson 은 Spring Boot 가 관리하는 버전과 반드시 같아야 한다(YamlMapperCompatibilityTest 가 감시)
+  #   - Selenium 은 ext['selenium.version'] 한 곳에서만 고정한다
+  # Spring Boot 메이저가 올라가면 관리 버전이 통째로 움직여 이 전제가 조용히 깨지고,
+  # Selenium 메이저는 Chrome/CDP 아티팩트 존재 여부에 묶여 있다. 그래서 이 둘의 메이저만
+  # 사람이 직접 올리도록 제외한다. minor/patch 는 그대로 받는다.
+  #
+  # 한계: ext['selenium.version'] 은 dependency 문자열이 아니라 Spring Boot 의존성 관리용
+  # 프로퍼티라 Dependabot 이 인식하지 못한다. Selenium 버전은 여전히 수동 관리 대상이다.
+  # gradle-wrapper.properties 도 Dependabot 대상이 아니다(별도로 챙겨야 한다).
+  - package-ecosystem: gradle
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Asia/Seoul
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "build"
+    ignore:
+      - dependency-name: "org.springframework.boot*"
+        update-types:
+          - version-update:semver-major
+      - dependency-name: "org.seleniumhq.selenium*"
+        update-types:
+          - version-update:semver-major
+    groups:
+      gradle-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
