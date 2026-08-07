@@ -81,7 +81,7 @@ bat\clean_build.bat
 - **결과 확인**: 생성된 JAR 파일의 크기를 MB 단위로 표시
 
 **생성 파일:**
-- `build\libs\jangbogo-0.6.0.jar` - 빌드된 JAR 파일
+- `build\libs\jangbogo-x.y.z.jar` - 빌드된 JAR 파일 (버전은 build.gradle 의 version 값)
 
 **사용 시나리오:**
 - 빌드 캐시 문제 해결

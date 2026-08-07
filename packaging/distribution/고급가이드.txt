@@ -195,7 +195,7 @@
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   Jangbogo/
   ├─ Jangbogo.bat
-  ├─ jangbogo-0.8.1.jar
+  ├─ jangbogo-x.y.z.jar         ← 파일명에 실제 버전이 붙습니다
   ├─ jre/
   ├─ config/                    ← 사용자가 생성
   │   ├─ admin.properties       (관리자 계정)
