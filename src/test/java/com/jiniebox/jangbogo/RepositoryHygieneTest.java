@@ -132,19 +132,9 @@ class RepositoryHygieneTest {
     // 가드가 스스로 가드를 우회당하지 않게 하는 층이다.
     List<String> offenders = new ArrayList<>();
 
-    if (Files.isDirectory(SRC_ROOT)) {
-      try (Stream<Path> files = Files.walk(SRC_ROOT)) {
-        for (Path file : files.filter(Files::isRegularFile).toList()) {
-          // 대소문자를 맞춰 비교한다. 개발 PC 가 Windows 라 파일시스템이 .BAK 와 .bak 을 같은 이름으로
-          // 취급하는데, 여기서 대소문자를 따지면 .BAK 로 남긴 것만 조용히 빠져나간다.
-          String name = file.getFileName().toString().toLowerCase(Locale.ROOT);
-          for (String suffix : BACKUP_SUFFIXES) {
-            if (name.endsWith(suffix)) {
-              offenders.add(file.toString().replace('\\', '/'));
-              break;
-            }
-          }
-        }
+    for (Path file : regularFilesUnder(SRC_ROOT)) {
+      if (looksLikeBackupFile(file.getFileName().toString())) {
+        offenders.add(file.toString().replace('\\', '/'));
       }
     }
 
@@ -170,13 +160,9 @@ class RepositoryHygieneTest {
     // 대신 그쪽은 위의 꼬리표 검사가 맡는다. 운영 산출물에 실리는 쪽만 엄격히 간다.
     List<String> offenders = new ArrayList<>();
 
-    if (Files.isDirectory(MAIN_JAVA_ROOT)) {
-      try (Stream<Path> files = Files.walk(MAIN_JAVA_ROOT)) {
-        for (Path file : files.filter(Files::isRegularFile).toList()) {
-          if (!file.getFileName().toString().endsWith(".java")) {
-            offenders.add(file.toString().replace('\\', '/'));
-          }
-        }
+    for (Path file : regularFilesUnder(MAIN_JAVA_ROOT)) {
+      if (!file.getFileName().toString().endsWith(".java")) {
+        offenders.add(file.toString().replace('\\', '/'));
       }
     }
 
@@ -185,6 +171,90 @@ class RepositoryHygieneTest {
         "src/main/java 아래에 자바 소스가 아닌 파일이 있다. 확장자가 .java 가 아닌 파일은 소스 형태를 보는 가드가 전부 건너뛰므로,"
             + " 이 자리는 어떤 검사도 닿지 않는 사각지대가 된다. 리소스는 src/main/resources 로, 문서는 doc/ 로 옮겨라:\n  "
             + String.join("\n  ", offenders));
+  }
+
+  /**
+   * 이름 하나가 백업·임시 파일로 읽히는지.
+   *
+   * <p>검사 본문에서 따로 떼어 둔다. 붙여 두면 판별부를 직접 두들길 방법이 없고, 저장소에 백업 파일이 없는 동안에는 <b>목록을 비워도 통과</b>하기 때문이다.
+   * 사본을 만들어 대조군을 쓰면 그 사본이 본문과 갈라지는 순간 대조군이 거짓말을 시작한다 — 그래서 같은 함수를 쓴다.
+   *
+   * <p>대소문자를 맞춰 비교한다. 개발 PC 가 Windows 라 파일시스템이 {@code .BAK} 와 {@code .bak} 을 같은 이름으로 취급하는데, 여기서
+   * 대소문자를 따지면 {@code .BAK} 로 남긴 것만 조용히 빠져나간다.
+   */
+  private static boolean looksLikeBackupFile(String fileName) {
+    String name = fileName.toLowerCase(Locale.ROOT);
+    for (String suffix : BACKUP_SUFFIXES) {
+      if (name.endsWith(suffix)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** 디렉터리 아래의 정규 파일 전부. 두 검사가 같은 수집기를 쓴다 — 한쪽만 조용히 좁아지는 것을 막는다. */
+  private static List<Path> regularFilesUnder(Path root) throws IOException {
+    if (!Files.isDirectory(root)) {
+      return List.of();
+    }
+    try (Stream<Path> files = Files.walk(root)) {
+      return files.filter(Files::isRegularFile).toList();
+    }
+  }
+
+  @Test
+  @DisplayName("백업 파일 판별식이 백업본은 잡고 정상 소스는 통과시킨다")
+  void theBackupDetectionRuleItselfStillCatchesBackups() {
+    // 위의 두 검사는 이것 하나가 죽어도 초록으로 남는다. BACKUP_SUFFIXES 를 비우거나
+    // endsWith 를 equals 로 바꿔도, 지금 소스 트리에 백업 파일이 없으니 offender 는 그대로
+    // 0건이고 결론이 같다. 즉 '판별식이 통째로 죽은 채 초록만 나는' 상태가 만들어진다.
+    //
+    // 이 세션에서 실제로 두 번 겪은 형태다. (1) 세션 만료 감지는 단위 테스트 25건이 초록인 채
+    // 프로덕션 호출자가 0건이었고, (2) 배포 산출물 가드는 판별식을 무조건 '문제없음' 으로
+    // 바꿔도 테스트 5건이 전부 통과했다. 그래서 저장소 상태를 보지 않고 판별식에 직접
+    // "걸려야 하는 이름" 과 "걸리면 안 되는 이름" 을 넣는다.
+    for (String backup :
+        List.of(
+            "JbgAccessDataAccessObject.java.bak", // 실제로 PUBLIC 저장소에 커밋돼 있던 그 파일
+            "JbgMallDataAccessObject.java.BAK", // 대문자로 남겨도 빠져나가지 않는다
+            "AdminController.java.orig",
+            "index.html~",
+            "AdminController.java.swp",
+            "data.sql.old",
+            "layout.html.tmp")) {
+      assertTrue(
+          looksLikeBackupFile(backup),
+          backup
+              + " 를 백업 파일로 잡지 못했다. 확장자가 .java 가 아닌 파일은 소스 형태를 보는 보안 가드가 전부 건너뛰므로,"
+              + " 이 판별식이 좁아지면 어떤 가드든 확장자 하나로 통째로 우회된다.");
+    }
+
+    // 오탐도 같이 막는다. 정상 소스가 걸리기 시작하면 사람은 판별식을 고치는 대신 느슨하게
+    // 만들거나 검사를 꺼 버린다 — 가드가 죽는 가장 흔한 경로다.
+    for (String normal :
+        List.of(
+            "AdminController.java",
+            "index.html",
+            "application.yml",
+            "data.sql",
+            "README.md",
+            "jangbogo-service.xml")) {
+      assertFalse(
+          looksLikeBackupFile(normal),
+          normal + " 는 정상 파일인데 백업으로 걸렸다. 이대로면 평소에 초록이 깨지고, 그러면 이 검사가 느슨해지거나 꺼진다.");
+    }
+  }
+
+  @Test
+  @DisplayName("소스 트리 스캔이 실제로 파일을 훑는다")
+  void theSourceTreeScanActuallyVisitsFiles() throws Exception {
+    // 수집기가 빈 목록을 돌려주면 위 두 검사는 offender 0건으로 초록이 된다. "위반이 없다" 와
+    // "아무것도 보지 않았다" 는 결과가 같은 모양이라 구분되지 않는다.
+    assertFalse(
+        regularFilesUnder(SRC_ROOT).isEmpty(), "소스 트리 스캔이 파일을 하나도 찾지 못했다 — 작업 디렉터리가 프로젝트 루트가 아니다.");
+    assertFalse(
+        regularFilesUnder(MAIN_JAVA_ROOT).isEmpty(),
+        "운영 소스 루트 스캔이 파일을 하나도 찾지 못했다 — 이 상태면 그쪽 검사는 무엇이 있어도 통과한다.");
   }
 
   @Test
@@ -310,6 +380,49 @@ class RepositoryHygieneTest {
           looksLikePersonalData(sample),
           sample + " 를 개인 데이터로 잡지 못했다. 판별식이 좁아졌다 — 이 상태면 추적 파일 검사가 통과해도 아무것도 확인하지 않은 것이다.");
     }
+  }
+
+  @Test
+  @DisplayName("추적 파일 목록이 실제로 저장소 전체를 훑는다")
+  void theTrackedFileListingActuallyCoversTheRepository() throws Exception {
+    // keepsPersonalDataOutOfTrackedFiles 는 "offender 가 0건이다" 형태다. 그래서 수집기가
+    // 빈 목록이나 일부만 돌려주게 바뀌면 그대로 초록이 된다 — '개인 데이터가 없다' 와 '아무것도
+    // 보지 않았다' 가 같은 모양이라 구분되지 않는다.
+    //
+    // listTrackedFiles 안에도 assertFalse(tracked.isEmpty()) 가 있지만 그것은 <b>완전히 빈
+    // 목록만</b> 잡는다. 진짜 위험한 것은 조용한 좁아짐이다 — 누가 성능이나 오탐을 이유로 루트만
+    // 보게 하거나 특정 디렉터리를 걸러 넣으면, 목록은 비지 않으므로 그 단언은 통과하고 감시만
+    // 사라진다. 실측으로 확인했다: 수집기가 빈 목록을 돌려주게 바꿔도 이 파일의 나머지 검사가
+    // 전부 통과했다.
+    //
+    // 이 프로젝트가 실제로 두 번 겪은 형태다. (1) 세션 만료 감지는 단위 테스트 25건이 초록인 채
+    // 프로덕션 호출자가 0건이었고, (2) 배포 산출물 가드는 판별식을 무력화해도 5건이 전부
+    // 통과했다. 둘 다 '초록인데 아무 일도 안 하는' 상태였다.
+    List<String> tracked = listTrackedFiles();
+
+    assertFalse(tracked.isEmpty(), "추적 파일 목록이 비었다 — 작업 디렉터리가 저장소 밖이거나 인덱스를 읽지 못했다.");
+
+    // 깊이가 살아 있는가. 루트만 보게 바뀌면 db/·logs/·config/ 아래의 개인 데이터가 통째로
+    // 감시 밖으로 빠지는데, 그것이 이 가드가 막으려는 사고 그 자체다. 그래서 루트 파일 하나와
+    // 깊은 자리의 파일 하나를 함께 요구한다.
+    for (String required :
+        new String[] {
+          ".gitignore",
+          "build.gradle",
+          "src/test/java/com/jiniebox/jangbogo/RepositoryHygieneTest.java"
+        }) {
+      assertTrue(
+          tracked.contains(required),
+          "추적 파일 목록에 " + required + " 가 없다. 수집기가 조용히 좁아졌다 — 이 상태면 추적 파일 검사는 무엇이 커밋돼 있어도 초록이다.");
+    }
+
+    // 구분자를 손대지 않았는가. looksLikePersonalData 는 'db/' 처럼 슬래시가 붙은 접두사로
+    // 판정한다. 누가 "Windows 니까" 라며 경로를 역슬래시로 바꾸는 순간 디렉터리 판정이 전부
+    // 빗나가고, 그래도 목록은 비지 않으므로 아무 검사도 빨개지지 않는다.
+    List<String> backslashed = tracked.stream().filter(p -> p.contains("\\")).limit(5).toList();
+    assertTrue(
+        backslashed.isEmpty(),
+        "추적 경로에 역슬래시가 섞여 있다: " + backslashed + " — 디렉터리 접두사 판정(db/·logs/·exports/)이 통째로 빗나간다.");
   }
 
   /** 추적 경로 하나가 개인 데이터로 읽히는지 본다. 경로 구분자가 {@code /} 로 통일된 값을 받는다. */

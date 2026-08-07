@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 /**
  * 프로필 락이 <b>실제 코드 경로에 배선돼 있는지</b> 감시한다 (Phase 5-3 배선).
@@ -111,6 +112,69 @@ class MallProfileLockWiringTest {
             + " 전제는 이 JVM 안에서만 참이라, 락 없이 부르면 다른 프로세스에서 사람이 로그인해 둔 창까지 죽인다."
             + "\n→ 부르기 '전에' MallProfileLock.tryAcquireProfile(프로필이름) 으로 잠그고, 못 잡으면 부르지 마라."
             + WHY);
+  }
+
+  // ---------------------------------------------------------------
+  // 대조군 — 검색부 자체가 살아 있는가
+  //
+  // 위의 세 감시는 "호출자가 0건이 아니다" 와 "락 없는 호출자가 0건이다" 를 본다. 뒤쪽은
+  // <b>offender 가 비어 있으면 통과</b>하는 형태라, 판별부가 무조건 "문제없음" 을 돌려주게
+  // 바뀌면 그대로 초록이 된다. 특히 위험한 것은 주석 제거를 없애는 변경이다 —
+  // {@code WebDriverManager} 의 javadoc 이 MallProfileLock 계약을 글로 적어 두고 있어서,
+  // 주석을 함께 세면 <b>락을 전혀 잡지 않는 파일도 '보호됨' 으로 통과</b>한다.
+  //
+  // 이 프로젝트가 실제로 두 번 겪은 형태다. (1) 만료 감지는 단위 테스트 25건이 초록인 채
+  // 프로덕션 호출자가 0건이었고, (2) 배포 산출물 가드는 판별식을 무력화해도 5건이 전부
+  // 통과했다. 둘 다 '초록인데 아무 일도 안 하는' 상태였다.
+  //
+  // 그래서 아래는 저장소 상태가 아니라 검색부에 직접 입력을 넣는다. "지금 위반이 0건이다" 에
+  // 기대는 대조군은 판별부가 죽어도 같은 결론을 내므로 무의미하다.
+  // ---------------------------------------------------------------
+
+  @Test
+  @DisplayName("대조군: 주석에만 적힌 MallProfileLock 은 '락을 쓴다' 로 세지 않는다")
+  void aMentionInCommentsDoesNotCountAsHoldingTheLock(@TempDir Path tempDir) throws Exception {
+    Path sample = tempDir.resolve("Sample.java");
+    Files.writeString(
+        sample,
+        "/** 이 정리를 부르기 전에 MallProfileLock 을 잡아야 한다고 적어만 둔 javadoc. */\n"
+            + "class Sample {\n"
+            + "  // MallProfileLock.tryAcquireProfile(name) — 예전에 여기서 잡았다\n"
+            + "  void sweep() {\n"
+            + "    WebDriverManager.killOrphanProfileChrome(name);\n"
+            + "  }\n"
+            + "}\n",
+        StandardCharsets.UTF_8);
+
+    String stripped = sourceWithoutComments(sample);
+
+    assertFalse(
+        stripped.contains("MallProfileLock"),
+        "주석에 적힌 계약이 락 사용으로 세어졌다. 이대로면 락 없이 고아 정리를 부르는 파일도 '보호됨' 으로 통과한다.");
+    assertTrue(
+        stripped.contains("killOrphanProfileChrome("),
+        "주석 제거가 실행되는 코드까지 지웠다. 빈 문자열에서는 정리 호출자를 하나도 못 찾으므로 감시가 통째로 무동작이 된다.");
+  }
+
+  @Test
+  @DisplayName("대조군: 호출자 검색이 없는 조각과 있는 조각을 가른다")
+  void theCallerSearchDistinguishesPresentFromAbsent() throws Exception {
+    assertTrue(
+        productionFilesContaining("이런조각은프로덕션소스에없다_대조군", LOCK).isEmpty(),
+        "존재하지 않는 조각을 찾았다고 답한다 — 검색부가 '무조건 찾았다' 로 바뀌면 이 파일의 배선 단언이 전부 무의미해진다.");
+
+    assertFalse(
+        productionFilesContaining("package com.jiniebox.jangbogo", LOCK).isEmpty(),
+        "모든 프로덕션 소스에 있는 조각조차 찾지 못한다 — 검색부가 죽었거나 소스 트리를 훑지 못하고 있다.");
+  }
+
+  @Test
+  @DisplayName("대조군: 선언 파일 자신은 호출자로 세지 않는다")
+  void theDeclaringFileIsNotCountedAsItsOwnCaller() throws Exception {
+    // 제외가 사라지면 선언만 있고 호출자가 0건인 상태에서도 목록이 비지 않아 초록이 난다.
+    assertFalse(
+        productionFilesContaining("MallProfileLock", LOCK).contains(LOCK),
+        "선언 파일이 자기 자신의 호출자로 세어졌다 — 배선이 전혀 없어도 이 파일은 초록을 낸다.");
   }
 
   // ---------------------------------------------------------------

@@ -16,6 +16,7 @@ import java.util.stream.Stream;
 import org.json.simple.JSONArray;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 /**
  * 세션 만료 판정이 <b>실제 수집 경로에 배선돼 있는지</b> 감시한다 (Phase 5-10 배선).
@@ -168,6 +169,68 @@ class SessionExpiryWiringTest {
     assertTrue(outcome.collected());
     assertFalse(outcome.sessionExpired());
     assertTrue(outcome.newOrderSeqs().isEmpty());
+  }
+
+  // ---------------------------------------------------------------
+  // 대조군 — 검색부 자체가 살아 있는가
+  //
+  // 위의 배선 감시는 "호출자가 0건이 아니다" 를 본다. 그래서 검색부가 <b>아무거나 찾았다고
+  // 답하게</b> 바뀌면 전부 그대로 초록이 된다. 특히 위험한 것은 주석 제거를 없애는 변경이다 —
+  // javadoc 에 "여기서 observe 를 부른다" 라고 적어 둔 한 줄이 배선으로 세어지고, 그러면 이
+  // 파일이 감시한다고 주장하는 것과 실제로 확인하는 것이 갈라진다.
+  //
+  // 이 프로젝트가 실제로 두 번 겪은 형태다. (1) 만료 감지는 단위 테스트 25건이 초록인 채
+  // 프로덕션 호출자가 0건이었고, (2) 배포 산출물 가드는 판별식을 무력화해도 5건이 전부
+  // 통과했다. 둘 다 '초록인데 아무 일도 안 하는' 상태였다.
+  //
+  // 그래서 아래는 저장소 상태가 아니라 검색부에 직접 입력을 넣는다. "지금 위반이 0건이다" 에
+  // 기대는 대조군은 판별부가 죽어도 같은 결론을 내므로 무의미하다.
+  // ---------------------------------------------------------------
+
+  @Test
+  @DisplayName("대조군: 호출자 검색이 주석 속 언급을 배선으로 세지 않는다")
+  void theCallerSearchIgnoresMentionsInComments(@TempDir Path tempDir) throws Exception {
+    Path sample = tempDir.resolve("Sample.java");
+    Files.writeString(
+        sample,
+        "/** 이 자리에서 SessionExpiryDetector.observe(driver) 를 부른다고 적어만 둔 javadoc. */\n"
+            + "class Sample {\n"
+            + "  // SessionExpiryDetector.observe(driver) — 예전에 여기서 불렀다\n"
+            + "  void run() {\n"
+            + "    int visited = 1;\n"
+            + "  }\n"
+            + "}\n",
+        StandardCharsets.UTF_8);
+
+    String stripped = sourceWithoutComments(sample);
+
+    assertFalse(
+        stripped.contains("SessionExpiryDetector.observe("),
+        "주석에 적힌 언급이 남았다. 이대로면 javadoc 한 줄이 배선으로 세어져, 호출자가 0건이어도 이 파일은 초록을 낸다.");
+    assertTrue(
+        stripped.contains("int visited = 1;"),
+        "주석 제거가 실행되는 코드까지 지웠다. 빈 문자열에서는 어떤 호출도 찾을 수 없으므로 반대 방향으로 항상 빨개진다.");
+  }
+
+  @Test
+  @DisplayName("대조군: 호출자 검색이 없는 조각과 있는 조각을 가른다")
+  void theCallerSearchDistinguishesPresentFromAbsent() throws Exception {
+    assertTrue(
+        productionFilesContaining("이런조각은프로덕션소스에없다_대조군", DETECTOR).isEmpty(),
+        "존재하지 않는 조각을 찾았다고 답한다 — 검색부가 '무조건 찾았다' 로 바뀌면 이 파일의 배선 단언이 전부 무의미해진다.");
+
+    assertFalse(
+        productionFilesContaining("package com.jiniebox.jangbogo", DETECTOR).isEmpty(),
+        "모든 프로덕션 소스에 있는 조각조차 찾지 못한다 — 검색부가 죽었거나 소스 트리를 훑지 못하고 있다.");
+  }
+
+  @Test
+  @DisplayName("대조군: 선언 파일 자신은 호출자로 세지 않는다")
+  void theDeclaringFileIsNotCountedAsItsOwnCaller() throws Exception {
+    // 제외가 사라지면 선언만 있고 호출자가 0건인 상태에서도 목록이 비지 않아 초록이 난다.
+    assertFalse(
+        productionFilesContaining("SessionExpiryDetector", DETECTOR).contains(DETECTOR),
+        "선언 파일이 자기 자신의 호출자로 세어졌다 — 배선이 전혀 없어도 이 파일은 초록을 낸다.");
   }
 
   // ---------------------------------------------------------------

@@ -157,6 +157,94 @@ class ServiceDescriptorTest {
         "packageDist 가 서비스 XML 을 필터 없이 복사하는 블록으로 되돌아갔다.");
   }
 
+  // ---------------------------------------------------------------
+  // 대조군 — 판별식 자체가 살아 있는가
+  //
+  // 위의 세 검사는 전부 "VERSIONED_JAR 가 아무것도 못 찾았다" 형태다. 그래서 이 정규식을
+  // 아무것도 맞지 않게 바꾸면 <b>세 검사가 전부 그대로 초록</b>이 된다. 저장소가 지금 토큰
+  // 방식을 지키고 있다는 사실은 정규식이 살아 있다는 근거가 못 된다 — 죽은 정규식도 같은
+  // 결론을 낸다.
+  //
+  // 이 세션에서 실제로 두 번 겪은 형태다. (1) 세션 만료 감지는 단위 테스트 25건이 초록인 채
+  // 프로덕션 호출자가 0건이었고, (2) 배포 산출물 가드는 판별식을 무력화해도 5건이 전부
+  // 통과했다. 둘 다 '초록인데 아무 일도 안 하는' 상태였다.
+  // ---------------------------------------------------------------
+
+  @Test
+  @DisplayName("대조군: 버전 박힌 JAR 정규식이 실제 드리프트 형태를 잡는다")
+  void theVersionedJarPatternStillCatchesPinnedNames() {
+    for (String pinned :
+        new String[] {
+          "jangbogo-0.8.1.jar", // 실제로 8개 버전 동안 방치됐던 그 이름
+          "jangbogo-0.11.2.jar",
+          "jangbogo-1.0.0-SNAPSHOT.jar",
+          "-jar \"%BASE%\\..\\jangbogo-0.18.2.jar\" --service"
+        }) {
+      assertTrue(
+          VERSIONED_JAR.matcher(pinned).find(),
+          "버전이 박힌 JAR 참조인데 정규식이 잡지 못했다. 이 상태면 드리프트 감시 세 건이 무엇이 있어도 초록이다: " + pinned);
+    }
+
+    // 오탐도 같이 막는다. 자리표시자·와일드카드·토큰이 걸리기 시작하면 초록을 되찾으려고
+    // 사람이 버전을 다시 박아 넣는 쪽으로 고친다 — 정확히 이 감시가 막으려는 일이다.
+    for (String safe :
+        new String[] {
+          "jangbogo-x.y.z.jar",
+          "dir /b /o:-d jangbogo-*.jar",
+          TOKEN,
+          "-jar \"%BASE%\\..\\" + TOKEN + "\" --service"
+        }) {
+      assertFalse(VERSIONED_JAR.matcher(safe).find(), "버전이 박히지 않은 참조인데 드리프트로 걸렸다(오탐): " + safe);
+    }
+  }
+
+  @Test
+  @DisplayName("대조군: XML 주석 제거가 주석만 지운다")
+  void theXmlCommentStripperOnlyRemovesComments() {
+    // 주석 제거가 사라지면 이 파일의 주석에 남겨 둔 과거 사례(jangbogo-0.8.1.jar)가 걸려 빨개진다.
+    // 그때 사람은 주석을 지우게 되고, 다음 사람은 왜 토큰을 쓰는지 알 수 없게 된다.
+    // 반대로 제거가 너무 넓어지면 실행되는 노드까지 사라져 드리프트를 못 잡는다. 양쪽을 못 박는다.
+    String xml =
+        "<service>\n"
+            + "  <!-- 예전엔 여기에 jangbogo-0.8.1.jar 이 박혀 있었다 -->\n"
+            + "  <arguments>-jar \"%BASE%\\..\\@JAR_NAME@\" --service</arguments>\n"
+            + "</service>\n";
+
+    String withoutComments = XML_COMMENT.matcher(xml).replaceAll("");
+
+    assertFalse(
+        VERSIONED_JAR.matcher(withoutComments).find(), "주석 안의 과거 사례가 실행 경로로 세어졌다 — 설명을 적을수록 빨개진다.");
+    assertTrue(
+        withoutComments.contains(TOKEN),
+        "주석 제거가 실행되는 노드까지 지웠다. 빈 문자열에는 어떤 버전도 없으므로 드리프트 감시가 통째로 무동작이 된다.");
+  }
+
+  @Test
+  @DisplayName("대조군: 등장 횟수 세기가 실제로 세고 없는 조각은 0 으로 답한다")
+  void theOccurrenceCounterActuallyCounts() {
+    // packageDistFiltersTheServiceXml 의 마지막 단언은 assertEquals(0, countOccurrences(...)) 다.
+    // 그래서 이 도우미가 무조건 0 을 돌려주게 바뀌면 그 단언은 <b>무엇이 있어도 초록</b>이 된다 —
+    // 서비스 XML 이 필터 없는 복사 블록으로 되돌아가도 아무도 모른 채 지나간다. 지금 build.gradle
+    // 에 그 블록이 없다는 사실은 세기가 살아 있다는 근거가 못 된다. 죽은 세기도 같은 답을 낸다.
+    //
+    // 이 세션에서 실제로 두 번 겪은 형태다. (1) 세션 만료 감지는 단위 테스트 25건이 초록인 채
+    // 프로덕션 호출자가 0건이었고, (2) 배포 산출물 가드는 판별식을 무력화해도 5건이 전부 통과했다.
+    // 그래서 저장소의 build.gradle 이 아니라 도우미에 직접 입력을 넣는다.
+    String needle = "'*.exe', '*.xml', '*.md'";
+    String reverted = "from('packaging/winsw') {\n    include " + needle + "\n  }";
+    String filtered = "from('packaging/winsw') {\n    include 'jangbogo-service.xml'\n  }";
+
+    assertEquals(
+        1,
+        countOccurrences(reverted, needle),
+        "실제로 되돌아간 형태를 세지 못했다. 이 상태면 필터 없는 복사 블록 감시가 통째로 무동작이다.");
+    assertEquals(2, countOccurrences(needle + "\n" + needle, needle), "두 번 나온 것을 한 번으로 셌다.");
+    assertEquals(
+        0,
+        countOccurrences(filtered, needle),
+        "없는 조각을 찾았다고 답한다 — 그러면 정상 상태에서 늘 빨개지고, 사람은 세기를 고치는 대신 검사를 지운다.");
+  }
+
   private static int countOccurrences(String haystack, String needle) {
     int count = 0;
     int idx = 0;

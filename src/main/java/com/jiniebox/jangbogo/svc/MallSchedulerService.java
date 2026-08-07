@@ -3,6 +3,7 @@ package com.jiniebox.jangbogo.svc;
 import com.jiniebox.jangbogo.dao.JbgCollectLogDataAccessObject;
 import com.jiniebox.jangbogo.dao.JbgMallDataAccessObject;
 import com.jiniebox.jangbogo.dto.MallAccount;
+import com.jiniebox.jangbogo.svc.mall.MallRegistry;
 import com.jiniebox.jangbogo.svc.util.CollectIntervalPolicy;
 import com.jiniebox.jangbogo.svc.util.CollectTrigger;
 import com.jiniebox.jangbogo.svc.util.ErrorSummary;
@@ -11,8 +12,11 @@ import com.jiniebox.jangbogo.svc.util.SessionProfileGate;
 import com.jiniebox.jangbogo.util.ExceptionUtil;
 import com.jiniebox.jangbogo.util.StringEncrypter;
 import jakarta.annotation.PreDestroy;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -46,7 +50,29 @@ public class MallSchedulerService {
   private final Map<String, ScheduledFuture<?>> scheduledTasks = new ConcurrentHashMap<>();
 
   /**
-   * 세션 만료로 일시중단된 쇼핑몰 (seq -> 사유) (Phase 5-10).
+   * 일시중단 키 — <b>몰 하나가 아니라 그 몰의 수집기 한 자리</b>다.
+   *
+   * <p>키를 record 로 둔 이유는 문자열을 이어 붙이지 않기 위해서다. {@code seq + "#" + collector} 같은 합성 키는 수집기 이름에 구분자가
+   * 섞이는 날 다른 자리와 같은 키가 되고, 그러면 멀쩡한 수집기가 남의 만료로 멈춘다. 그 사고는 로그에도 흔적이 남지 않는다.
+   *
+   * @param seqMall {@code jbg_mall.seq} (앞뒤 공백을 걷어낸 값)
+   * @param collector 수집기 이름. {@code MallRegistry} 의 선언·{@code jbg_collect_log.collector}·브레이커 키와 같은
+   *     값이어야 한다
+   */
+  private record ExpiredCollector(String seqMall, String collector) {}
+
+  /**
+   * 세션 만료로 일시중단된 <b>수집기</b> (몰 seq + 수집기 이름 -> 사유) (Phase 5-10).
+   *
+   * <h2>왜 키가 몰이 아니라 몰+수집기인가</h2>
+   *
+   * <p>처음에는 몰 하나를 통째로 멈췄다. 그런데 통합회원(seq=1)에는 수집기가 둘 붙어 있고, 온라인몰과 오프라인 영수증은 도메인도 로그인 폼도 다른 <b>서로
+   * 독립적인 데이터원</b>이다. 세션 주입 경로가 대체하는 자리는 그중 하나뿐이라, 그쪽 세션이 죽어도 나머지 하나는 저장된 자격증명으로 멀쩡히 돈다. 그런데 몰 단위로
+   * 멈추면 <b>멀쩡한 쪽까지 사람이 다시 로그인할 때까지 함께 선다.</b>
+   *
+   * <p>{@code MallOrderUpdaterRunner.promotableExpiryReason} 의 "다른 수집기가 이번 회차에 주문을 가져왔으면 승격하지 않는다"
+   * 는 제약이 최악(내보내기 누락)은 막고 있었다. 그러나 <b>그 회차에 다른 수집기도 0건이면</b> 만료가 승격되어 결국 몰 전체가 섰다. 0건은 사고가 아니라 흔한
+   * 정상 상태다 — 이미 따라잡은 계정은 대부분의 회차에서 신규 주문이 없다.
    *
    * <h2>왜 스케줄을 취소하지 않는가</h2>
    *
@@ -65,7 +91,7 @@ public class MallSchedulerService {
    * <p>{@code jbg_mall.session_profile_status} 는 캡처 성공 시 {@code READY} 만 쓰는 현행을 유지한다. 만료를 그쪽에도 두면 두
    * 곳이 같은 사실을 들고 있게 되는데, 갱신 주체가 없는 쪽이 굳어 화면과 동작이 갈린다. 만료는 <b>수집 로그의 사유</b>로만 표현한다.
    */
-  private final Map<String, String> sessionExpiredMalls = new ConcurrentHashMap<>();
+  private final Map<ExpiredCollector, String> sessionExpiredCollectors = new ConcurrentHashMap<>();
 
   // 스케줄러 (쓰레드 풀 크기 5)
   private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(5);
@@ -246,14 +272,19 @@ public class MallSchedulerService {
 
     // 세션 만료 일시중단 — 이것이 그 '진입 지점' 이다 (Phase 5-10).
     //
-    // 여기서 물러나므로 브라우저도 뜨지 않고 몰 사이트도 두드리지 않는다. 스케줄 자체는 살아 있어
-    // 사용자가 세션을 다시 뜨는 순간 원래 주기로 돌아온다 (sessionExpiredMalls javadoc 참조).
+    // 판정 단위가 몰이 아니라 수집기다. 한 수집기의 세션이 죽었다고 여기서 물러나면 같은 몰의
+    // 다른 수집기까지 함께 서는데, 그 둘은 서로 독립적인 데이터원이라 한쪽 세션이 다른 쪽을 막을
+    // 이유가 없다. 그래서 '돌릴 수 있는 자리가 하나도 남지 않은' 회차에서만 물러난다
+    // (allCollectorsSuspendedForExpiredSession javadoc 이 그 경계를 적고 있다).
+    //
+    // 여기서 물러나면 브라우저도 뜨지 않고 몰 사이트도 두드리지 않는다. 스케줄 자체는 살아 있어
+    // 사용자가 세션을 다시 뜨는 순간 원래 주기로 돌아온다 (sessionExpiredCollectors javadoc 참조).
     //
     // 로그를 남기지 않는 것이 핵심이다. 사유는 만료를 관측한 그 회차에 이미 한 행 적혔고, 여기서
     // 또 적으면 주기마다 같은 줄이 쌓여 수집 로그 화면이 무의미해진다 — 사람이 그 표를 보는 이유가
     // 몇 번 막혔는지를 세기 위해서다. StartupTasks 가 같은 이유로 같은 선택을 하고 있다.
-    if (isSuspendedForExpiredSession(seq)) {
-      logger.debug("쇼핑몰 seq={} 세션 만료로 일시중단 중 — 이번 회차 건너뜀 ({})", seq, sessionExpiredMalls.get(seq));
+    if (allCollectorsSuspendedForExpiredSession(seq)) {
+      logger.debug("쇼핑몰 seq={} 수집기가 전부 세션 만료로 중단됐다 — 이번 회차 건너뜀 {}", seq, suspendedCollectors(seq));
       return;
     }
 
@@ -430,7 +461,7 @@ public class MallSchedulerService {
   }
 
   /**
-   * 세션 만료를 기록하고 이 몰의 수집을 일시중단한다 (Phase 5-10).
+   * 세션 만료를 기록하고 <b>만료된 수집기만</b> 일시중단한다 (Phase 5-10).
    *
    * <p>기록은 <b>이미 있는 {@link #saveSkipLog} 통로</b>를 그대로 탄다. 새 통로를 파지 않는 이유는 상태값 때문이다 — 만료는 {@code
    * SKIPPED} 이고 사유 코드가 {@code SESSION_EXPIRED} 다. 만료 전용 status 를 만들면 {@code
@@ -440,8 +471,15 @@ public class MallSchedulerService {
    * <p><b>스케줄 수집과 즉시수집이 같은 메서드를 부른다.</b> 두 경로가 각자 기록하면 코드·단계·중단 여부가 언젠가 갈리는데, 이 프로젝트는 그 형태의 결함을 이미
    * 두 번 고쳤다(5-18 게이트, 5-19 즉시수집 우회). 규약을 호출부가 지키게 두면 두 경로는 갈린다.
    *
-   * <p>같은 몰이 이미 중단돼 있으면 <b>다시 적지 않는다.</b> 사용자가 즉시수집을 연달아 누르면 같은 사실이 그만큼 쌓이는데, 그 표를 보는 이유가 몇 번 막혔는지를
-   * 세기 위해서다.
+   * <h2>어느 수집기가 만료됐는지를 여기서 알아낸다</h2>
+   *
+   * <p>{@link MallCollectOutcome} 은 만료 <b>사유</b>만 싣고 수집기 이름은 싣지 않는다. 그래서 그 이름을 {@link MallRegistry}
+   * 선언에서 되찾는다 — 만료는 {@code SessionCollector.SkipCause.SESSION_EXPIRED} 에서만 올라오고, 그 종류를 만들 수 있는 것은 그
+   * 몰이 선언한 <b>세션 주입 수집기</b>뿐이다. 즉 후보가 그 목록 밖에 있을 수 없다. (이름을 결과값이 직접 싣는 것이 옳은 최종형이다 — 인계 메모에 적어
+   * 두었다.)
+   *
+   * <p>같은 자리가 이미 중단돼 있으면 <b>다시 적지 않는다.</b> 사용자가 즉시수집을 연달아 누르면 같은 사실이 그만큼 쌓이는데, 그 표를 보는 이유가 몇 번
+   * 막혔는지를 세기 위해서다.
    *
    * @param seq 쇼핑몰 시퀀스
    * @param mallName 쇼핑몰 이름 (로그 표시용). 모르면 null
@@ -449,58 +487,294 @@ public class MallSchedulerService {
    * @param startedAt 이 회차의 시작 시각
    */
   public void suspendForExpiredSession(String seq, String mallName, String reason, long startedAt) {
-    if (seq == null || seq.isEmpty()) {
-      return;
-    }
-    String text =
-        (reason == null || reason.isBlank()) ? MallCollectOutcome.SESSION_EXPIRED_CODE : reason;
-    String previous = sessionExpiredMalls.putIfAbsent(seq, text);
-    if (previous != null) {
-      logger.debug("쇼핑몰 seq={} 이미 세션 만료로 중단 중 — 같은 사유를 다시 적지 않는다", seq);
-      return;
-    }
-
-    logger.warn("쇼핑몰 seq={} 세션 만료로 자동수집을 일시중단한다 — {}", seq, text);
-    saveSkipLog(
-        parseSeq(seq),
-        mallName,
-        MallCollectOutcome.SESSION_EXPIRED_CODE,
-        text,
-        MallCollectOutcome.STEP_SESSION_EXPIRY,
-        startedAt);
+    suspendCollectors(seq, sessionCollectorNames(seq), mallName, reason, startedAt);
   }
 
   /**
-   * 이 몰이 세션 만료로 일시중단돼 있는가 (Phase 5-10).
+   * 지정한 수집기 자리들을 만료로 중단한다 — <b>키 단위 진입점</b>.
+   *
+   * <p>{@link #suspendForExpiredSession} 이 레지스트리에서 이름을 되찾아 이것을 부른다. 갈라 둔 이유는 <b>이 모양이 최종형</b>이기
+   * 때문이다 — {@code MallCollectOutcome} 이 만료된 수집기 이름을 직접 싣게 되면, 호출부는 되찾을 필요 없이 그 이름을 그대로 여기에 넘긴다. 지금
+   * 공개하지 않는 것은 그 호출부가 아직 없어서다.
    *
    * @param seq 쇼핑몰 시퀀스
-   * @return 중단 중이면 true
+   * @param collectors 중단할 수집기 이름들. 비어 있으면 기록만 남기고 아무것도 멈추지 않는다
+   * @param mallName 쇼핑몰 이름 (로그 표시용). 모르면 null
+   * @param reason 사람이 읽을 사유. 비어 있으면 코드가 대신 들어간다
+   * @param startedAt 이 회차의 시작 시각
    */
-  public boolean isSuspendedForExpiredSession(String seq) {
-    return seq != null && !seq.isEmpty() && sessionExpiredMalls.containsKey(seq);
+  void suspendCollectors(
+      String seq, List<String> collectors, String mallName, String reason, long startedAt) {
+    if (isBlank(seq)) {
+      return;
+    }
+    String text = reasonOrDefault(reason);
+
+    if (collectors == null || collectors.isEmpty()) {
+      // 귀속할 수집기를 모른다. 이 몰은 세션 주입 수집기를 선언하지 않았거나 레지스트리에 없다.
+      //
+      // 그래도 기록은 남기고 <b>아무것도 멈추지 않는다.</b> 추측으로 자리를 고르면 멀쩡한 수집기가
+      // 남의 만료로 서는데, 그것은 이 국면이 고치려는 사고 그 자체다. 반대로 안 멈춰서 잃는 것은
+      // 다음 회차의 헛수고 한 번뿐이고, 그 회차의 사유는 수집기별 SKIPPED 행으로 그대로 남는다.
+      //
+      // 현재 배선에서는 도달할 수 없다 — 세션 주입 수집기가 없는 몰은 만료 종류 자체를 만들지
+      // 못한다. 그래도 조용히 흘리지 않으려고 경고로 남긴다.
+      logger.warn("쇼핑몰 seq={} 세션 만료를 귀속할 수집기를 찾지 못했다 — 기록만 남기고 중단하지 않는다: {}", seq, text);
+      saveExpiryLog(seq, mallName, text, startedAt);
+      return;
+    }
+
+    boolean anyNew = false;
+    for (String collector : collectors) {
+      anyNew |= markSuspended(seq, collector, text);
+    }
+    if (!anyNew) {
+      logger.debug("쇼핑몰 seq={} 이미 세션 만료로 중단 중 {} — 같은 사유를 다시 적지 않는다", seq, collectors);
+      return;
+    }
+
+    logger.warn("쇼핑몰 seq={} 수집기 {} 를 세션 만료로 일시중단한다 — {}", seq, collectors, text);
+    saveExpiryLog(seq, mallName, text, startedAt);
   }
 
   /**
-   * 세션 만료 일시중단을 푼다 (Phase 5-10).
+   * 이 몰의 <b>이 수집기</b>가 세션 만료로 일시중단돼 있는가 (Phase 5-10).
+   *
+   * @param seq 쇼핑몰 시퀀스
+   * @param collector 수집기 이름 ({@link MallRegistry} 선언과 같은 값)
+   * @return 중단 중이면 true
+   */
+  public boolean isSuspendedForExpiredSession(String seq, String collector) {
+    if (isBlank(seq) || isBlank(collector)) {
+      return false;
+    }
+    return sessionExpiredCollectors.containsKey(key(seq, collector));
+  }
+
+  /**
+   * 이번 회차에 <b>돌릴 수 있는 자리가 하나도 남지 않았는가</b> — 진입 지점의 건너뛰기 판정이다.
+   *
+   * <h2>왜 '하나라도 중단' 이 아니라 '전부 중단' 인가</h2>
+   *
+   * <p>스케줄러가 다룰 수 있는 최소 단위는 <b>몰 한 회차</b>다. 그러니 "하나라도 중단됐으면 물러난다" 로 두면 수집기가 둘인 몰에서 한쪽 세션이 죽는 것만으로
+   * 멀쩡한 다른 쪽까지 선다 — 그것이 이 세분화가 고치는 결함이다. 반대로 <b>전부 중단</b>이면 물러나는 것이 맞다. 그 회차에 돌릴 수 있는 자리가 없으므로
+   * 브라우저를 띄우는 것 자체가 헛일이다.
+   *
+   * <h2>자리 세는 법 — {@code MallOrderUpdater.planCollectors} 와 같은 규칙</h2>
+   *
+   * <p>세션 주입 수집기는 자기가 선언한 {@code replaces} 자리를 <b>대체</b>한다. 그래서 자리 하나는 (자격증명 수집기 이름, 그 자리를 대체하는 세션
+   * 수집기 이름)의 묶음이고, 그중 <b>하나라도</b> 중단돼 있으면 그 자리는 이번 회차에 못 돈다. 계획을 짜는 규칙과 다르게 세면 "돌 수 있는데 물러나는" 회차가
+   * 생기고, 그 몰은 아무것도 모으지 않으면서 로그도 남기지 않는다.
+   *
+   * <h2>지금 배선에서 이 값이 true 가 되는 몰은 없다 — 그것이 정상이다</h2>
+   *
+   * <p>중단은 세션 주입 수집기에만 걸리고, 지금 세션 경로가 붙은 몰은 자격증명 수집기 자리를 하나 더 갖고 있다. 즉 그 자리가 살아 있어 언제나 false 다.
+   * <b>false 를 돌려주는 것이 이 함수의 일이다</b> — 예전에는 같은 상황에서 true 를 돌려주어 멀쩡한 수집기까지 멈췄다. 어느 몰의 모든 자리가 세션 경로로
+   * 덮이는 날 true 가 되고, 그때는 물러나는 것이 맞다.
+   *
+   * <p>대가는 <b>죽은 세션 수집기를 회차마다 한 번 더 두드리는 것</b>이다. 그 자리는 안에서 {@code SKIPPED} 로 물러나지만 브라우저는 한 번 뜬다.
+   * 주기 하한이 {@code CollectIntervalPolicy.DEFAULT_MIN_MINUTES} 분이라 하루 몇 번으로 묶여 있고, 그것을 없애려면 수집 계획에 "이
+   * 자리는 건너뛰라" 를 넘길 수 있어야 한다 — 그 배선은 이 클래스 밖이라 인계 메모에 적어 두었다.
+   *
+   * @param seq 쇼핑몰 시퀀스
+   * @return 이 몰의 모든 수집기 자리가 세션 만료로 중단돼 있으면 true
+   */
+  public boolean allCollectorsSuspendedForExpiredSession(String seq) {
+    if (isBlank(seq)) {
+      return false;
+    }
+    String seqKey = seq.trim();
+    if (!hasAnySuspension(seqKey)) {
+      // 값싼 것부터 본다. 대부분의 회차는 중단 기록이 아예 없으므로 여기서 끝난다.
+      return false;
+    }
+    MallRegistry mall = MallRegistry.bySeq(seqKey).orElse(null);
+    if (mall == null) {
+      // 등록되지 않은 몰은 자리를 셀 수 없다. 어차피 수집기가 없어 돌릴 것도 없으므로 물러난다.
+      return true;
+    }
+    for (List<String> position : collectorPositions(mall)) {
+      boolean dead = false;
+      for (String name : position) {
+        if (isSuspendedForExpiredSession(seqKey, name)) {
+          dead = true;
+          break;
+        }
+      }
+      if (!dead) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * 이 몰에서 지금 중단돼 있는 수집기 이름들. 로그와 검사용이다.
+   *
+   * @param seq 쇼핑몰 시퀀스
+   * @return 중단된 수집기 이름. 없으면 빈 집합
+   */
+  Set<String> suspendedCollectors(String seq) {
+    Set<String> names = new LinkedHashSet<>();
+    if (isBlank(seq)) {
+      return names;
+    }
+    String seqKey = seq.trim();
+    for (ExpiredCollector key : sessionExpiredCollectors.keySet()) {
+      if (key.seqMall().equals(seqKey)) {
+        names.add(key.collector());
+      }
+    }
+    return names;
+  }
+
+  /**
+   * 이 몰의 세션 만료 일시중단을 전부 푼다 (Phase 5-10).
    *
    * <p><b>사람이 무언가를 한 순간에만 부른다.</b> 세션이 되살아났는지는 실제로 주입해 봐야만 알 수 있어서, 시간이 지났다는 이유로 스스로 풀면 죽은 세션으로 몰을
    * 계속 두드리게 된다. 반대로 아무도 풀지 않으면 사용자가 다시 로그인해도 다음 기동까지 수집이 돌아오지 않는다.
    *
-   * <p>그래서 지금 부르는 곳은 <b>사용자가 그 몰을 직접 골라 보낸 자동수집 요청</b>({@code AdminController.autoCollectSelected})
+   * <p><b>몰 단위인 것이 맞다.</b> 사용자가 화면에서 고르는 것은 몰이고, 그 몰에 세션을 다시 떠 준 것이므로 그 몰의 세션 자리는 전부 다시 시도할 자격이 있다.
+   * 그리고 중단은 세션 주입 수집기에만 걸리므로, 이 호출이 자격증명 수집기의 무언가를 함께 되돌리는 일은 없다. 자리를 하나만 풀어야 하는 경우는 {@link
+   * #resumeAfterSessionRecovery(String, String)} 를 쓴다.
+   *
+   * <p>지금 부르는 곳은 <b>사용자가 그 몰을 직접 골라 보낸 자동수집 요청</b>({@code AdminController.autoCollectSelected})
    * 하나다. 세션 캡처를 마친 직후에도 풀리는 것이 자연스러운데, 그 호출은 캡처 완료 경로에 붙어야 한다.
    *
    * @param seq 쇼핑몰 시퀀스
-   * @return 실제로 중단 중이어서 풀었으면 true
+   * @return 실제로 중단 중이어서 하나라도 풀었으면 true
    */
   public boolean resumeAfterSessionRecovery(String seq) {
-    if (seq == null || seq.isEmpty()) {
+    if (isBlank(seq)) {
       return false;
     }
-    boolean released = sessionExpiredMalls.remove(seq) != null;
+    String seqKey = seq.trim();
+    Set<String> released = suspendedCollectors(seqKey);
+    if (released.isEmpty()) {
+      return false;
+    }
+    sessionExpiredCollectors.keySet().removeIf(key -> key.seqMall().equals(seqKey));
+    logger.info("쇼핑몰 seq={} 수집기 {} 의 세션 만료 일시중단 해제 — 다음 회차부터 예정대로 수집한다", seq, released);
+    return true;
+  }
+
+  /**
+   * 이 몰의 <b>이 수집기</b>만 일시중단에서 푼다 (Phase 5-10).
+   *
+   * <p>지금 프로덕션 호출부는 없다 — 사용자가 화면에서 고르는 것이 몰이라 {@link #resumeAfterSessionRecovery(String)} 만 쓰인다.
+   * 그래서 <b>일부러 공개하지 않는다.</b> 쓰이지 않는 공개 API 는 "있으니 배선된 것" 으로 오인되기 쉬운데, 이 프로젝트가 반복해서 겪은 결함이 정확히 그
+   * 형태다. 수집기 하나를 콕 집어 되살릴 통로(예: 캡처 완료 경로가 그 수집기 이름을 알고 부르는 것)가 생기면 그때 공개한다.
+   *
+   * @param seq 쇼핑몰 시퀀스
+   * @param collector 수집기 이름
+   * @return 실제로 중단 중이어서 풀었으면 true
+   */
+  boolean resumeAfterSessionRecovery(String seq, String collector) {
+    if (isBlank(seq) || isBlank(collector)) {
+      return false;
+    }
+    boolean released = sessionExpiredCollectors.remove(key(seq, collector)) != null;
     if (released) {
-      logger.info("쇼핑몰 seq={} 세션 만료 일시중단 해제 — 다음 회차부터 예정대로 수집한다", seq);
+      logger.info("쇼핑몰 seq={} 수집기 {} 의 세션 만료 일시중단 해제", seq, collector);
     }
     return released;
+  }
+
+  /**
+   * 이 몰이 선언한 세션 주입 수집기 이름들.
+   *
+   * <p>DB 를 읽지 않는다 — 선언은 {@link MallRegistry} 가 갖고 있고, 만료 회차에 DB 를 한 번 더 왕복할 이유가 없다.
+   */
+  private static List<String> sessionCollectorNames(String seq) {
+    return MallRegistry.bySeq(seq)
+        .map(
+            mall ->
+                mall.sessionCollectors().stream()
+                    .map(MallRegistry.SessionCollectorSpec::name)
+                    .toList())
+        .orElse(List.of());
+  }
+
+  /**
+   * 이 몰의 수집기 '자리' 목록. 자리 하나는 그 자리를 채울 수 있는 이름들의 묶음이다.
+   *
+   * <p>{@code MallOrderUpdater.planCollectors} 의 대체 규칙을 그대로 옮겼다 — 세션 수집기는 자기 {@code replaces} 자리를
+   * 대체하고, 어느 자리와도 맞지 않는 세션 수집기는 뒤에 덧붙는다. 두 규칙이 갈리면 "돌 수 있는데 물러나는" 회차가 생긴다.
+   */
+  private static List<List<String>> collectorPositions(MallRegistry mall) {
+    List<List<String>> positions = new ArrayList<>();
+    List<String> substituted = new ArrayList<>();
+    for (MallRegistry.CollectorSpec spec : mall.collectors()) {
+      List<String> names = new ArrayList<>();
+      names.add(spec.name());
+      for (MallRegistry.SessionCollectorSpec session : mall.sessionCollectors()) {
+        if (spec.name().equals(session.replaces())) {
+          names.add(session.name());
+          substituted.add(session.name());
+        }
+      }
+      positions.add(names);
+    }
+    for (MallRegistry.SessionCollectorSpec session : mall.sessionCollectors()) {
+      if (!substituted.contains(session.name())) {
+        positions.add(List.of(session.name()));
+      }
+    }
+    return positions;
+  }
+
+  /** 이 몰에 중단된 자리가 하나라도 있는가. */
+  private boolean hasAnySuspension(String seqKey) {
+    for (ExpiredCollector key : sessionExpiredCollectors.keySet()) {
+      if (key.seqMall().equals(seqKey)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * 자리 하나를 가리키는 키를 만든다 — <b>{@link ExpiredCollector} 를 만드는 곳은 여기 하나뿐이다</b>.
+   *
+   * <p>공백을 걷어내는 규칙이 거는 쪽(중단)과 보는 쪽(조회·해제)에 각각 적혀 있으면 언젠가 한쪽만 바뀐다. 그러면 <b>건 자리와 보는 자리가 서로 다른 키</b>가
+   * 되어, 중단은 걸려 있는데 진입 지점은 그것을 못 보고 죽은 세션으로 매 회차 몰을 두드린다. 반대 방향이면 사람이 세션을 다시 떠도 해제가 아무 자리도 풀지 못한다.
+   * 어느 쪽이든 로그에는 흔적이 남지 않는다 — 규칙을 한 곳에 두면 그 갈림 자체가 성립하지 않는다.
+   *
+   * @param seq 쇼핑몰 시퀀스. 비어 있지 않음을 호출부가 이미 확인했다
+   * @param collector 수집기 이름. 비어 있지 않음을 호출부가 이미 확인했다
+   * @return 일시중단 맵의 키
+   */
+  private static ExpiredCollector key(String seq, String collector) {
+    return new ExpiredCollector(seq.trim(), collector.trim());
+  }
+
+  /** 자리 하나를 중단으로 표시한다. 이미 중단 중이었으면 false — 호출부가 그것으로 기록 여부를 가른다. */
+  private boolean markSuspended(String seq, String collector, String reason) {
+    if (isBlank(collector)) {
+      return false;
+    }
+    return sessionExpiredCollectors.putIfAbsent(key(seq, collector), reason) == null;
+  }
+
+  /** 만료 한 행. 두 경로(스케줄·즉시수집)가 같은 코드·단계로 적도록 여기 한 곳에 둔다. */
+  private void saveExpiryLog(String seq, String mallName, String reason, long startedAt) {
+    saveSkipLog(
+        parseSeq(seq),
+        mallName,
+        MallCollectOutcome.SESSION_EXPIRED_CODE,
+        reason,
+        MallCollectOutcome.STEP_SESSION_EXPIRY,
+        startedAt);
+  }
+
+  /** 사유가 비어 있으면 코드라도 남긴다. 사유 없는 건너뜀은 화면에서 원인 없는 공백으로 보인다. */
+  private static String reasonOrDefault(String reason) {
+    return (reason == null || reason.isBlank()) ? MallCollectOutcome.SESSION_EXPIRED_CODE : reason;
+  }
+
+  /** null·빈 문자열·공백만 있는 값. */
+  private static boolean isBlank(String value) {
+    return value == null || value.isBlank();
   }
 
   /** 문자열 seq 를 로그 저장용 정수로. 숫자가 아니면 0 이다(예전 저장 형태 그대로). */

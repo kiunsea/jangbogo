@@ -8,6 +8,8 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -69,7 +71,13 @@ class ImmediateCollectResponseConsistencyTest {
   /** 수집 판정을 담는 통 전부. 한 seq 는 이 중 하나에만 담겨야 한다. */
   private static final List<String> COLLECT_BUCKETS =
       List.of(
-          "processed", "skipped", "decryptionFailed", "blocked", "notQualified", "sessionExpired");
+          "processed",
+          "skipped",
+          "decryptionFailed",
+          "blocked",
+          "notQualified",
+          "sessionExpired",
+          "invalidSeq");
 
   private String previousUrl;
   private String dbUrl;
@@ -243,6 +251,67 @@ class ImmediateCollectResponseConsistencyTest {
     assertTrue(listOf(res, "skipped").isEmpty());
     // 자격 없는 3번은 수집 단계까지 가지 않으므로 스케줄 등록도 시도하지 않는다.
     assertEquals(List.of("1", "2"), listOf(res, "scheduleFailed"));
+    assertOneBucketPerSeq(res);
+  }
+
+  // ---------------------------------------------------------------
+  // seq 형태 검증 — 잘못된 요청과 '몰 없음' 은 다른 사실이다
+  // ---------------------------------------------------------------
+
+  @Test
+  @DisplayName("쇼핑몰 번호 형태가 아닌 seq 는 '계정 연결 끊김' 으로 그려지는 목록에 담기지 않는다")
+  void aMalformedSeqIsNotReportedAsADisconnectedAccount() throws Exception {
+    // 예전에는 DAO 가 '몰 없음' 으로 돌려주어 skipped 로 흘렀다. 대시보드는 skipped 에 담긴 seq 를
+    // account_status=0 으로 되돌리므로, 사용자는 끊긴 계정도 없는데 원인을 자기 계정에서 찾는다.
+    JsonNode res = controller.autoCollectSelected(request(true, "1 OR 1=1"));
+
+    assertEquals(List.of("1 OR 1=1"), listOf(res, "invalidSeq"), "형태가 깨진 seq 를 따로 보고하지 않는다.");
+    assertTrue(listOf(res, "skipped").isEmpty(), "형태가 깨진 seq 가 '계정 연결 끊김' 목록에 담겼다.");
+    assertTrue(listOf(res, "notQualified").isEmpty());
+    assertTrue(listOf(res, "blocked").isEmpty());
+    assertTrue(res.get("blockedReasons").has("1 OR 1=1"), "사유가 응답에 실리지 않았다.");
+    assertOneBucketPerSeq(res);
+
+    // 대시보드는 사유를 data-seq 로 DOM 을 찾아 그린다. 없는 몰에는 그릴 자리가 없으므로,
+    // 이 안내 문구가 사용자에게 닿는 유일한 통로다.
+    String message = res.get("message").asText();
+    assertTrue(message.contains("형식"), "안내가 '요청이 잘못됐다' 를 말하지 않는다: " + message);
+  }
+
+  @Test
+  @DisplayName("형태가 깨진 seq 는 조회도 만료 해제도 시도하지 않는다")
+  void aMalformedSeqNeverReachesTheRestOfTheLoop() throws Exception {
+    controller.autoCollectSelected(request(true, "abc"));
+
+    // 여기까지 갔다면 그 뒤의 getMall·스케줄 등록도 함께 돌았다는 뜻이다.
+    verify(scheduler, never()).resumeAfterSessionRecovery("abc");
+    verify(scheduler, never()).scheduleMall(anyString(), anyInt());
+  }
+
+  @Test
+  @DisplayName("숫자지만 없는 몰은 예전대로 skipped 로 남는다 — 형태 검증이 판정을 넓히지 않는다")
+  void anAbsentButWellFormedSeqKeepsItsOldBucket() throws Exception {
+    // '형태가 잘못됐다' 와 '그런 몰이 없다' 는 다른 사실이고 사람이 할 일도 다르다. 형태 검증이
+    // 뒤쪽까지 삼키면 DB 에서 몰이 사라진 진짜 사고가 '요청이 잘못됐다' 로 오인된다.
+    JsonNode res = controller.autoCollectSelected(request(true, "999"));
+
+    assertEquals(List.of("999"), listOf(res, "skipped"));
+    assertTrue(listOf(res, "invalidSeq").isEmpty());
+    assertOneBucketPerSeq(res);
+  }
+
+  @Test
+  @DisplayName("형태가 멀쩡한 몰은 같은 요청에 섞여 있어도 그대로 수집된다")
+  void wellFormedSeqsAreUnaffectedByAMalformedNeighbour() throws Exception {
+    insertMall(1, "testmall", 30);
+    when(manager.collect(any(), any(), any(), any()))
+        .thenReturn(MallCollectOutcome.success(List.of()));
+
+    JsonNode res = controller.autoCollectSelected(request(true, "1", "  ", "abc"));
+
+    assertEquals(List.of("1"), listOf(res, "processed"), "멀쩡한 몰의 수집이 함께 막혔다.");
+    assertEquals(List.of("1"), listOf(res, "scheduled"), "멀쩡한 몰의 주기 등록이 함께 막혔다.");
+    assertEquals(List.of("  ", "abc"), listOf(res, "invalidSeq"));
     assertOneBucketPerSeq(res);
   }
 

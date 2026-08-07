@@ -18,6 +18,7 @@ import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.context.annotation.Profile;
 
 /**
@@ -320,6 +321,142 @@ class SecurityHardeningTest {
   }
 
   // ---------------------------------------------------------------
+  // 대조군 — 판별식 자체가 살아 있는가
+  //
+  // 위의 스캔은 전부 "offender 가 0건이다" 형태다. 그래서 정규식을 아무것도 맞지 않게 바꾸거나
+  // codeOf() 가 빈 문자열을, daoSources() 가 빈 목록을 돌려주게 만들면 <b>전부 그대로 초록</b>이
+  // 된다. 저장소가 지금 깨끗하다는 사실은 판별식이 살아 있다는 근거가 못 된다 — 죽은 판별식도
+  // 같은 결론에 도달한다.
+  //
+  // 가정이 아니라 이 프로젝트가 실제로 두 번 겪은 형태다.
+  //
+  //  1) 세션 만료 감지가 단위 테스트 25건 초록인 채로 프로덕션 호출자 0건이었다.
+  //  2) 배포 산출물 가드는 판별식(isForbidden)을 무조건 false 로 바꿔도 테스트 5건이 전부
+  //     통과했다 — 실물 ZIP 검사가 "금지 엔트리 0건" 이라는 같은 결론을 냈기 때문이다.
+  //
+  // 둘 다 '초록인데 아무 일도 안 하는' 상태였고, 가드가 없는 것보다 나쁘다 — 없으면 사람이
+  // 알기라도 하는데 이쪽은 아무도 모른 채 지나간다. 그래서 아래는 저장소 상태를 보지 않고
+  // 판별식에 "걸려야 하는 입력" 과 "걸리면 안 되는 입력" 을 직접 넣는다.
+  // ---------------------------------------------------------------
+
+  @Test
+  @DisplayName("대조군: 작은따옴표 조립 정규식이 실제 조립 형태를 잡는다")
+  void theQuoteConcatPatternStillCatchesConcatenation() {
+    // 여는 쪽·닫는 쪽·줄바꿈을 끼운 형태를 모두 넣는다. 첫 줄은 실제로 놓쳤던 그 형태다 —
+    // 예전 가드가 "'" + 만 봐서 리터럴 끝에 붙은 따옴표를 통째로 지나쳤다.
+    for (String concatenated :
+        new String[] {
+          "\"SELECT * FROM jbg_order WHERE serial_num='\" + serial + \"'\"",
+          "\"UPDATE jbg_mall SET name='\"\n          + name",
+          "query = query + \"' AND account_status=1\""
+        }) {
+      assertTrue(
+          SQL_QUOTE_CONCAT.matcher(concatenated).find(),
+          "조립인데 정규식이 잡지 못했다. 이 상태면 dao 전수 스캔은 무엇이 있어도 초록이다: " + concatenated);
+    }
+
+    // 반대 방향도 본다. 정상 코드가 걸리기 시작하면 사람은 정규식을 고치는 대신 예외 목록을
+    // 만들거나 스캔을 꺼 버린다 — 가드가 죽는 가장 흔한 경로다.
+    for (String bound :
+        new String[] {
+          "\"SELECT * FROM jbg_order WHERE serial_num=?\"",
+          "conn.txPstmtExecuteUpdate(query, serial, name)",
+          "log.info(\"주문 {} 저장\", seq)"
+        }) {
+      assertFalse(SQL_QUOTE_CONCAT.matcher(bound).find(), "바인딩·로그인데 조립으로 걸렸다(오탐): " + bound);
+    }
+  }
+
+  @Test
+  @DisplayName("대조군: 따옴표 없는 숫자 자리 정규식이 실제 조립 형태를 잡는다")
+  void theNumericConcatPatternStillCatchesConcatenation() {
+    for (String concatenated :
+        new String[] {
+          "\"SELECT * FROM jbg_mall WHERE seq=\" + seq",
+          "\"DELETE FROM jbg_item WHERE seq_order = \" + seqOrder",
+          "\"UPDATE jbg_mall SET account_status=\"\n          + status"
+        }) {
+      assertTrue(
+          SQL_NUMERIC_CONCAT.matcher(concatenated).find(),
+          "숫자 자리 조립인데 정규식이 잡지 못했다. getMall·checkAccountStatus 가 필터 없는 요청 문자열을"
+              + " WHERE 절까지 흘려보내던 형태가 바로 이것이다: "
+              + concatenated);
+    }
+
+    for (String bound :
+        new String[] {
+          "\"SELECT * FROM jbg_mall WHERE seq=?\"",
+          "\"UPDATE jbg_mall SET name=? WHERE seq=?\"",
+          "log.error(\"seq={} 갱신 실패\", seq)"
+        }) {
+      assertFalse(SQL_NUMERIC_CONCAT.matcher(bound).find(), "바인딩·로그인데 조립으로 걸렸다(오탐): " + bound);
+    }
+  }
+
+  @Test
+  @DisplayName("대조군: SQLException 재던지기 정규식이 되돌리지 않는 catch 를 잡는다")
+  void theRethrowPatternStillCatchesNakedRethrow() {
+    String naked = "catch (SQLException e) { log.error(\"실패\", e); throw e; }";
+    assertTrue(
+        SQLEXCEPTION_RETHROW.matcher(naked).find(),
+        "되돌리지 않고 던지는 catch 를 잡지 못했다. 이 상태면 롤백 검사는 무엇이 있어도 초록이다.");
+
+    // 되돌리는 catch 도 형태 자체는 걸려야 한다 — 걸린 뒤 rollbackQuietly 유무로 가르는 것이
+    // 프로덕션 검사의 방식이다. 여기서 안 걸리면 그 두 번째 단계가 통째로 죽은 코드가 된다.
+    String guarded = "catch (SQLException e) { rollbackQuietly(conn); throw e; }";
+    Matcher matcher = SQLEXCEPTION_RETHROW.matcher(guarded);
+    assertTrue(matcher.find(), "되돌리는 catch 가 형태 검사에서 아예 안 걸린다 — 가르는 단계가 죽었다.");
+    assertTrue(matcher.group().contains("rollbackQuietly"), "걸린 구간이 catch 블록 안을 담지 못한다.");
+
+    // 로그만 남기고 삼키는 catch 는 애초에 대상이 아니다.
+    assertFalse(
+        SQLEXCEPTION_RETHROW.matcher("catch (SQLException e) { log.error(\"실패\", e); }").find(),
+        "던지지 않는 catch 까지 걸린다(오탐).");
+  }
+
+  @Test
+  @DisplayName("대조군: 주석 제거가 주석만 지우고 실행되는 코드는 남긴다")
+  void theCommentStripperKeepsExecutableCode(@TempDir Path tempDir) throws Exception {
+    // codeOf 가 빈 문자열을 돌려주게 바뀌면 위 스캔의 assertFalse 는 전부 통과한다. 반대로
+    // 주석을 안 걷어내면 "이렇게 하면 안 된다" 를 적은 javadoc 이 스스로 걸려, 설명을 적을수록
+    // 가드가 빨개진다 — 그때 사람은 설명을 지우거나 가드를 끈다. 양쪽을 함께 못 박는다.
+    Path sample = tempDir.resolve("Sample.java");
+    Files.writeString(
+        sample,
+        "/** javadoc 예시: \"col='\" + value 처럼 쓰면 안 된다. */\n"
+            + "class Sample {\n"
+            + "  // 죽은 코드: \"WHERE seq=\" + seq\n"
+            + "  String query = \"WHERE seq=?\";\n"
+            + "}\n",
+        StandardCharsets.UTF_8);
+
+    String code = codeOf(sample);
+
+    assertFalse(
+        SQL_QUOTE_CONCAT.matcher(code).find(), "javadoc 에 적은 예시가 코드로 세어졌다 — 설명을 적을수록 가드가 빨개진다.");
+    assertFalse(SQL_NUMERIC_CONCAT.matcher(code).find(), "주석으로 남겨 둔 죽은 코드가 세어졌다 — 같은 이유로 오탐이 된다.");
+    assertTrue(
+        code.contains("WHERE seq=?"),
+        "주석 제거가 실행되는 코드까지 지웠다. 이 상태면 dao 스캔은 빈 문자열을 훑으므로 무엇이 있어도 초록이다.");
+  }
+
+  @Test
+  @DisplayName("대조군: dao 전수 스캔이 실제로 파일을 훑는다")
+  void theDaoScanActuallyVisitsFiles() throws Exception {
+    // daoSources() 가 빈 목록을 돌려주면 아래 두 전수 스캔은 offender 0건으로 초록이 된다.
+    // "위반이 없다" 와 "아무것도 보지 않았다" 는 같은 모양이라 구분되지 않는다.
+    List<String> scanned = daoSources().stream().map(SecurityHardeningTest::reportName).toList();
+
+    assertFalse(scanned.isEmpty(), "dao 전수 스캔이 파일을 하나도 찾지 못했다 — 작업 디렉터리가 프로젝트 루트가 아니거나 경로가 바뀌었다.");
+    for (String required :
+        new String[] {
+          "JbgOrderDataAccessObject.java", "JbgMallDataAccessObject.java", "LocalDBConnection.java"
+        }) {
+      assertTrue(scanned.contains(required), "dao 스캔이 " + required + " 를 건너뛴다: " + scanned);
+    }
+  }
+
+  // ---------------------------------------------------------------
   // B-4 — 인증 화이트리스트에 actuator 를 남겨 두지 않는다
   // ---------------------------------------------------------------
 
@@ -333,6 +470,10 @@ class SecurityHardeningTest {
           Files.readString(
               Path.of("src/main/java/com/jiniebox/jangbogo/" + file), StandardCharsets.UTF_8);
       String code = source.replaceAll("(?m)^\\s*//.*$", "");
+
+      // 대조군. 아래는 "없다" 형태라, 경로가 엉뚱한 파일을 가리키거나 주석 제거가 코드까지
+      // 지워 code 가 비면 그대로 초록이 된다. 먼저 '정말 읽었는가' 를 묻는다.
+      assertTrue(code.contains("class "), file + " 를 읽지 못했거나 주석 제거가 코드까지 지웠다 — 아래 단언이 항상 통과한다.");
 
       assertFalse(code.contains("\"/actuator"), file + " 에 actuator 인증 예외가 남아 있다.");
     }

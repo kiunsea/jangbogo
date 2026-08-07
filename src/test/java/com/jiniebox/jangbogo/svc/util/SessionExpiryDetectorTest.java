@@ -264,6 +264,14 @@ class SessionExpiryDetectorTest {
             .replaceAll("(?s)/\\*\\*.*?\\*/", "")
             .replaceAll("(?m)^\\s*//.*$", "");
 
+    // 대조군. 아래는 전부 "없다" 형태의 단언이라, 소스를 못 읽었거나 주석 제거가 코드까지
+    // 지워서 code 가 빈 문자열이 되면 <b>전부 그대로 초록</b>이 된다. 이 세션에서 실제로 두 번
+    // 겪은 형태다 — 만료 감지는 테스트 25건이 초록인 채 프로덕션 호출자가 0건이었고, 배포
+    // 산출물 가드는 판별식을 무력화해도 5건이 전부 통과했다. 먼저 '정말 읽었는가' 를 묻는다.
+    assertTrue(
+        code.contains("class SessionExpiryDetector"),
+        "감시 대상 소스를 읽지 못했거나 주석 제거가 실행되는 코드까지 지웠다. 빈 문자열에는 어떤 시계도 없으므로 아래 단언은 항상 통과한다.");
+
     String[] clocks = {"System.currentTimeMillis", "Instant.now", "LocalDateTime.now", "new Date("};
     for (String clock : clocks) {
       assertFalse(code.contains(clock), "만료 판정이 시계를 읽는다: " + clock);

@@ -1,5 +1,6 @@
 package com.jiniebox.jangbogo.packaging;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
@@ -15,8 +16,10 @@ import java.util.Locale;
 import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
+import java.util.zip.ZipOutputStream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 /**
  * 배포 산출물에 <b>개발자 개인 데이터</b>가 실리지 않게 하는 감시 (G2).
@@ -60,7 +63,14 @@ class DistributionHygieneTest {
   /** 통째로 개인 데이터인 디렉터리. {@code logs} 는 DEBUG 에 구매 상세가 남고, {@code exports} 는 내보낸 구매 내역 자체다. */
   private static final List<String> FORBIDDEN_PREFIXES = List.of("db/", "logs/", "exports/");
 
-  /** 값이 든 설정 파일. {@code .example} 은 값이 없는 서식이라 배포본에 필요하고, 이름이 달라 여기 걸리지 않는다. */
+  /**
+   * 값이 든 설정 파일. 이름이 정확히 같을 때만 걸리므로 {@code .example} 은 여기 걸리지 않는다.
+   *
+   * <p><b>서식이 배포본에 필요해서 허용하는 것이 아니다.</b> 지금 {@code packageDist} 의 {@code include} 목록에는 {@code
+   * .example} 이 없고, v0.18.1 실측으로도 릴리스 ZIP 300 개 엔트리에 {@code .example} 은 0 건이다. 허용은 <b>방어적 대비</b>다 —
+   * 나중에 서식을 배포본에 담기로 하거나 이름 비교를 접미사 일치로 바꾸는 순간 값이 비어 있는 서식이 개인 데이터로 걸리는데, 그때 사람은 판별식을 고치는 대신 느슨하게
+   * 만든다. 그것이 가드가 죽는 가장 흔한 경로다.
+   */
   private static final List<String> FORBIDDEN_NAMES =
       List.of("mall_account.yml", "admin.properties");
 
@@ -111,16 +121,26 @@ class DistributionHygieneTest {
   }
 
   @Test
-  @DisplayName("설정 서식(.example)은 검사에 걸리지 않는다")
+  @DisplayName("설정 서식(.example)이 허용된다는 근거가 검사에 남아 있다")
   void theConfigTemplateIsNotTreatedAsPersonalData() throws Exception {
-    // 금지 이름을 '접미사 일치' 로 바꿔 놓으면 mall_account.yml.example 까지 함께 걸린다. 그러면
-    // 사람이 검사를 통과시키려고 서식 파일을 배포본에서 빼게 되고, 정작 사용자는 설정을 만들 근거를
-    // 잃는다. 검사 의도가 주석으로 남아 있어야 다음 사람이 그 방향으로 고치지 않는다.
+    // 금지 이름을 '접미사 일치' 로 바꿔 놓으면 mall_account.yml.example 까지 함께 걸린다. 지금은
+    // 서식이 배포본에 담기지 않으므로(아래 참조) 당장 터지지는 않지만, 저장소 트리를 검사하는
+    // 다른 층과 규칙이 갈라지고 서식을 담기로 하는 순간 정상 파일이 개인 데이터로 걸린다.
+    // 그때 사람은 판별식을 고치는 대신 느슨하게 만든다.
+    //
+    // 사실 관계를 정확히 적어 둔다: v0.18.1 실측으로 릴리스 ZIP 300 개 엔트리에 .example 은
+    // 0 건이고, packageDist 의 include 목록에도 없다. 즉 허용 규칙은 '배포본에 필요해서' 가
+    // 아니라 방어적 대비다.
+    //
+    // 이 단언은 build.gradle 의 주석 문구에 걸려 있다 — 지금 packageDist 블록에서 '.example'
+    // 이 등장하는 곳은 그 주석뿐이다. 주석을 손보면 여기가 함께 빨개지므로, 문구를 바꿀 때는
+    // '.example' 이라는 표기를 남겨 두거나 이 단언을 같이 옮겨야 한다.
     String block = packageDistBlock();
 
     assertTrue(
         block.contains(".example"),
-        "설정 서식(.example)이 허용된다는 근거가 검사에 없다. 이름 비교를 접미사 일치로 바꾸면 서식까지 막혀 배포본에서 설정 예시가 사라진다.");
+        "설정 서식(.example)이 허용된다는 근거가 검사에 없다. 이름 비교를 접미사 일치로 바꾸면 값이 비어 있는 서식까지"
+            + " 개인 데이터로 걸리고, 그때 사람은 판별식을 고치는 대신 느슨하게 만든다.");
   }
 
   // ---------------------------------------------------------------
@@ -178,7 +198,14 @@ class DistributionHygieneTest {
           "Jangbogo/data/collected.sqlite3",
           "DB/JANGBOGO.DB"); // 대문자로 남겨도 빠져나가지 않는다
 
-  /** 걸리면 안 되는 엔트리 이름. 전부 배포본에 실제로 들어가는 것들이다. */
+  /**
+   * 걸리면 안 되는 엔트리 이름.
+   *
+   * <p>뒤의 넷은 배포본에 실제로 들어가는 것들이다. 앞의 {@code .example} 셋은 <b>지금 배포본에 들어가지 않는다</b> — v0.18.1 실측으로 릴리스
+   * ZIP 300 개 엔트리에 {@code .example} 은 0 건이고 {@code packageDist} 의 {@code include} 목록에도 없다. 그래도 함께
+   * 두는 이유는 이름 비교가 접미사 일치로 바뀌는 순간 <b>값이 비어 있는 서식이 개인 데이터로 걸리기</b> 때문이다. 그 오탐이 나면 사람은 판별식을 고치는 대신
+   * 느슨하게 만든다.
+   */
   private static final List<String> ALLOWED_SAMPLES =
       List.of(
           "config/mall_account.yml.example",
@@ -207,15 +234,85 @@ class DistributionHygieneTest {
     }
 
     // 오탐도 같이 막는다. 정상 파일이 걸리기 시작하면 사람은 판별식을 고치는 대신 느슨하게
-    // 만들거나 꺼 버린다 — 가드가 죽는 가장 흔한 경로다. 특히 .example 은 값이 비어 있는
-    // 서식이라 배포본에 반드시 들어가야 하는 파일이다.
+    // 만들거나 꺼 버린다 — 가드가 죽는 가장 흔한 경로다. .example 은 지금 배포본에 담기지
+    // 않지만(ALLOWED_SAMPLES javadoc 참조) 이름 비교가 접미사 일치로 바뀌면 값이 비어 있는
+    // 서식이 개인 데이터로 걸리므로 미리 못 박아 둔다.
     for (String sample : ALLOWED_SAMPLES) {
       assertFalse(
           isForbidden(sample),
           sample
-              + " 는 배포본에 들어가야 하는 정상 파일인데 개인 데이터로 걸렸다. 이대로 두면 릴리스마다"
+              + " 를 개인 데이터로 잡았다. 값이 든 실제 파일만 막아야 한다. 이대로 두면 릴리스마다"
               + " 초록이 깨지고, 그러면 검사가 느슨해지거나 꺼진다.");
     }
+  }
+
+  @Test
+  @DisplayName("ZIP 엔트리 스캔이 실제로 엔트리를 훑고 금지 대상만 골라낸다")
+  void theArchiveScanActuallyReadsEntries(@TempDir Path tempDir) throws Exception {
+    // 2층(실물 ZIP 검사)은 build/distributions 가 없으면 assumeTrue 로 통째로 건너뛴다. CI 의
+    // test 실행에는 대개 ZIP 이 없으므로, 엔트리를 훑는 forbiddenEntries 는 사실상 어디에서도
+    // 실행되지 않은 채 '있으면 본다' 는 주장만 남는다. 그 상태에서 이 함수가 늘 빈 목록을
+    // 돌려주게 바뀌어도 알려 줄 것이 없다 — 저장소가 깨끗한 동안에는 결론이 같기 때문이다.
+    // 위의 isForbidden 대조군도 이 자리는 못 덮는다. 그쪽은 '이름 하나를 어떻게 판정하는가' 만
+    // 보고, 여기서 죽는 것은 '중앙 디렉터리를 정말 열어 이름을 꺼내는가' 다.
+    //
+    // 이 세션에서 실제로 두 번 겪은 형태다. (1) 세션 만료 감지는 단위 테스트 25건이 초록인 채
+    // 프로덕션 호출자가 0건이었고, (2) 이 파일의 isForbidden 을 무조건 false 로 바꿔도 나머지
+    // 검사가 전부 통과했다. 둘 다 '초록인데 아무 일도 안 하는' 상태였다.
+    //
+    // 그래서 실물 배포본이 아니라 여기서 만든 작은 ZIP 을 넣는다. 이름만 흉내 낸 빈 엔트리라
+    // 개인 데이터가 없고, @TempDir 안이라 build/ 아래의 배포본·사용자 DB 에 닿지 않는다.
+    // 파일명은 ASCII 로 둔다. 이 검사는 파일명 인코딩이 아니라 엔트리 판별을 재는 자리인데,
+    // 이름에 한글을 쓰면 OS 의 파일명 인코딩이 실패 원인으로 섞여 들어와 원인을 엉뚱한 데서 찾게 된다.
+    Path archive = tempDir.resolve("Jangbogo-control-sample.zip");
+    try (ZipOutputStream zip = new ZipOutputStream(Files.newOutputStream(archive))) {
+      for (String entry :
+          new String[] {
+            "Jangbogo.bat", // 정상 파일 — 걸리면 안 된다
+            "config/mall_account.yml.example", // 값이 없는 서식 — 걸리면 안 된다
+            "db/jangbogo.db", // 구매 내역 + 계정 암호화 키
+            "logs/jangbogo.log" // DEBUG 에 구매 상세가 남는다
+          }) {
+        zip.putNextEntry(new ZipEntry(entry));
+        zip.closeEntry();
+      }
+    }
+
+    assertEquals(
+        List.of("db/jangbogo.db", "logs/jangbogo.log"),
+        forbiddenEntries(archive),
+        "ZIP 안의 금지 엔트리를 그대로 집어내지 못했다. 이 상태면 실물 ZIP 검사는 무엇이 실려 있어도 초록이다 —"
+            + " '개인 데이터가 없다' 와 '아무것도 열어 보지 않았다' 가 같은 모양이라 구분되지 않는다.");
+  }
+
+  @Test
+  @DisplayName("packageDist 블록만 잘라 온다 — 파일 전체를 돌려주면 1층 검사가 전부 무의미해진다")
+  void thePackageDistBlockIsReallyJustThatBlock() throws Exception {
+    // 1층의 네 검사는 전부 block.contains(문자열) 하나에 걸려 있다. 그래서 블록 추출이
+    // build.gradle '파일 전체' 를 돌려주게 바뀌면 네 검사 모두 그대로 초록이다 — 필요한
+    // 문자열이 파일 어딘가에는 다 있기 때문이다. 그러면 "packageDist '안에' 산출물 검사가
+    // 살아 있다" 는 이 파일의 주장이 거짓이 되는데, 알려 줄 것이 하나도 없다.
+    //
+    // 이 세션에서 실제로 두 번 겪은 형태다. (1) 세션 만료 감지는 단위 테스트 25건이 초록인 채
+    // 프로덕션 호출자가 0건이었고, (2) 이 파일의 isForbidden 을 무조건 false 로 바꿔도 나머지
+    // 다섯 검사가 전부 통과했다. 판별부를 직접 두들기지 않는 가드는 죽어도 아무도 모른다.
+    String gradle = Files.readString(BUILD_GRADLE, StandardCharsets.UTF_8);
+    String block = packageDistBlock();
+
+    assertTrue(block.startsWith("{"), "블록이 여는 중괄호에서 시작하지 않는다 — 경계 계산이 깨졌다.");
+    assertTrue(block.endsWith("}"), "블록이 닫는 중괄호에서 끝나지 않는다 — 경계 계산이 깨졌다.");
+    assertTrue(
+        block.length() < gradle.length(), "블록 추출이 build.gradle 전체를 돌려준다 — 1층 검사가 아무 것도 보증하지 않는다.");
+
+    // 안쪽은 정말 packageDist 인가.
+    assertTrue(block.contains("archiveFileName"), "잘라 온 조각이 packageDist 블록이 아니다.");
+
+    // 바깥의 다른 태스크까지 삼키지 않는가. 이 둘은 packageDist 앞에 따로 선언돼 있다.
+    assertFalse(
+        block.contains("tasks.register('createJre')"), "블록이 createJre 태스크까지 삼켰다 — 경계가 무너졌다.");
+    assertFalse(
+        block.contains("tasks.register('generateSourceNotice')"),
+        "블록이 generateSourceNotice 태스크까지 삼켰다 — 경계가 무너졌다.");
   }
 
   // ---------------------------------------------------------------

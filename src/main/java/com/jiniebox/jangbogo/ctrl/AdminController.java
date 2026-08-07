@@ -25,6 +25,7 @@ import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Pattern;
 import javax.crypto.BadPaddingException;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.IvParameterSpec;
@@ -668,7 +669,68 @@ public class AdminController {
     /** 쓸 자격증명도 저장된 세션도 없다. */
     NOT_QUALIFIED,
     /** 저장해 둔 로그인 세션이 만료됐다. */
-    SESSION_EXPIRED
+    SESSION_EXPIRED,
+    /**
+     * 요청에 실린 {@code seq} 가 쇼핑몰 번호의 형태가 아니다 — <b>몰의 상태가 아니라 요청이 잘못된 것</b>이다.
+     *
+     * <h2>왜 기존 통에 넣지 않고 새로 만들었나</h2>
+     *
+     * <p>위 여섯 통은 전부 <b>존재하는 몰</b>에 대해 "사용자가 그 몰에 무엇을 해야 하는가" 를 말한다. 그런데 형태가 깨진 seq 에는 가리킬 몰 자체가
+     * 없어서, 어느 통에 넣어도 화면이 <b>없는 몰에 대한 조치</b>를 안내하게 된다.
+     *
+     * <ul>
+     *   <li>{@code SKIPPED} — 대시보드가 그 seq 를 {@code account_status=0} 으로 되돌린다. 끊을 계정이 애초에 없다.
+     *   <li>{@code BLOCKED} — "잠시 뒤 다시 시도" 인데, 형태가 잘못된 요청은 몇 번을 다시 보내도 같다.
+     *   <li>{@code NOT_QUALIFIED} — "'계정연결' 이나 '브라우저로 로그인' 을 먼저" 인데, 연결할 몰이 없다.
+     * </ul>
+     *
+     * <p>그래서 예전에는 {@code SKIPPED} 로 흘러 <b>"몰 없음"</b> 이 되었고, 사용자는 원인이 자기 계정에 있다고 읽었다.
+     *
+     * <h2>사용자에게 실제로 닿는 통로는 {@code message} 다</h2>
+     *
+     * <p>대시보드는 사유를 {@code data-seq} 로 DOM 을 찾아 그리므로, 존재하지 않는 seq 는 그릴 자리가 없어 조용히 버려진다. 그래서 이 통은 응답을
+     * 정직하게 유지하고 나중에 화면이 읽을 수 있게 남기는 것이고, <b>지금 사람이 읽는 것은 아래 안내 문구</b>다. 그 문구를 지우면 이 판정은 다시 보이지 않게
+     * 된다.
+     */
+    INVALID_SEQ
+  }
+
+  /**
+   * 쇼핑몰 번호로 받아들일 형태. {@code jbg_mall.seq} 는 SQLite INTEGER 컬럼이라 10진 숫자 외에는 존재할 수 없다.
+   *
+   * <p><b>{@code JbgMallDataAccessObject.readSeq} 와 같은 규칙이어야 한다.</b> 앞단이 더 엄격하면 DAO 가 조회했을 seq 를 먼저
+   * 거절하게 되어 <b>지금 잘 도는 요청이 깨진다.</b> 반대로 더 느슨하면 여기서 통과한 값이 DAO 에서 '몰 없음' 으로 떨어져, 고치려던 그 오안내가 그대로
+   * 남는다. 한쪽을 고치면 다른 쪽도 함께 봐야 한다.
+   *
+   * <p>깎지 않고 <b>거른다.</b> 예전 DAO 가 쓰던 {@code replaceAll("[^0-9]", "")} 같은 필터는 숫자가 섞인 문자열을 남은 숫자만 이어
+   * 붙인 <b>다른 유효한 seq</b> 로 바꿔 놓고 조용히 남의 몰을 읽는다.
+   */
+  private static final Pattern SEQ_DIGITS = Pattern.compile("[0-9]+");
+
+  /** 형태가 깨진 seq 의 사유. 화면에 그대로 나가므로 '몰의 문제' 가 아니라 '요청의 문제' 라고 말한다. */
+  private static final String REASON_INVALID_SEQ = "쇼핑몰 지정이 잘못되었습니다. (쇼핑몰 번호 형식 아님)";
+
+  /**
+   * 쇼핑몰 번호의 형태인가.
+   *
+   * @param seq 요청에 실려 온 값
+   * @return 10진 숫자이고 {@code long} 범위 안이면 true
+   */
+  private static boolean isWellFormedSeq(String seq) {
+    if (seq == null) {
+      return false;
+    }
+    String trimmed = seq.trim();
+    if (!SEQ_DIGITS.matcher(trimmed).matches()) {
+      return false;
+    }
+    try {
+      Long.parseLong(trimmed);
+      return true;
+    } catch (NumberFormatException tooManyDigits) {
+      // 자릿수가 long 을 넘었다. 존재할 수 없는 seq 라 형태가 잘못된 것과 같게 본다 (DAO 와 같은 판단).
+      return false;
+    }
   }
 
   /**
@@ -725,6 +787,14 @@ public class AdminController {
     // skipped 에도 담지 않는다. 대시보드는 skipped 목록의 몰을 '계정연결' 버튼으로 되돌리는데,
     // 세션만 쓰는 몰은 저장된 자격증명이 없는 것이 정상이라 그 안내가 처음부터 틀린 말이다.
     List<String> sessionExpired = new ArrayList<>();
+
+    // 쇼핑몰 번호의 형태가 아니어서 조회조차 하지 않은 seq.
+    //
+    // 위 통들과 반드시 따로 둔다. 저것들은 전부 '존재하는 몰의 상태' 인데 이쪽은 '요청이 잘못됐다'
+    // 이고, 사람이 할 일이 정반대다 — 몰에 무엇을 누르는 것이 아니라 요청을 고쳐 보내는 것이다.
+    // 예전에는 이 값이 DAO 에서 '몰 없음' 으로 떨어져 skipped 로 흘렀고, 그러면 대시보드가 그 몰을
+    // '계정 연결 끊김' 으로 되돌린다 — 끊긴 계정도 없는데 사용자는 원인을 자기 계정에서 찾는다.
+    List<String> invalidSeq = new ArrayList<>();
     ObjectNode blockedReasons = objectMapper.createObjectNode();
 
     // 수집은 끝났는데 그 뒤의 처리(만료 일시중단 기록·주기 스케줄 등록)가 실패한 몰.
@@ -762,6 +832,24 @@ public class AdminController {
         boolean collectPhaseDone = false;
 
         try {
+          // 형태 검증이 가장 앞이다.
+          //
+          // 여기서 걸린 값은 DB 조회도, 만료 해제도, 스케줄 등록도 하지 않는다. 뒤로 미루면 아래
+          // getMall 이 null 을 돌려주고 그것은 '그런 몰이 없다' 와 구분되지 않는다 — 사용자에게
+          // 원인이 잘못 전달되는 지점이 정확히 거기였다. 주입 자체는 DAO 의 바인딩이 이미 막고
+          // 있으므로, 여기서 하는 일은 방어가 아니라 <b>사유를 정확히 말하는 것</b>이다.
+          //
+          // 형태가 멀쩡한 seq 는 이 분기를 그대로 지나간다 — 기존 경로의 동작은 바뀌지 않는다.
+          if (!isWellFormedSeq(seq)) {
+            bucket = CollectBucket.INVALID_SEQ;
+            if (seq != null && !seq.trim().isEmpty()) {
+              // 사유 맵의 키는 seq 다. 비어 있는 키는 JSON 필드 이름이 될 수 없으므로 넣지 않는다.
+              blockedReasons.put(seq, REASON_INVALID_SEQ);
+            }
+            logger.warn("자동수집 요청에 쇼핑몰 번호 형태가 아닌 seq 가 섞여 있어 건너뛴다.");
+            continue;
+          }
+
           // 세션 만료 일시중단을 먼저 푼다 (Phase 5-10).
           //
           // 사용자가 이 몰을 직접 골라 요청한 회차다. 세션이 되살아났는지는 실제로 주입해 봐야만
@@ -981,6 +1069,7 @@ public class AdminController {
               case BLOCKED -> blocked.add(seq);
               case NOT_QUALIFIED -> notQualified.add(seq);
               case SESSION_EXPIRED -> sessionExpired.add(seq);
+              case INVALID_SEQ -> invalidSeq.add(seq);
             }
           }
         }
@@ -994,6 +1083,7 @@ public class AdminController {
       response.set("blocked", objectMapper.valueToTree(blocked));
       response.set("notQualified", objectMapper.valueToTree(notQualified));
       response.set("sessionExpired", objectMapper.valueToTree(sessionExpired));
+      response.set("invalidSeq", objectMapper.valueToTree(invalidSeq));
       response.set("blockedReasons", blockedReasons);
 
       // 수집 판정과 나란히, 그러나 섞이지 않게 싣는다. 만료로 끝난 몰의 스케줄 등록이 실패했다면
@@ -1036,6 +1126,17 @@ public class AdminController {
             .append(sessionExpired.size())
             .append("개 쇼핑몰은 저장된 로그인 세션이 만료되어 자동수집을 일시중단했습니다.")
             .append(" 계정 연결은 그대로이니 '브라우저로 로그인' 을 다시 실행해 주세요.");
+      }
+      if (!invalidSeq.isEmpty()) {
+        // 이 문장이 없으면 형태가 깨진 seq 는 사용자에게 아무것도 남기지 못한다. 대시보드는 사유를
+        // data-seq 로 DOM 을 찾아 그리는데 존재하지 않는 seq 에는 그릴 자리가 없기 때문이다.
+        // 그래서 여기서 <b>몰이 아니라 요청이 잘못됐다</b>는 것을 분명히 말한다 — 이 안내가 없으면
+        // 사용자는 화면을 새로 고치고 계정을 다시 연결하는, 아무 효과도 없는 일을 반복한다.
+        if (message.length() > 0) message.append(". ");
+        message
+            .append(invalidSeq.size())
+            .append("건은 쇼핑몰 번호 형식이 아니어서 처리하지 않았습니다. 계정이나 세션 문제가 아니니,")
+            .append(" 화면을 새로 고친 뒤 다시 선택해 주세요.");
       }
       if (!scheduleFailed.isEmpty()) {
         // 위 통들과 한 문장으로 합치지 않는다. 같은 몰이 '만료' 이면서 '주기 등록 실패' 일 수 있고,
@@ -1619,6 +1720,18 @@ public class AdminController {
         response.put("message", "해당 쇼핑몰을 찾지 못했습니다.");
         return response;
       }
+      // 여기서 세션 만료 일시중단을 풀지 않는다.
+      //
+      // 푸는 것이 자연스러워 보이지만(옵트인을 끄면 그 자리는 다시 자격증명 수집기가 맡으므로 남은
+      // 중단 기록은 사실이 아니게 된다), 지금 그 기록만으로 멈추는 몰은 없다 — 세션 경로가 붙은
+      // 몰에는 자격증명 수집기 자리가 하나 더 있고, 그 자리가 살아 있으면 회차는 그대로 돈다
+      // (MallSchedulerService.allCollectorsSuspendedForExpiredSession 참조). 게다가 사용자가
+      // 자동수집을 누르는 순간 어차피 풀린다.
+      //
+      // 그래서 지금 붙이면 '언젠가 필요할' 배선이 되고, 이 프로젝트는 그렇게 붙여 둔 코드가 실제로는
+      // 아무 일도 안 하는 상태를 반복해서 겪었다. 모든 자리가 세션 경로로 덮이는 몰이 생기는 날
+      // 이 자리와 캡처 완료 경로에 함께 붙인다 — 인계 메모에 적어 두었다.
+
       response.put("success", true);
       response.put("seq", seq);
       response.put("enabled", enabled);

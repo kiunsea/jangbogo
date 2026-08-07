@@ -7,7 +7,7 @@ plugins {
 }
 
 group = 'com.jiniebox'
-version = '0.18.2'
+version = '0.18.3'
 description = '사용자 온라인/오프라인 구매 내역 수집기'
 
 java {
@@ -136,12 +136,74 @@ tasks.named('test') {
 	def screenshotDir = layout.buildDirectory.dir('test-screenshots').get().asFile
 	doFirst { screenshotDir.mkdirs() }
 	systemProperty 'jangbogo.screenshot.dir', screenshotDir.absolutePath.replace('\\', '/')
+
+	// build/distributions 를 test 의 입력으로 선언하지 않는다 — 시도했다가 되돌렸다.
+	//
+	// 동기는 옳았다: DistributionHygieneTest 의 실물 ZIP 검사가 그 디렉터리를 읽는데 입력으로
+	// 선언돼 있지 않아 캐시 키에 안 들어간다. 그래서 ZIP 이 없던 시점의 결과가 FROM-CACHE 로
+	// 복원되면 새 ZIP 이 생긴 뒤에도 그 층은 '스킵' 인 채 초록이다.
+	//
+	// 그런데 선언하는 순간 test 가 distZip·bootDistZip·distTar·bootDistTar 의 출력을 읽는
+	// 셈이 되어 Gradle 이 암묵적 의존으로 build 를 실패시킨다(실측). 의존을 명시하면 이번엔
+	// 단위 테스트가 배포 아카이브 생성을 기다리게 되어 test 의 성격이 바뀐다.
+	//
+	// 그래서 캐시 구멍은 남겨 두되, 그 층에 기대지 않는다. 배포물에 개인 데이터가 실리는 것을
+	// 실제로 막는 것은 packageDist 자신의 산출물 검사다 — 그것은 아카이브를 만드는 태스크
+	// 안에서 돌므로 아카이브가 새로 만들어졌는데 검사만 건너뛰는 상태가 될 수 없다.
+	// DistributionHygieneTest 의 실물 층은 그 위에 얹은 편의 검사로만 본다.
 }
 
 spotless {
 	java {
 		target 'src/**/*.java'
 		googleJavaFormat('1.17.0')
+	}
+}
+
+// clean 이 사용자 데이터를 지우지 못하게 막는다.
+//
+// 왜 필요한가: clean 은 build/ 를 통째로 지운다. 그런데 이 프로젝트는 배포 패키지를
+// build/distributions/ 아래에 풀어서 그 자리에서 실행하는 관행이 있고, 그렇게 실행된
+// 인스턴스는 자기 db/ 를 그 안에 만든다. 즉 build/ 아래에 "빌드 산출물" 과 "그 인스턴스가
+// 수집한 실제 구매 내역" 이 섞여 있다.
+//
+// 가정이 아니다 — 실제로 clean 한 번에 배포본 인스턴스와 그 DB 가 통째로 사라진 적이 있다.
+// 복구 수단이 없다: Gradle 의 delete 는 휴지통을 거치지 않는다.
+//
+// "clean 을 쓰지 마라" 는 규칙으로 막고 있었지만 규칙은 잊힌다. clean 을 호출하는 경로가
+// 스크립트 3개(clean_build·build_package·test_run)에 직접 실행까지 있어 호출부마다 고치면
+// 반드시 빠지는 자리가 생긴다. 그래서 태스크 자체에 건다.
+//
+// 막는 대상은 앱의 DB 파일 하나로 좁혔다. 빌드가 만드는 test-db 는 지워도 되고, Chrome
+// 프로필 캐시의 .db 까지 잡으면 오탐이 잦아 가드가 무시당한다. 정말로 지워야 할 때는
+// -Pallow-clean-user-data 로 의도를 밝힌다.
+tasks.named('clean') {
+	doFirst {
+		def buildDirFile = layout.buildDirectory.get().asFile
+		if (!buildDirFile.exists() || project.hasProperty('allow-clean-user-data')) {
+			return
+		}
+		def testDbPath = new File(buildDirFile, 'test-db').canonicalPath
+		def victims = []
+		buildDirFile.eachFileRecurse(groovy.io.FileType.FILES) { f ->
+			def name = f.name.toLowerCase(Locale.ROOT)
+			if (name.startsWith('jangbogo') && (name.contains('.db'))) {
+				if (!f.canonicalPath.startsWith(testDbPath)) {
+					victims << f.absolutePath
+				}
+			}
+		}
+		if (!victims.isEmpty()) {
+			throw new GradleException(
+				"clean 을 멈췄다 — build/ 아래에 앱 DB 가 있다. 지우면 그 인스턴스가 수집한 구매 내역이\n" +
+				"사라지고 되돌릴 수 없다(휴지통을 거치지 않는다).\n\n" +
+				victims.collect { "  - ${it}" }.join("\n") + "\n\n" +
+				"보통은 배포 패키지를 build/distributions 아래에 풀어서 그 자리에서 실행했을 때 생긴다.\n" +
+				"권장: 그 폴더를 저장소 밖(예: D:\\Jangbogo)으로 옮기고 거기서 실행해라. 그러면 clean 이\n" +
+				"무해해지고 배포 환경과도 같아진다.\n\n" +
+				"재빌드만 원한다면 clean 없이 하면 된다:  ./gradlew bootJar createJre packageDist\n" +
+				"정말로 지워도 된다면:  ./gradlew clean -Pallow-clean-user-data")
+		}
 	}
 }
 

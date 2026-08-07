@@ -136,7 +136,48 @@ class DistributionLicenseTest {
     int blockEnd = gradle.indexOf("}", gradle.indexOf("into('/')", distBlock));
     String block = gradle.substring(distBlock, blockEnd);
 
+    // 잘라 온 조각이 비었거나 엉뚱한 자리이면 아래 단언은 무엇이 있어도 통과한다. "복사되지
+    // 않는다" 와 "아무것도 보지 않았다" 가 같은 모양이 되므로 먼저 조각부터 확인한다.
+    assertTrue(
+        block.contains("Jangbogo.bat"),
+        "잘라 온 조각이 packaging/distribution 복사 블록이 아니다 — 아래 단언이 아무 것도 보증하지 않는다.");
+
     assertFalse(
         block.contains("CORRESPONDING-SOURCE.txt"), "안내문 원본이 필터 없이 복사된다 — 토큰이 치환되지 않은 채 배포된다.");
+  }
+
+  // ---------------------------------------------------------------
+  // 대조군 — 판별식 자체가 살아 있는가
+  // ---------------------------------------------------------------
+
+  @Test
+  @DisplayName("대조군: 버전 표기 정규식이 박힌 버전을 잡고 토큰은 통과시킨다")
+  void thePinnedVersionPatternStillCatchesVersions() {
+    // theSourceNoticeTemplateUsesTokensNotPinnedVersions 는 "정규식이 아무것도 못 찾았다"
+    // 형태다. 그래서 PINNED_VERSION 을 아무것도 맞지 않게 바꾸면 그대로 초록이 된다. 저장소가
+    // 지금 토큰만 쓰고 있다는 사실은 정규식이 살아 있다는 근거가 못 된다 — 죽은 정규식도 같은
+    // 결론을 낸다.
+    //
+    // 이 세션에서 실제로 두 번 겪은 형태다. (1) 세션 만료 감지는 단위 테스트 25건이 초록인 채
+    // 프로덕션 호출자가 0건이었고, (2) 배포 산출물 가드는 판별식을 무력화해도 5건이 전부 통과했다.
+    for (String pinned :
+        new String[] {"장보고 0.13.9 기준", "번들 JRE 21.0.11 기준", "jangbogo-0.18.2.jar"}) {
+      assertTrue(
+          PINNED_VERSION.matcher(pinned).find(),
+          "박힌 버전인데 정규식이 잡지 못했다. 이 상태면 안내문에 버전을 적어 두어도 초록이다: " + pinned);
+    }
+
+    // 알아 둘 것: 이 정규식은 낱말 경계(\b)로 시작해서 'v0.13.9' 처럼 글자가 앞에 붙은 표기는
+    // 잡지 못한다. 안내문 원본이 그 형태로 버전을 적으면 이 감시를 빠져나간다. 대조군을 쓰다
+    // 확인한 사실이라 여기 남긴다 — 좁히려면 정규식을 고쳐야 하고, 그때 이 대조군에 'v0.13.9'
+    // 를 걸려야 하는 입력으로 옮겨 적어라.
+    assertFalse(PINNED_VERSION.matcher("v0.13.9").find(), "정규식이 넓어졌다면 위 주석과 이 단언을 함께 고쳐라.");
+
+    // 오탐도 같이 막는다. 라이선스 식별자(AGPL-3.0)나 조항 번호가 걸리기 시작하면 안내문이
+    // 늘 빨개지고, 그때 사람은 정규식을 고치는 대신 이 검사를 지운다.
+    for (String safe :
+        new String[] {"@APP_VERSION@", "@JAVA_VERSION@", "AGPL-3.0-or-later", "AGPL 제13조"}) {
+      assertFalse(PINNED_VERSION.matcher(safe).find(), "버전 표기가 아닌데 걸렸다(오탐): " + safe);
+    }
   }
 }

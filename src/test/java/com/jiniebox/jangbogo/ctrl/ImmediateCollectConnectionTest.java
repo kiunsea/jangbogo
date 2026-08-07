@@ -1,6 +1,7 @@
 package com.jiniebox.jangbogo.ctrl;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.charset.StandardCharsets;
@@ -134,6 +135,44 @@ class ImmediateCollectConnectionTest {
     assertTrue(
         immediate.contains("mallSchedulerService.resumeAfterSessionRecovery(seq)"),
         "사용자가 직접 고른 요청에서 일시중단을 풀지 않는다 — 다시 로그인해도 다음 기동까지 수집이 돌아오지 않는다.");
+  }
+
+  // ---------------------------------------------------------------
+  // 대조군 — 판별식 자체가 살아 있는가
+  // ---------------------------------------------------------------
+
+  @Test
+  @DisplayName("대조군: 계정 상태 초기화 정규식이 실제 호출 형태를 잡는다")
+  void theResetPatternStillCatchesTheCall() {
+    // skippingDoesNotBreakTheConnection 은 assertEquals(1, total) 덕분에 정규식이 완전히
+    // 죽으면 빨개진다 — 이 파일에는 대조군이 절반쯤 이미 있는 셈이다. 그래도 '어떤 형태를
+    // 잡는가' 는 아무 데서도 확인되지 않아서, 공백이 낀 형태나 다른 인자 조합으로 되살아나면
+    // 조용히 빠져나간다.
+    //
+    // 이 세션에서 실제로 두 번 겪은 형태다 — 만료 감지는 테스트 25건이 초록인 채 프로덕션
+    // 호출자가 0건이었고, 배포 산출물 가드는 판별식을 무력화해도 5건이 전부 통과했다.
+    for (String reset :
+        new String[] {
+          "jaDao.update(seq, 0, null, null);",
+          "jaDao.update( seq , 0 , null, null);",
+          "jaDao.update(seq,0,null,null);"
+        }) {
+      assertTrue(
+          RESET_ACCOUNT_STATUS.matcher(reset).find(),
+          "계정 상태를 0 으로 누르는 호출인데 정규식이 잡지 못했다. 이 상태면 이 감시가 통째로 무동작이다: " + reset);
+    }
+
+    // 사용자가 직접 요청한 갱신은 대상이 아니다. 여기가 걸리면 계정 연결 화면이 감시에 걸려,
+    // 사람은 정규식을 고치는 대신 검사를 지운다.
+    for (String allowed :
+        new String[] {
+          "jaDao.update(seqMall, 1, encId, encPw);",
+          "jaDao.update(seq, 1, null, null);",
+          "notQualified.add(seq);"
+        }) {
+      assertFalse(
+          RESET_ACCOUNT_STATUS.matcher(allowed).find(), "감시 대상이 아닌 호출이 걸렸다(오탐): " + allowed);
+    }
   }
 
   /** 줄 주석을 걷어낸 소스. 주석에 적힌 예전 코드 형태가 감시에 걸리지 않게 한다. */
