@@ -7,7 +7,7 @@ plugins {
 }
 
 group = 'com.jiniebox'
-version = '0.18.1'
+version = '0.18.2'
 description = '사용자 온라인/오프라인 구매 내역 수집기'
 
 java {
@@ -275,6 +275,60 @@ tasks.register('packageDist', Zip) {
 		into('service')
 	}
 	
+	// 산출물 자체를 검사한다 — 선언이 안전해 보이는 것과 결과물이 안전한 것은 다른 사실이다.
+	//
+	// 위 from(...) 들은 담을 대상을 파일명으로 열거하므로 "결과적으로" 안전하다 (v0.18.1 실측: 릴리스
+	// ZIP 300 개 엔트리에 db·exports·logs·config 가 하나도 없다). 그런데 누가 편의를 위해
+	// from(projectDir) 같은 넓은 지정을 하나 더 붙이는 순간 조용히 샌다. 이 저장소도 배포물도 PUBLIC 이고,
+	// 이 프로그램이 다루는 것은 프로그램을 실행하는 사람의 개인 구매 내역이다 — 공공 데이터가 아니다.
+	// 한 번 배포되면 회수할 수 없다. 그래서 선언을 믿지 않고 방금 만든 ZIP 을 직접 연다.
+	//
+	// 엔트리 '이름' 만 훑고 내용은 읽지 않는다. ZipFile 은 중앙 디렉터리만 읽으므로 100MB 짜리 배포
+	// ZIP 이어도 릴리스 빌드가 느려지지 않는다.
+	doLast {
+		def forbiddenSuffixes = ['.db', '.db-wal', '.db-shm', '.sqlite', '.sqlite3']
+		def forbiddenPrefixes = ['db/', 'logs/', 'exports/']
+		// 값이 든 실제 파일만 막는다. .example 은 값이 없는 설정 서식이라 담겨도 된다 —
+		// 오히려 배포본에서 사용자가 설정을 만들 때 필요하다.
+		def forbiddenNames = ['mall_account.yml', 'admin.properties']
+
+		def zipFile = archiveFile.get().asFile
+		def offenders = []
+		def checked = 0
+		def zip = new java.util.zip.ZipFile(zipFile)
+		try {
+			def entries = zip.entries()
+			while (entries.hasMoreElements()) {
+				// 구분자: ZIP 규격은 '/' 지만 '\' 로 쓰는 도구가 있어 맞춰 둔다.
+				// 대소문자: 낮춰서 비교한다. 개발 PC 가 Windows 라 .DB 와 .db 는 같은 파일인데,
+				// 여기서 대소문자를 따지면 대문자로 남은 것만 조용히 빠져나간다.
+				def name = entries.nextElement().name.replace('\\', '/')
+				def lower = name.toLowerCase(Locale.ROOT)
+				def leaf = lower.substring(lower.lastIndexOf('/') + 1)
+				checked++
+				if (forbiddenPrefixes.any { lower.startsWith(it) }
+						|| forbiddenSuffixes.any { leaf.endsWith(it) }
+						|| forbiddenNames.contains(leaf)) {
+					offenders << name
+				}
+			}
+		} finally {
+			zip.close()
+		}
+
+		if (!offenders.isEmpty()) {
+			offenders.sort()
+			throw new GradleException(
+				"배포 ZIP 에 개인 데이터로 읽히는 항목이 실렸다: ${zipFile}\n  "
+					+ offenders.join("\n  ")
+					+ "\n\n이 저장소도 배포물도 PUBLIC 이고, 이 프로그램이 다루는 것은 프로그램을 실행하는 사람의"
+					+ " 개인 구매 내역이다.\n위 항목이 실리면 개발자 개인의 구매 내역·수집 로그·쇼핑몰 계정이 그대로"
+					+ " 공개되고, 한 번 나가면 회수할 수 없다.\npackageDist 에 from(projectDir) 같은 넓은 지정이"
+					+ " 추가되지 않았는지 확인해라. 담을 대상은 파일명을 하나씩 열거해야 한다.")
+		}
+		println "✓ 산출물 검사 통과: 개인 데이터 엔트리 없음 (엔트리 ${checked} 개 확인)"
+	}
+
 	doLast {
 		println "✅ 배포 패키지 생성 완료!"
 		println "📦 파일 위치: ${archiveFile.get().asFile}"

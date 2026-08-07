@@ -52,7 +52,9 @@ src/test/resources/test_mall_account.yml
 ### Mall Account Files ###
 # 쇼핑몰 계정 정보 파일 (민감 정보 포함)
 config/mall_account.yml
-config/backup/mall_account_*.yml
+# 백업 폴더는 통째로 막는다. 파일명 패턴만 막으면 손으로 붙인 다른 이름(mall_account.bak.yml,
+# account-20251221.yml 등)이 그대로 빠져나가고, 여기 들어오는 것은 전부 자격증명 사본이다.
+config/backup/
 
 ### Jangbogo Config Files ###
 # 장보고 설정 파일 (선택적으로 커밋 가능, 하지만 민감 정보 포함 시 제외)
@@ -82,12 +84,35 @@ logs/
 *.gz
 
 ### Database Files ###
+# 이 프로그램의 DB 에는 프로그램을 실행한 사람의 구매 내역 전체와 jbg_mall 의 계정 암호화 키
+# (encrypt_key/encrypt_iv)가 들어 있다. 공공 데이터가 아니라 개인 데이터다.
+#
+# 가정이 아니라 실제로 겪은 일이다 — 개발용 DB 가 이 PUBLIC 저장소에 커밋된 적이 있다.
+# 파일은 제거했지만 이력에는 남는다(이력은 재작성하지 않기로 했다. 이유는 SECURITY.md 참조).
+# 그때 이것을 잡아 줄 검사가 하나도 없었고, 지금은 RepositoryHygieneTest 가
+# '.gitignore 규칙' 과 'git 이 실제로 추적 중인 파일' 을 함께 본다.
+# (*.db 규칙은 위 'Custom Security Settings' 에 있다.)
+#
+# 경로에 매이지 않는 패턴을 함께 두는 이유: SQLite 는 -wal/-shm 을 DB 파일 옆에 따로 만들고,
+# 배포본을 저장소 트리 안에서 압축 해제하면 dist/.../db/ 처럼 db/ 밖에도 같은 구조가 그대로 생긴다.
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+# db/ 아래에는 런타임이 만드는 것 외에 커밋할 것이 없다. 확장자를 하나씩 쫓는 대신 통째로 막는다
+# (db/jangbogo-dev.db-shm 은 위 db/*.db 패턴을 그대로 빠져나가 커밋됐던 전례가 있다).
+db/
 db/*.db
 db/*.db-*
 db/jangbogo-dev.db-wal
 # DB 백업 (확장자가 제각각이라 위 패턴에 걸리지 않는다).
 # 이 저장소는 PUBLIC 이고 jbg_mall 에 계정 암호화 키(encrypt_key/encrypt_iv)가 들어 있으므로 통째로 제외한다.
 db/backup/
+
+### Export Files ###
+# 내보내기 결과(CSV/XLSX)는 구매 내역을 사람이 바로 읽을 수 있는 형태로 담는다. DB 보다 열어 보기
+# 쉬워서 공개되면 그 자리에서 피해가 난다. 이 디렉터리에는 런타임 산출물 말고 커밋할 것이 없다.
+exports/
 
 ### Packaging - Exclude downloaded binaries only ###
 packaging/winsw/jangbogo-service.exe

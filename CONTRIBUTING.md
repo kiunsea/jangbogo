@@ -205,9 +205,16 @@ git checkout -b feat/your-feature-name
 ### 3. 커밋
 
 ```bash
-git add .
+# 파일을 하나씩 명시한다. git add . / git add -A 는 쓰지 않는다.
+git add src/main/java/com/jiniebox/jangbogo/svc/mall/NewMall.java
 git commit -m "feat(mall): 새로운 쇼핑몰 지원 추가"
 ```
+
+> ⚠️ **`git add .` 을 쓰지 마세요.** 이 저장소는 PUBLIC 이고, 이 프로그램이 다루는 것은 프로그램을
+> 실행한 사람의 개인 구매 내역입니다. 개발 중에는 DB·로그·내보내기 파일이 작업 트리에 늘 함께 있고,
+> 한 번 커밋되면 나중에 지워도 이력에 남아 회수할 수 없습니다. `.gitignore` 는 **이미 추적 중인
+> 파일에는 적용되지 않으므로** 규칙만 믿을 수 없습니다. `git status` 로 확인한 뒤 필요한 파일만
+> 명시해 스테이징하세요. (자세한 내용은 [SECURITY.md](SECURITY.md) 의 저장소 위생 절)
 
 ### 4. Push 및 PR 생성
 
