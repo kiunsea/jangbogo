@@ -101,6 +101,25 @@ packaging/windows/jangbogo.ico
 build_*.txt
 jpackage_*.log
 
+### Backup / Editor Leftovers ###
+# 소스 형태를 보는 보안 가드(SecurityHardeningTest 의 dao 전수 스캔 등)는 파일 확장자로 대상을 고른다.
+# 그래서 확장자가 하나 붙은 백업본은 어떤 가드에도 걸리지 않는다 — 실제로
+# JbgAccessDataAccessObject.java.bak 이 그 상태로 커밋돼, 값을 WHERE 절에 이어 붙인 자리 여섯 곳이
+# "dao 패키지 전수 스캔" 밖에 있었다(2026-08-07 제거).
+# 게다가 이 저장소는 PUBLIC 이라 백업본이 그대로 공개된다. 백업은 보통 '고치기 전 상태' 라서
+# 방금 제거한 문제를 그대로 담고 있다. 애초에 스테이징되지 않게 막는다.
+# (RepositoryHygieneTest 가 이 규칙들과 실제 파일 존재 여부를 함께 감시한다.)
+*.bak
+*.backup
+*.orig
+*.rej
+*.tmp
+*.old
+*.save
+*.swp
+*.swo
+*~
+
 ### Development Scripts ###
 # bat 폴더의 개발 스크립트는 Git에 추적
 !bat/

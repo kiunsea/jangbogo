@@ -1,6 +1,7 @@
 package com.jiniebox.jangbogo.svc.mall;
 
 import com.jiniebox.jangbogo.svc.ifc.MallSession;
+import com.jiniebox.jangbogo.svc.util.SessionExpiryDetector;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.BiFunction;
@@ -64,7 +65,18 @@ public enum MallRegistry {
       "https://www.ssg.com/",
       // ADR-0001 T3 이 캡처된 쿠키에서 실제로 확인한 이름들. 같은 문단이 함께 적고 있는
       // JSESSIONID·FSID 는 일부러 뺐다 — 사유는 authCookieNames() javadoc 참조.
-      List.of("LOGIN_YN", "MEMBER_ID", "MBR_ID_ED_NO")),
+      List.of("LOGIN_YN", "MEMBER_ID", "MBR_ID_ED_NO"),
+      // 만료 판정 신호 (Phase 5-10).
+      //
+      // 주소 마커 "login" 은 프로브 실측이다 — 만료된 세션으로 회원 주문내역을 열면 SSG 가
+      // 로그인 화면으로 되민다(SsgSessionCollector.LOGIN_MARKER 가 같은 값을 쓴다).
+      //
+      // 셀렉터 셋은 Ssg.signin 이 매 회차 실제로 조작하는 로그인 폼의 요소들이다. Emart 의
+      // 것(#userId·#userPw)은 일부러 넣지 않았다 — Emart 는 eapp.emart.com 이라 도메인도 폼도
+      // 다르고, 세션 주입 경로가 대체하는 자리도 SSG 하나뿐이다. 두 사이트의 폼을 한 목록에
+      // 합치면 한쪽 페이지에서 다른 쪽 셀렉터가 우연히 맞을 때 멀쩡한 수집이 만료로 멈춘다.
+      new SessionExpiryDetector.LoginSignals(
+          List.of("login"), List.of("#mem_id", "#mem_pw", "#loginBtn"))),
 
   /** 오아시스마켓. */
   OASIS(
@@ -78,7 +90,11 @@ public enum MallRegistry {
       "Oasis",
       "https://www.oasis.co.kr/login",
       // 인증 쿠키 이름 미확정. 추측해 채우면 정상 로그인까지 튕겨 캡처가 불가능해진다 — 비워 둔다.
-      List.of()),
+      List.of(),
+      // 만료 판정 신호 미선언 (Phase 5-10). 로그인 폼 셀렉터 자체는 Oasis 크롤러가 갖고 있지만,
+      // 여기 필요한 것은 '만료된 세션이 어디로 밀리는가' 의 실측이고 그것이 없다. 세션 주입 경로가
+      // 없는 몰이라 지금은 쓰이지도 않는다 — 추측해 채우면 쓰이기 시작하는 날 오탐으로 멈춘다.
+      SessionExpiryDetector.LoginSignals.UNDECLARED),
 
   /** 하나로마트. */
   HANARO(
@@ -91,7 +107,9 @@ public enum MallRegistry {
       "Hanaro",
       "https://www.nonghyupmall.com/BC41000R/loginViewPage.nh",
       // 인증 쿠키 이름 미확정. OASIS 와 같은 이유로 비워 둔다.
-      List.of());
+      List.of(),
+      // 만료 판정 신호 미선언. OASIS 와 같은 이유다.
+      SessionExpiryDetector.LoginSignals.UNDECLARED);
 
   /** {@code mall_id} 를 못 찾았을 때 내보내기가 쓰는 값. */
   public static final String UNKNOWN_EXPORT_ID = "unknown";
@@ -145,6 +163,7 @@ public enum MallRegistry {
   private final String verificationCollectorName;
   private final String loginUrl;
   private final List<String> authCookieNames;
+  private final SessionExpiryDetector.LoginSignals loginSignals;
 
   MallRegistry(
       int seq,
@@ -154,7 +173,8 @@ public enum MallRegistry {
       List<SessionCollectorSpec> sessionCollectors,
       String verificationCollectorName,
       String loginUrl,
-      List<String> authCookieNames) {
+      List<String> authCookieNames,
+      SessionExpiryDetector.LoginSignals loginSignals) {
     this.seq = seq;
     this.mallId = mallId;
     this.exportId = exportId;
@@ -163,6 +183,7 @@ public enum MallRegistry {
     this.verificationCollectorName = verificationCollectorName;
     this.loginUrl = loginUrl;
     this.authCookieNames = authCookieNames;
+    this.loginSignals = loginSignals;
   }
 
   /** {@code jbg_mall.seq}. */
@@ -237,6 +258,26 @@ public enum MallRegistry {
    */
   public List<String> authCookieNames() {
     return authCookieNames;
+  }
+
+  /**
+   * 주입한 세션이 죽었는지를 가를 <b>로그인 화면 신호</b> (Phase 5-10).
+   *
+   * <p><b>왜 여기에 모았나.</b> 지금까지 로그인 폼을 아는 코드는 몰 크롤러 네 곳(Ssg·Oasis·Hanaro·Emart)에 흩어져 있었고, 그 지식은 로그인을
+   * <b>하기 위해서만</b> 쓰였다. 만료 판정은 같은 지식을 반대 방향으로 쓴다 — "지금 이 화면이 로그인 화면인가". 그것을 크롤러마다 또 한 벌씩 두면 한쪽만 고쳐도
+   * 컴파일은 통과하고, 어긋난 쪽은 조용히 오판한다. 로그인 지점({@link #loginUrl()}) 옆이 그 지식이 사는 자리다.
+   *
+   * <p><b>실측한 몰만 채운다.</b> 비어 있으면 그 몰은 만료 판정을 하지 않는다. 모르는 몰에 마커를 추측해 넣으면 정상 회원 페이지를 만료로 읽어 <b>멀쩡한
+   * 수집을 멈춘다</b> — 만료를 한 회차 놓치는 것보다 나쁘다. 놓친 만료는 다음 회차에 다시 드러나지만, 오탐으로 멈춘 몰은 사람이 알아채기 전까지 아무것도 모으지
+   * 않는다. {@link #authCookieNames()} 가 같은 이유로 같은 규칙을 쓴다.
+   *
+   * <p>이 값에는 <b>시간</b>이 없다. "마지막 로그인 후 N 시간이면 만료" 같은 임계값은 세션 수명 실측이 끝나기 전까지 두지 않는다 — 판정 규칙과 그 경계는
+   * {@code SessionExpiryDetector} javadoc 에 적혀 있다.
+   *
+   * @return 로그인 화면 신호. 실측되지 않았으면 {@code LoginSignals.UNDECLARED}
+   */
+  public SessionExpiryDetector.LoginSignals loginSignals() {
+    return loginSignals;
   }
 
   /**

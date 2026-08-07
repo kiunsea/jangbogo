@@ -765,6 +765,73 @@ public class JbgMallDataAccessObject extends CommonDataAccessObject {
     }
   }
 
+  /**
+   * 몰 하나의 세션 옵트인({@code session_profile_enabled})을 켜고 끈다.
+   *
+   * <h3>왜 이 메서드가 없으면 안 됐나</h3>
+   *
+   * <p>이 컬럼을 1 로 바꾸는 코드가 <b>저장소에 한 줄도 없었다.</b> 스키마·게이트·캡처·주입 수집기까지 다 만들어 놓고도 스위치를 켜는 손잡이가 없어서, DB
+   * 파일을 직접 열어 UPDATE 하지 않으면 세션 경로 전체가 사용자 손에 닿지 않았다. 읽는 쪽({@code JangBoGoManager.qualify}, {@code
+   * MallOrderUpdater}, {@code StartupTasks})은 이미 넷이나 이 값을 보고 있었다.
+   *
+   * <h3>왜 {@link #saveAutoCollectFlags} 에 얹지 않았나</h3>
+   *
+   * <p>그 메서드는 <b>"목록에 없는 몰 = 해제"</b> 시맨틱이다 — 먼저 전체를 0 으로 밀고 받은 seq 들만 1 로 올린다. 화면 일부만 담아 보낸 요청 하나가
+   * 나머지 몰의 옵트인을 조용히 끄게 되고, 그 사고는 다음 수집 회차에 <b>수집이 통째로 건너뛰어지는 형태</b>로만 드러난다. 그래서 이쪽은 한 요청이 한 몰만 건드리게
+   * <b>구조적으로</b> 못 박는다. 여러 몰을 받는 시그니처를 만들지 마라 — 만드는 순간 같은 시맨틱이 다시 생긴다.
+   *
+   * <h3>SET 절에 이 컬럼 하나만 두는 이유</h3>
+   *
+   * <p>캡처가 남기는 신원 컬럼({@code session_profile_name}·{@code session_profile_status}·{@code
+   * session_profile_last_login})을 함께 건드리면 <b>그 신원이 지워진다.</b> 그러면 {@code SessionProfileGate} 가
+   * {@code PROFILE_MISSING} 으로 막아, 사용자는 스위치를 켠 순간 그 몰의 수집을 통째로 잃는다. 옵트인은 '쓰겠다는 의사' 이고 신원은 '실제로 떠 놓은
+   * 것' 이라 갱신 주체가 다르다 — 한 문장에 섞지 않는다.
+   *
+   * <h3>영향 행 수를 돌려주는 이유</h3>
+   *
+   * <p>{@link #writeSeq} 가 형태를 막아도 <b>존재하지 않는 seq</b> 는 통과한다. 그때 WHERE 가 아무 행도 고르지 못한 것을 void 로 삼키면
+   * 화면은 "저장했습니다" 라고 말하고 DB 는 그대로다. 실패를 예외가 아니라 값으로 올려 호출부가 사용자에게 다르게 말할 수 있게 한다.
+   *
+   * @param seqMall 쇼핑몰 시퀀스. 숫자가 아니면 {@link IllegalArgumentException}
+   * @param enabled 켤지 여부
+   * @return 실제로 갱신된 행이 있으면 true. 그런 몰이 없으면 false
+   * @throws Exception 저장 오류
+   */
+  public boolean setSessionProfileEnabled(String seqMall, boolean enabled) throws Exception {
+    LocalDBConnection conn = null;
+    try {
+      // 형태 검사를 먼저 한다. 트랜잭션을 연 뒤에 던지면 되돌릴 것도 없는 롤백이 한 번 돈다.
+      long seqNo = writeSeq(seqMall);
+
+      conn = new LocalDBConnection();
+      conn.txOpen();
+
+      String query = "UPDATE jbg_mall SET session_profile_enabled=? WHERE seq=?";
+      log.debug(
+          "LOCALDB-QUERY------------------------------------------------------------------------------");
+      log.debug(query);
+      int updated = conn.txPstmtExecuteUpdate(query, enabled ? 1 : 0, seqNo);
+      conn.txCommit();
+
+      log.info("쇼핑몰 seq={} 세션 옵트인 {} (갱신 {}행)", seqNo, enabled ? "켬" : "끔", updated);
+      return updated > 0;
+    } catch (SQLException e) {
+      log.error("* 세션 옵트인 저장 에러");
+      log.error(ExceptionUtil.getExceptionInfo(e));
+      rollbackQuietly(conn);
+      throw e;
+    } catch (Exception e) {
+      log.error("* 세션 옵트인 저장 에러");
+      log.error(ExceptionUtil.getExceptionInfo(e));
+      rollbackQuietly(conn);
+      throw e;
+    } finally {
+      if (conn != null) {
+        conn.close();
+      }
+    }
+  }
+
   /** seq 는 전부 SQLite INTEGER 컬럼 값이다. 10진 숫자 외에는 존재할 수 없다. */
   private static final Pattern SEQ_DIGITS = Pattern.compile("[0-9]+");
 

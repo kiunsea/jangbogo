@@ -9,12 +9,10 @@ import com.jiniebox.jangbogo.svc.util.ErrorSummary;
 import com.jiniebox.jangbogo.svc.util.FtpPendingQueue;
 import com.jiniebox.jangbogo.svc.util.SessionProfileGate;
 import com.jiniebox.jangbogo.util.ExceptionUtil;
-import com.jiniebox.jangbogo.util.JinieboxUtil;
 import com.jiniebox.jangbogo.util.StringEncrypter;
 import jakarta.annotation.PreDestroy;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -46,6 +44,28 @@ public class MallSchedulerService {
 
   // 쇼핑몰별 스케줄 관리 맵 (seq -> ScheduledFuture)
   private final Map<String, ScheduledFuture<?>> scheduledTasks = new ConcurrentHashMap<>();
+
+  /**
+   * 세션 만료로 일시중단된 쇼핑몰 (seq -> 사유) (Phase 5-10).
+   *
+   * <h2>왜 스케줄을 취소하지 않는가</h2>
+   *
+   * <p>{@link ScheduledFuture#cancel} 로 끄면 <b>되살릴 주체가 없다.</b> 등록 정보는 {@link #scheduledTasks} 에서
+   * 사라지고 {@link #isScheduled} 는 false 를 돌려주므로, 사용자가 세션을 다시 떠도 화면은 "주기 수집 꺼짐" 으로 보이고 다음 기동까지 복구되지
+   * 않는다. 그래서 스케줄은 그대로 두고 <b>진입 지점에서 건너뛴다</b> — 되돌리는 것이 맵에서 한 줄 지우는 일이면 복구 경로가 실수할 여지가 없다.
+   *
+   * <h2>{@code auto_collect} 컬럼은 절대 건드리지 않는다</h2>
+   *
+   * <p>DB 로 일시중단을 표현하려면 그 컬럼을 눌러야 하는데, 되돌리는 유일한 통로인 {@code
+   * JbgMallDataAccessObject.saveAutoCollectFlags} 는 <b>전체를 0 으로 초기화한 뒤 선택분만 되돌린다.</b> 즉 그 경로가 한 번
+   * 돌면 사용자가 켜 둔 다른 몰의 설정까지 통째로 날아간다. 일시중단은 이번 프로세스의 런타임 사실이지 사용자 설정이 아니므로 메모리에만 둔다.
+   *
+   * <h2>몰 단위 상태 컬럼에도 적지 않는다</h2>
+   *
+   * <p>{@code jbg_mall.session_profile_status} 는 캡처 성공 시 {@code READY} 만 쓰는 현행을 유지한다. 만료를 그쪽에도 두면 두
+   * 곳이 같은 사실을 들고 있게 되는데, 갱신 주체가 없는 쪽이 굳어 화면과 동작이 갈린다. 만료는 <b>수집 로그의 사유</b>로만 표현한다.
+   */
+  private final Map<String, String> sessionExpiredMalls = new ConcurrentHashMap<>();
 
   // 스케줄러 (쓰레드 풀 크기 5)
   private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(5);
@@ -224,6 +244,19 @@ public class MallSchedulerService {
     } catch (NumberFormatException ignore) {
     }
 
+    // 세션 만료 일시중단 — 이것이 그 '진입 지점' 이다 (Phase 5-10).
+    //
+    // 여기서 물러나므로 브라우저도 뜨지 않고 몰 사이트도 두드리지 않는다. 스케줄 자체는 살아 있어
+    // 사용자가 세션을 다시 뜨는 순간 원래 주기로 돌아온다 (sessionExpiredMalls javadoc 참조).
+    //
+    // 로그를 남기지 않는 것이 핵심이다. 사유는 만료를 관측한 그 회차에 이미 한 행 적혔고, 여기서
+    // 또 적으면 주기마다 같은 줄이 쌓여 수집 로그 화면이 무의미해진다 — 사람이 그 표를 보는 이유가
+    // 몇 번 막혔는지를 세기 위해서다. StartupTasks 가 같은 이유로 같은 선택을 하고 있다.
+    if (isSuspendedForExpiredSession(seq)) {
+      logger.debug("쇼핑몰 seq={} 세션 만료로 일시중단 중 — 이번 회차 건너뜀 ({})", seq, sessionExpiredMalls.get(seq));
+      return;
+    }
+
     try {
       JbgMallDataAccessObject jaDao = new JbgMallDataAccessObject();
       JSONObject mall = jaDao.getMall(seq);
@@ -236,40 +269,37 @@ public class MallSchedulerService {
 
       mallName = str(mall.get("name"));
 
-      Integer accountStatus = asInt(mall.get("account_status"));
-      if (accountStatus == null || accountStatus != 1) {
-        logger.debug("쇼핑몰 seq={} account_status가 1이 아님, 건너뜀", seq);
-        return;
-      }
-
       // 세션 프로필 게이트는 여기 있었지만 공통 통로로 옮겼다 (Phase 5-19).
       //
       // 즉시수집이 이 판정을 우회하고 있었고, 규약을 호출부가 지키게 두는 한 두 경로는 다시 갈린다.
       // 이제 JangBoGoManager.collect 안에서 게이트와 브라우저 동시 실행 제한을 함께 본다.
       // 막힌 사유는 아래에서 outcome 으로 받아 그대로 SKIPPED 로 남긴다.
 
+      // 수집 자격 판정도 같은 이유로 옮겼다 (Phase 5-20).
+      //
+      // account_status·암호화 키/IV·저장된 계정을 여기서 한 벌, 즉시수집(AdminController)에서 또 한 벌
+      // 보고 있었고 두 벌은 이미 갈려 있었다. 더 나쁜 것은 즉시수집 쪽이 건너뛸 때 account_status 를
+      // 0 으로 눌러 연결을 끊었다는 점이다 — 여기만 고치면 즉시수집 한 번에 원복된다.
+      //
+      // 계정은 값이 아니라 공급자로 넘긴다. account_status 나 키에서 이미 걸리는 회차에서는
+      // mall_account.yml 을 읽지 않는다 — 예전 판정 순서가 정확히 그랬다.
       String encKeyBase64 = str(mall.get("encrypt_key"));
       String encIvBase64 = str(mall.get("encrypt_iv"));
 
-      if (JinieboxUtil.isEmpty(encKeyBase64) || JinieboxUtil.isEmpty(encIvBase64)) {
-        logger.warn("쇼핑몰 seq={} 암호화 키/IV 누락", seq);
-        saveFailLog(seqInt, mallName, "암호화 키/IV 누락", null, startedAt);
-        return;
-      }
+      JangBoGoManager.CollectEligibility eligibility =
+          JangBoGoManager.qualify(
+              mall,
+              () -> mallAccountYmlService.getAccountBySeq(seq).orElse(null),
+              CollectTrigger.SCHEDULED);
 
-      Optional<MallAccount> accOpt = mallAccountYmlService.getAccountBySeq(seq);
-      if (accOpt.isEmpty()) {
-        logger.warn("쇼핑몰 seq={} mall_account.yml에 계정 정보 없음", seq);
-        saveFailLog(seqInt, mallName, "mall_account.yml에 계정 정보 없음", null, startedAt);
-        return;
-      }
-
-      String cipherId = str(accOpt.get().getId());
-      String cipherPw = str(accOpt.get().getPass());
-
-      if (JinieboxUtil.isEmpty(cipherId) || JinieboxUtil.isEmpty(cipherPw)) {
-        logger.warn("쇼핑몰 seq={} mall_account.yml에 아이디/비밀번호 비어있음", seq);
-        saveFailLog(seqInt, mallName, "mall_account.yml에 아이디/비밀번호 비어있음", null, startedAt);
+      if (!eligibility.qualified()) {
+        if (eligibility.worthLogging()) {
+          logger.warn("쇼핑몰 seq={} {}", seq, eligibility.reason());
+          saveFailLog(seqInt, mallName, eligibility.reason(), null, startedAt);
+        } else {
+          // 연결한 적 없는 몰은 예전에도 조용히 물러났다. 기록으로 승격시키면 주기마다 같은 줄이 쌓인다.
+          logger.debug("쇼핑몰 seq={} {}, 건너뜀", seq, eligibility.reason());
+        }
         return;
       }
 
@@ -277,28 +307,27 @@ public class MallSchedulerService {
       //
       // 복호화를 값이 아니라 공급자로 넘긴다 (Phase 5-19). 게이트나 브라우저 자리에 막히는 회차에서는
       // 이 람다가 호출되지 않으므로 비밀번호가 메모리에 오르지 않는다.
+      //
+      // 세션 경로면 복호화할 것 자체가 없으므로 공급자를 만들지 않는다 (Phase 5-20).
       logger.info("쇼핑몰 seq={} 구매내역 수집 시작", seq);
       MallCollectOutcome outcome =
           jangBoGoManager.collect(
               mall,
-              () -> {
-                SecretKey secKey = StringEncrypter.decodeBase64ToSecretKey(encKeyBase64.trim());
-                IvParameterSpec ivSpec = StringEncrypter.decodeBase64ToIv(encIvBase64.trim());
-
-                String usrid =
-                    StringEncrypter.decrypt(StringEncrypter.ALGORITHM, cipherId, secKey, ivSpec);
-                String usrpw =
-                    StringEncrypter.decrypt(StringEncrypter.ALGORITHM, cipherPw, secKey, ivSpec);
-
-                if (usrid != null && usrid.startsWith("%")) usrid = usrid.substring(1);
-                if (usrpw != null && usrpw.startsWith("%")) usrpw = usrpw.substring(1);
-
-                if (usrid == null || usrpw == null) {
-                  throw new IllegalStateException("계정 복호화 실패");
-                }
-                return new MallCredentials(usrid, usrpw);
-              },
+              eligibility,
+              eligibility.needsCredentials()
+                  ? () -> decryptStoredAccount(encKeyBase64, encIvBase64, eligibility.account())
+                  : null,
               CollectTrigger.SCHEDULED);
+
+      if (outcome.sessionExpired()) {
+        // 세션이 죽었다. 한 행 남기고 이 몰을 일시중단한다 (Phase 5-10).
+        //
+        // 실패가 아니므로 FAIL 로 적지 않는다 — FAIL 로 적으면 화면 집계가 사이트 장애로 세고,
+        // 무엇보다 이 사실이 브레이커로 흘러가면(MallOrderUpdater.recordBreaker) 연속 실패가 쌓여
+        // 수집기가 자동 차단된다. 사람이 세션을 다시 떠도 쿨다운이 끝날 때까지 돌지 않는다.
+        suspendForExpiredSession(seq, mallName, outcome.reason(), startedAt);
+        return;
+      }
 
       if (!outcome.collected()) {
         // 막힌 것은 실패가 아니다. 사유만 남기고 물러난다.
@@ -338,6 +367,34 @@ public class MallSchedulerService {
     }
   }
 
+  /**
+   * 저장된 암호문을 복호화한다.
+   *
+   * <p>{@code MallCredentialSupplier} 로 감싸 넘긴다 — 게이트나 브라우저 자리에 막히는 회차에서는 호출되지 않아 비밀번호가 메모리에 오르지
+   * 않는다.
+   *
+   * <p>실패는 예외로 올린다. 이쪽은 실제로 계정 문제가 맞다.
+   */
+  private static MallCredentials decryptStoredAccount(
+      String encKeyBase64, String encIvBase64, MallAccount account) throws Exception {
+
+    SecretKey secKey = StringEncrypter.decodeBase64ToSecretKey(encKeyBase64.trim());
+    IvParameterSpec ivSpec = StringEncrypter.decodeBase64ToIv(encIvBase64.trim());
+
+    String usrid =
+        StringEncrypter.decrypt(StringEncrypter.ALGORITHM, account.getId(), secKey, ivSpec);
+    String usrpw =
+        StringEncrypter.decrypt(StringEncrypter.ALGORITHM, account.getPass(), secKey, ivSpec);
+
+    if (usrid != null && usrid.startsWith("%")) usrid = usrid.substring(1);
+    if (usrpw != null && usrpw.startsWith("%")) usrpw = usrpw.substring(1);
+
+    if (usrid == null || usrpw == null) {
+      throw new IllegalStateException("계정 복호화 실패");
+    }
+    return new MallCredentials(usrid, usrpw);
+  }
+
   /** 예외 체인에서 첫 번째 CollectException 찾기 */
   private CollectException unwrapCollectException(Throwable t) {
     Throwable cur = t;
@@ -373,6 +430,89 @@ public class MallSchedulerService {
   }
 
   /**
+   * 세션 만료를 기록하고 이 몰의 수집을 일시중단한다 (Phase 5-10).
+   *
+   * <p>기록은 <b>이미 있는 {@link #saveSkipLog} 통로</b>를 그대로 탄다. 새 통로를 파지 않는 이유는 상태값 때문이다 — 만료는 {@code
+   * SKIPPED} 이고 사유 코드가 {@code SESSION_EXPIRED} 다. 만료 전용 status 를 만들면 {@code
+   * JbgCollectLogDataAccessObject} 의 실패 목록({@code status='FAIL'})과 요약 질의를 둘 다 고쳐야 하고, 안 고치면 만료가
+   * 화면에서 조용히 사라진다.
+   *
+   * <p><b>스케줄 수집과 즉시수집이 같은 메서드를 부른다.</b> 두 경로가 각자 기록하면 코드·단계·중단 여부가 언젠가 갈리는데, 이 프로젝트는 그 형태의 결함을 이미
+   * 두 번 고쳤다(5-18 게이트, 5-19 즉시수집 우회). 규약을 호출부가 지키게 두면 두 경로는 갈린다.
+   *
+   * <p>같은 몰이 이미 중단돼 있으면 <b>다시 적지 않는다.</b> 사용자가 즉시수집을 연달아 누르면 같은 사실이 그만큼 쌓이는데, 그 표를 보는 이유가 몇 번 막혔는지를
+   * 세기 위해서다.
+   *
+   * @param seq 쇼핑몰 시퀀스
+   * @param mallName 쇼핑몰 이름 (로그 표시용). 모르면 null
+   * @param reason 사람이 읽을 사유. 비어 있으면 결과값이 실어 준 기본 문구가 들어온다
+   * @param startedAt 이 회차의 시작 시각
+   */
+  public void suspendForExpiredSession(String seq, String mallName, String reason, long startedAt) {
+    if (seq == null || seq.isEmpty()) {
+      return;
+    }
+    String text =
+        (reason == null || reason.isBlank()) ? MallCollectOutcome.SESSION_EXPIRED_CODE : reason;
+    String previous = sessionExpiredMalls.putIfAbsent(seq, text);
+    if (previous != null) {
+      logger.debug("쇼핑몰 seq={} 이미 세션 만료로 중단 중 — 같은 사유를 다시 적지 않는다", seq);
+      return;
+    }
+
+    logger.warn("쇼핑몰 seq={} 세션 만료로 자동수집을 일시중단한다 — {}", seq, text);
+    saveSkipLog(
+        parseSeq(seq),
+        mallName,
+        MallCollectOutcome.SESSION_EXPIRED_CODE,
+        text,
+        MallCollectOutcome.STEP_SESSION_EXPIRY,
+        startedAt);
+  }
+
+  /**
+   * 이 몰이 세션 만료로 일시중단돼 있는가 (Phase 5-10).
+   *
+   * @param seq 쇼핑몰 시퀀스
+   * @return 중단 중이면 true
+   */
+  public boolean isSuspendedForExpiredSession(String seq) {
+    return seq != null && !seq.isEmpty() && sessionExpiredMalls.containsKey(seq);
+  }
+
+  /**
+   * 세션 만료 일시중단을 푼다 (Phase 5-10).
+   *
+   * <p><b>사람이 무언가를 한 순간에만 부른다.</b> 세션이 되살아났는지는 실제로 주입해 봐야만 알 수 있어서, 시간이 지났다는 이유로 스스로 풀면 죽은 세션으로 몰을
+   * 계속 두드리게 된다. 반대로 아무도 풀지 않으면 사용자가 다시 로그인해도 다음 기동까지 수집이 돌아오지 않는다.
+   *
+   * <p>그래서 지금 부르는 곳은 <b>사용자가 그 몰을 직접 골라 보낸 자동수집 요청</b>({@code AdminController.autoCollectSelected})
+   * 하나다. 세션 캡처를 마친 직후에도 풀리는 것이 자연스러운데, 그 호출은 캡처 완료 경로에 붙어야 한다.
+   *
+   * @param seq 쇼핑몰 시퀀스
+   * @return 실제로 중단 중이어서 풀었으면 true
+   */
+  public boolean resumeAfterSessionRecovery(String seq) {
+    if (seq == null || seq.isEmpty()) {
+      return false;
+    }
+    boolean released = sessionExpiredMalls.remove(seq) != null;
+    if (released) {
+      logger.info("쇼핑몰 seq={} 세션 만료 일시중단 해제 — 다음 회차부터 예정대로 수집한다", seq);
+    }
+    return released;
+  }
+
+  /** 문자열 seq 를 로그 저장용 정수로. 숫자가 아니면 0 이다(예전 저장 형태 그대로). */
+  private static int parseSeq(String seq) {
+    try {
+      return Integer.parseInt(seq.trim());
+    } catch (RuntimeException ignore) {
+      return 0;
+    }
+  }
+
+  /**
    * 수집을 건너뛴 것을 기록한다 (Phase 5-4, 5-19 에서 확대).
    *
    * <p>실패가 아니라 <b>건너뜀</b>이다. 막은 것은 우리 쪽 조건이지 사이트가 아니다. {@code SKIPPED} 는 수집 로그 화면의 성공·실패 집계와 실패
@@ -383,26 +523,15 @@ public class MallSchedulerService {
    *
    * <p>단계 이름을 인자로 받는 이유는 5-19 다. 게이트 말고도 브라우저 자리 부족·중복 실행이 이 통로로 들어오는데, 단계를 게이트로 박아 두면 세션 프로필을 켠 적
    * 없는 사용자가 그 기능에서 원인을 찾게 된다.
+   *
+   * <p><b>세션 만료(5-10)만은 위 (정정)이 그대로 적용되지 않는다.</b> 만료는 <b>수집기가 실제로 돈</b> 회차에 드러나므로 브레이커 표가 갱신되는
+   * 구간이다. 그래서 그것을 {@code FAIL} 로 적으면 {@code MallOrderUpdater.recordBreaker} 가 연속 실패로 세어 브레이커가 열리고,
+   * 사람이 세션을 다시 떠도 쿨다운이 끝날 때까지 그 수집기는 돌지 않는다 — 사이트 장애가 아닌 일로 수집이 자동 차단된다. 만료가 반드시 이 통로로 와야 하는 이유다.
    */
   private void saveSkipLog(
       int seqMall, String mallName, String code, String reason, String step, long startedAt) {
     try {
-      JbgCollectLogDataAccessObject logDao = new JbgCollectLogDataAccessObject();
-      logDao.addLog(
-          seqMall,
-          mallName,
-          "SKIPPED",
-          0,
-          0,
-          code,
-          reason,
-          step,
-          null,
-          null,
-          null,
-          null,
-          startedAt,
-          System.currentTimeMillis());
+      logWriter.write(seqMall, mallName, LOG_STATUS_SKIPPED, code, reason, step, startedAt);
     } catch (Exception e) {
       logger.warn("건너뜀 로그 저장 실패: {}", e.getMessage());
     }
@@ -412,25 +541,103 @@ public class MallSchedulerService {
   private void saveFailLog(
       int seqMall, String mallName, String errorMessage, String errorDetail, long startedAt) {
     try {
-      JbgCollectLogDataAccessObject logDao = new JbgCollectLogDataAccessObject();
-      logDao.addLog(
+      logWriter.write(
           seqMall,
           mallName,
-          "FAIL",
-          0,
-          0,
+          LOG_STATUS_FAIL,
           errorMessage,
           errorDetail,
-          "scheduler-precheck",
-          null,
-          null,
-          null,
-          null,
-          startedAt,
-          System.currentTimeMillis());
+          STEP_SCHEDULER_PRECHECK,
+          startedAt);
     } catch (Exception e) {
       logger.warn("실패 로그 저장 중 오류: {}", e.getMessage());
     }
+  }
+
+  /**
+   * 수집 로그 한 행을 실제로 남기는 자리 (Phase 5-10).
+   *
+   * <h2>왜 갈아 끼울 수 있게 했나</h2>
+   *
+   * <p>"세션 만료를 {@code FAIL} 이 아니라 {@code SKIPPED} 로 적는다" 는 이 국면의 핵심 규칙인데, 그것을 확인하려면 <b>무엇이
+   * 적혔는지</b>를 봐야 한다. 그런데 기본 구현은 사용자의 실제 DB 에 쓴다 — 테스트가 그것을 돌리면 실계정 수집 이력에 가짜 행이 섞이고, 최악의 경우 없던 DB
+   * 파일을 만든다. 그래서 저장 지점을 하나로 모으고 테스트에서만 갈아 끼운다.
+   *
+   * <p>규칙이 깨지는 형태는 <b>상태 문자열 한 개</b>다. 그것을 실행으로 잡을 수 있는 유일한 방법이 이 이음매다.
+   */
+  @FunctionalInterface
+  interface CollectLogWriter {
+
+    /**
+     * 수집 로그 한 행.
+     *
+     * @param seqMall 쇼핑몰 seq (숫자가 아니면 0)
+     * @param mallName 쇼핑몰 이름. 모르면 null
+     * @param status {@code SUCCESS} / {@code FAIL} / {@code SKIPPED}
+     * @param code 사유 코드
+     * @param reason 사람이 읽을 사유
+     * @param step 단계 이름
+     * @param startedAt 회차 시작 시각
+     * @throws Exception 저장 실패. 호출부가 삼킨다 — 로그를 못 남긴 것이 수집을 막아서는 안 된다
+     */
+    void write(
+        int seqMall,
+        String mallName,
+        String status,
+        String code,
+        String reason,
+        String step,
+        long startedAt)
+        throws Exception;
+  }
+
+  /** 수집 로그 상태 — 건너뜀. 화면의 성공·실패 집계와 실패 목록에서 모두 빠진다. */
+  static final String LOG_STATUS_SKIPPED = "SKIPPED";
+
+  /** 수집 로그 상태 — 실패. <b>세션 만료를 여기에 넣으면 안 된다</b> (saveSkipLog javadoc 참조). */
+  static final String LOG_STATUS_FAIL = "FAIL";
+
+  /** 수집 시작 전 검사에서 걸린 실패의 단계 이름. */
+  static final String STEP_SCHEDULER_PRECHECK = "scheduler-precheck";
+
+  /** 기록 지점. 기본은 DB 다. */
+  private volatile CollectLogWriter logWriter = MallSchedulerService::writeCollectLogToDatabase;
+
+  /**
+   * 기록 지점을 갈아 끼운다 — <b>테스트 전용</b>.
+   *
+   * @param writer 갈아 끼울 기록기. null 이면 DB 기본 구현으로 되돌린다
+   */
+  void useLogWriter(CollectLogWriter writer) {
+    this.logWriter = (writer == null) ? MallSchedulerService::writeCollectLogToDatabase : writer;
+  }
+
+  /** 기본 기록 구현. 예전 {@code addLog} 호출을 그대로 옮겼다. */
+  private static void writeCollectLogToDatabase(
+      int seqMall,
+      String mallName,
+      String status,
+      String code,
+      String reason,
+      String step,
+      long startedAt) {
+
+    new JbgCollectLogDataAccessObject()
+        .addLog(
+            seqMall,
+            mallName,
+            status,
+            0,
+            0,
+            code,
+            reason,
+            step,
+            null,
+            null,
+            null,
+            null,
+            startedAt,
+            System.currentTimeMillis());
   }
 
   /**
@@ -746,14 +953,8 @@ public class MallSchedulerService {
 
   // 유틸리티 메서드
 
-  private Integer asInt(Object o) {
-    if (o instanceof Number) return ((Number) o).intValue();
-    try {
-      return o != null ? Integer.parseInt(o.toString()) : null;
-    } catch (Exception e) {
-      return null;
-    }
-  }
+  // asInt 는 지웠다 (Phase 5-20). 유일한 호출부가 account_status 판정이었고, 그 판정은
+  // JangBoGoManager.qualify 로 옮겼다. 남겨 두면 판정이 여기에도 있는 것처럼 읽힌다.
 
   private String str(Object o) {
     return o == null ? "" : String.valueOf(o);

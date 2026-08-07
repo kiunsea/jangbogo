@@ -113,11 +113,34 @@ class SecurityHardeningTest {
         .replaceAll("(?s)/\\*.*?\\*/", "");
   }
 
-  /** dao 패키지의 자바 소스 전부. 목록을 손으로 적으면 새 DAO 가 감시 밖에 남는다. */
+  /**
+   * dao 패키지 아래의 <b>모든 파일</b>. 목록을 손으로 적으면 새 DAO 가 감시 밖에 남는다.
+   *
+   * <p><b>예전에는 {@code .java} 로 끝나는 것만 걸렀다.</b> 그래서 죽은 백업본 하나가 — mall access/info 테이블을 통합하며 남긴
+   * {@code .java.bak} 이다 — 아래 모든 스캔을 조용히 빠져나갔다. 그 안에는 값을 그대로 WHERE 절에 이어 붙인 자리가 여섯 곳 있었고, 그 파일이
+   * PUBLIC 저장소에 커밋된 채였다. 스캔이 "dao 패키지 전수" 라고 주장하는 동안 실제로는 <b>확장자 하나가 통째로 사각지대</b>였다는 뜻이다.
+   *
+   * <p>그래서 <b>확장자를 보지 않는다.</b> 백업이든 임시본이든 새 확장자든, dao 디렉터리에 들어온 텍스트는 전부 본다. 확장자 목록을 다시 만들지 마라 — 목록을
+   * 만드는 순간 목록에 없는 확장자가 다시 사각지대가 되고, 그것이 이번 사고의 형태 그 자체다.
+   *
+   * <p>깊이도 제한하지 않는다({@code Files.list} 가 아니라 {@code Files.walk}). 하위 패키지를 하나 만들면 그 안의 DAO 가 통째로 감시
+   * 밖에 남는데, 그건 "목록을 손으로 적는" 것과 정확히 같은 실패다.
+   *
+   * <p>디렉터리만 걸러 낸다({@code isRegularFile}). {@code Files.readString} 이 디렉터리에서 던지면 가드가 걸린 것이 아니라 인프라가
+   * 깨진 것처럼 보여서, 읽는 사람이 원인을 엉뚱한 데서 찾게 된다.
+   */
   private static List<Path> daoSources() throws Exception {
-    try (Stream<Path> files = Files.list(DAO_DIR)) {
-      return files.filter(p -> p.getFileName().toString().endsWith(".java")).toList();
+    try (Stream<Path> files = Files.walk(DAO_DIR)) {
+      return files.filter(Files::isRegularFile).toList();
     }
+  }
+
+  /**
+   * 실패 메시지에 쓸 이름. 파일명만 적으면 하위 패키지가 생겼을 때 어느 파일인지 알 수 없다 — {@link #daoSources()} 가 깊이를 제한하지 않게 된 뒤로는
+   * 파일명이 유일하지 않다. 구분자는 OS 마다 다르므로 {@code /} 로 고정한다.
+   */
+  private static String reportName(Path path) {
+    return DAO_DIR.relativize(path).toString().replace('\\', '/');
   }
 
   // ---------------------------------------------------------------
@@ -181,7 +204,7 @@ class SecurityHardeningTest {
     for (Path path : daoSources()) {
       // 예외 없이 전부 본다. 면제 목록을 두면 그 파일 안에서 새 조립이 생겨도 못 잡는다.
       if (SQL_QUOTE_CONCAT.matcher(codeOf(path)).find()) {
-        offenders.add(path.getFileName().toString());
+        offenders.add(reportName(path));
       }
     }
 
@@ -194,7 +217,7 @@ class SecurityHardeningTest {
     List<String> offenders = new ArrayList<>();
     for (Path path : daoSources()) {
       if (SQL_NUMERIC_CONCAT.matcher(codeOf(path)).find()) {
-        offenders.add(path.getFileName().toString());
+        offenders.add(reportName(path));
       }
     }
 

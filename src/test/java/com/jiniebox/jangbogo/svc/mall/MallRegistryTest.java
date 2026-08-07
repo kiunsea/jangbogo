@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.jiniebox.jangbogo.svc.mall.MallRegistry.CollectorSpec;
 import com.jiniebox.jangbogo.svc.mall.MallRegistry.SessionCollectorSpec;
+import com.jiniebox.jangbogo.svc.util.SessionExpiryDetector;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -248,6 +249,82 @@ class MallRegistryTest {
       for (String name : names) {
         assertNotNull(name, mall + " 의 인증 쿠키 이름이 null 이다.");
         assertFalse(name.isBlank(), mall + " 에 빈 인증 쿠키 이름이 있다.");
+      }
+    }
+  }
+
+  @Test
+  @DisplayName("실측된 몰만 만료 판정 신호를 선언한다 (Phase 5-10)")
+  void onlyMeasuredMallsDeclareLoginSignals() {
+    // 모르는 몰에 마커를 추측해 넣으면 정상 회원 페이지를 만료로 읽어 멀쩡한 수집을 멈춘다.
+    // 만료를 한 회차 놓치는 것보다 나쁘다 — 놓친 만료는 다음 회차에 다시 드러나지만,
+    // 오탐으로 멈춘 몰은 사람이 알아채기 전까지 아무것도 모으지 않는다.
+    assertTrue(MallRegistry.SSG_GROUP.loginSignals().isDeclared(), "실측된 ssg 에 신호가 없다.");
+    assertFalse(MallRegistry.OASIS.loginSignals().isDeclared(), "미실측 몰에 신호를 추측해 넣었다.");
+    assertFalse(MallRegistry.HANARO.loginSignals().isDeclared(), "미실측 몰에 신호를 추측해 넣었다.");
+  }
+
+  @Test
+  @DisplayName("ssg 의 만료 판정 신호는 크롤러가 실제로 조작하는 로그인 폼이다")
+  void ssgLoginSignalsArePinned() {
+    // Ssg.signin 이 매 회차 채우는 아이디·비밀번호 칸과 로그인 버튼이다. 여기를 손대는 것은
+    // 판정 기준을 바꾸는 일이므로 실사이트에서 다시 확인한 뒤에만 한다.
+    SessionExpiryDetector.LoginSignals signals = MallRegistry.SSG_GROUP.loginSignals();
+
+    assertEquals(List.of("#mem_id", "#mem_pw", "#loginBtn"), signals.selectors());
+    assertEquals(List.of("login"), signals.urlMarkers());
+  }
+
+  @Test
+  @DisplayName("만료 판정의 로그인 마커가 세션 주입 수집기의 것과 갈리지 않는다")
+  void loginMarkerMatchesTheSessionCollector() {
+    // 같은 사실을 두 곳이 들고 있다. 한쪽만 고치면 컴파일도 테스트도 통과하면서 판정이 갈리는데,
+    // 갈린 쪽은 '만료를 도달로 읽어 0건이 성공으로 굳는' 형태로만 드러난다.
+    List<String> markers = MallRegistry.SSG_GROUP.loginSignals().urlMarkers();
+
+    assertTrue(
+        markers.contains(SsgSessionCollector.LOGIN_MARKER),
+        "레지스트리의 로그인 마커와 SsgSessionCollector.LOGIN_MARKER 가 갈렸다.");
+  }
+
+  @Test
+  @DisplayName("seq=1 의 만료 신호에 Emart 로그인 폼을 섞지 않는다")
+  void ssgLoginSignalsExcludeTheOfflineReceiptSite() {
+    // Emart 는 eapp.emart.com 이라 도메인도 폼도 다르고, 세션 주입이 대체하는 자리도 SSG 하나다.
+    // 두 사이트의 폼을 한 목록에 합치면 한쪽 페이지에서 다른 쪽 셀렉터가 우연히 맞을 때
+    // 멀쩡한 수집이 만료로 멈춘다.
+    List<String> selectors = MallRegistry.SSG_GROUP.loginSignals().selectors();
+
+    assertFalse(selectors.contains("#userId"), "Emart 로그인 폼 셀렉터가 섞였다.");
+    assertFalse(selectors.contains("#userPw"), "Emart 로그인 폼 셀렉터가 섞였다.");
+  }
+
+  @Test
+  @DisplayName("만료 신호에 빈 항목이 섞이지 않는다")
+  void loginSignalsHaveNoBlankEntries() {
+    // 빈 문자열은 어떤 주소·어떤 화면과도 맞아 떨어진다. '선언은 돼 있는데 항상 만료' 가 되어
+    // 그 몰의 수집이 통째로 멈춘다.
+    for (MallRegistry mall : MallRegistry.values()) {
+      SessionExpiryDetector.LoginSignals signals = mall.loginSignals();
+
+      assertNotNull(signals, mall + " 의 만료 신호 선언이 null 이다.");
+      for (String value :
+          Stream.concat(signals.urlMarkers().stream(), signals.selectors().stream()).toList()) {
+        assertNotNull(value, mall + " 의 만료 신호에 null 이 있다.");
+        assertFalse(value.isBlank(), mall + " 의 만료 신호에 빈 값이 있다.");
+      }
+    }
+  }
+
+  @Test
+  @DisplayName("만료 신호를 선언한 몰은 주소 마커도 함께 갖는다")
+  void declaredMallsAlsoDeclareUrlMarkers() {
+    // 셀렉터만으로는 폼이 아직 안 그려진 순간을 놓치고, 주소만으로는 주소를 바꾸지 않고 폼만
+    // 띄우는 경우를 놓친다. 판정이 둘을 OR 로 보는 이유이고, 반쪽 선언은 그 절반을 버린다.
+    for (MallRegistry mall : MallRegistry.values()) {
+      if (mall.loginSignals().isDeclared()) {
+        assertFalse(
+            mall.loginSignals().urlMarkers().isEmpty(), mall + " 가 셀렉터만 선언했다 — 판정의 절반이 죽는다.");
       }
     }
   }

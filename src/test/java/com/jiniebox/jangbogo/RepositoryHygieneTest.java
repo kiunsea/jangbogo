@@ -5,12 +5,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 /**
- * 자격증명·세션이 PUBLIC 저장소로 새지 않게 하는 {@code .gitignore} 규칙 감시.
+ * 자격증명·세션이 PUBLIC 저장소로 새지 않게 하는 {@code .gitignore} 규칙 감시와, 소스 트리에 백업·임시 파일이 눌러앉지 않게 하는 감시.
  *
  * <h2>왜 테스트로 묶는가</h2>
  *
@@ -65,5 +68,118 @@ class RepositoryHygieneTest {
     assertTrue(
         gitignore.contains("doc/PLAN-*.md"),
         "doc/PLAN-*.md 규칙이 사라졌다. 세션 인계 문서에는 운영 환경 세부와 미완 작업이 섞인다.");
+  }
+
+  // ---------------------------------------------------------------
+  // 소스 트리의 백업·임시 파일
+  // ---------------------------------------------------------------
+
+  /**
+   * 백업·임시 파일로 읽히는 이름의 꼬리표.
+   *
+   * <p>{@code ~} 는 편집기 백업, {@code .swp}/{@code .swo} 는 vim 스왑, {@code .orig}/{@code .rej} 는 병합·패치
+   * 찌꺼기, 나머지는 사람이 손으로 붙이는 이름이다.
+   */
+  private static final List<String> BACKUP_SUFFIXES =
+      List.of(
+          ".bak", ".backup", ".orig", ".rej", ".tmp", ".temp", ".old", ".save", ".swp", ".swo",
+          "~");
+
+  /** 백업·임시 파일 검사 대상. 소스 트리 전체다 — 자바든 리소스든 템플릿이든 백업본이 남을 이유가 없다. */
+  private static final Path SRC_ROOT = Path.of("src");
+
+  /** 자바 소스만 있어야 하는 운영 소스 루트. */
+  private static final Path MAIN_JAVA_ROOT = Path.of("src/main/java");
+
+  @Test
+  @DisplayName("소스 트리에 백업·임시 파일이 남아 있지 않다")
+  void keepsBackupAndTemporaryFilesOutOfTheSourceTree() throws Exception {
+    // 실제로 있었던 일이다. src/main/java/.../dao/JbgAccessDataAccessObject.java.bak 이
+    // 2025-12-18 통합 때 남아 PUBLIC 저장소에 커밋된 채로 있었다. 두 가지가 동시에 나쁘다.
+    //
+    //  1) 모든 소스 형태 가드가 이 파일을 건너뛰었다. SecurityHardeningTest 의 dao 스캔이
+    //     ".java 로 끝나는 파일" 만 걸렀기 때문이다. 그 안에는 값을 그대로 WHERE 절에 이어 붙인
+    //     자리가 여섯 곳 있었고 "dao 패키지 전수 스캔" 이라는 가드의 주장이 사실이 아니었다.
+    //     확장자 하나만 바꿔 두면 어떤 가드든 통째로 우회된다 — 이게 핵심이다.
+    //  2) 죽은 코드가 공개돼 있었다. 이번 건은 자격증명이 없어 유출은 아니었지만, 백업은 보통
+    //     "고치기 전 상태" 라서 방금 제거한 문제를 그대로 담고 있다.
+    //
+    // 그래서 확장자 목록을 넓히는 것으로 끝내지 않고, 백업 파일 자체가 트리에 못 들어오게 막는다.
+    // 가드가 스스로 가드를 우회당하지 않게 하는 층이다.
+    List<String> offenders = new ArrayList<>();
+
+    if (Files.isDirectory(SRC_ROOT)) {
+      try (Stream<Path> files = Files.walk(SRC_ROOT)) {
+        for (Path file : files.filter(Files::isRegularFile).toList()) {
+          // 대소문자를 맞춰 비교한다. 개발 PC 가 Windows 라 파일시스템이 .BAK 와 .bak 을 같은 이름으로
+          // 취급하는데, 여기서 대소문자를 따지면 .BAK 로 남긴 것만 조용히 빠져나간다.
+          String name = file.getFileName().toString().toLowerCase(Locale.ROOT);
+          for (String suffix : BACKUP_SUFFIXES) {
+            if (name.endsWith(suffix)) {
+              offenders.add(file.toString().replace('\\', '/'));
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    assertTrue(
+        offenders.isEmpty(),
+        "소스 트리에 백업·임시 파일이 있다. 두 가지가 동시에 문제다 — (1) 확장자가 .java 가 아니라서 소스 형태를 보는 보안 가드가"
+            + " 전부 이 파일을 건너뛴다(전수 스캔이라는 주장이 거짓이 된다), (2) 이 저장소는 PUBLIC 이라 죽은 코드가 그대로 공개된다."
+            + " 백업이 필요하면 저장소 밖에 두고, 필요 없으면 지워라:\n  "
+            + String.join("\n  ", offenders));
+  }
+
+  @Test
+  @DisplayName("운영 소스 루트에는 자바 파일만 있다")
+  void keepsMainJavaRootFreeOfNonJavaFiles() throws Exception {
+    // 위 검사는 "알고 있는 꼬리표" 만 잡는다. 목록에 없는 이름으로 남기면 — Foo.java.20251218,
+    // Foo.java.merge — 그대로 빠져나간다. 목록을 늘리는 것으로는 끝이 나지 않는다.
+    //
+    // src/main/java 는 그 문제를 목록 없이 막을 수 있는 자리다. 여기에 자바 소스가 아닌 파일이
+    // 있을 이유가 없고(리소스는 src/main/resources 로 간다), 그래서 "무엇을 금지할지" 가 아니라
+    // "무엇만 허용할지" 로 쓸 수 있다. 허용 목록은 이름이 하나뿐이라 늘어나지 않는다.
+    //
+    // src/test/java 에는 FTP 수동 테스트용 README·실행 스크립트가 함께 있어 같은 규칙을 못 쓴다.
+    // 대신 그쪽은 위의 꼬리표 검사가 맡는다. 운영 산출물에 실리는 쪽만 엄격히 간다.
+    List<String> offenders = new ArrayList<>();
+
+    if (Files.isDirectory(MAIN_JAVA_ROOT)) {
+      try (Stream<Path> files = Files.walk(MAIN_JAVA_ROOT)) {
+        for (Path file : files.filter(Files::isRegularFile).toList()) {
+          if (!file.getFileName().toString().endsWith(".java")) {
+            offenders.add(file.toString().replace('\\', '/'));
+          }
+        }
+      }
+    }
+
+    assertTrue(
+        offenders.isEmpty(),
+        "src/main/java 아래에 자바 소스가 아닌 파일이 있다. 확장자가 .java 가 아닌 파일은 소스 형태를 보는 가드가 전부 건너뛰므로,"
+            + " 이 자리는 어떤 검사도 닿지 않는 사각지대가 된다. 리소스는 src/main/resources 로, 문서는 doc/ 로 옮겨라:\n  "
+            + String.join("\n  ", offenders));
+  }
+
+  @Test
+  @DisplayName("백업·임시 파일 패턴이 .gitignore 에 있다")
+  void keepsBackupPatternsIgnored() throws Exception {
+    // 위 두 검사는 이미 들어온 파일을 잡는다. .gitignore 는 애초에 스테이징되지 않게 막는다 —
+    // 두 층이 다 있어야 "실수로 add . 했다" 가 사고로 이어지지 않는다.
+    List<String> lines =
+        Files.readAllLines(GITIGNORE, StandardCharsets.UTF_8).stream()
+            .map(String::trim)
+            .filter(line -> !line.isEmpty() && !line.startsWith("#"))
+            .toList();
+
+    for (String pattern : List.of("*.bak", "*.orig", "*.rej", "*.tmp", "*.old", "*~")) {
+      assertTrue(
+          lines.contains(pattern),
+          ".gitignore 에서 '"
+              + pattern
+              + "' 규칙이 사라졌다. 백업 파일은 확장자 때문에 소스 형태 가드를 통째로 우회하고, 이 저장소는 PUBLIC 이라 그대로 공개된다.");
+    }
   }
 }

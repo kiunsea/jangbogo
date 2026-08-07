@@ -16,6 +16,7 @@ import com.jiniebox.jangbogo.svc.MallCollectOutcome;
 import com.jiniebox.jangbogo.svc.MallCredentials;
 import com.jiniebox.jangbogo.svc.util.CollectHealthPolicy;
 import com.jiniebox.jangbogo.svc.util.CollectTrigger;
+import com.jiniebox.jangbogo.svc.util.SessionProfilePolicy;
 import com.jiniebox.jangbogo.sys.EnvSYS;
 import com.jiniebox.jangbogo.sys.SessionConstants;
 import com.jiniebox.jangbogo.util.StringEncrypter;
@@ -24,7 +25,6 @@ import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 import javax.crypto.BadPaddingException;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.IvParameterSpec;
@@ -376,6 +376,14 @@ public class AdminController {
 
     node.set("malls", objectMapper.valueToTree(malls));
 
+    // 세션 프로필 마스터 킬스위치 상태 (Phase 5-21).
+    //
+    // 몰별 옵트인은 이중 게이트의 한쪽일 뿐이라, 이 값을 모르면 화면이 경고를 정확히 쓸 수 없다.
+    // 킬스위치가 켜져 있는데 세션을 캡처하지 않은 채 옵트인만 켜 두면 그 몰의 수집이 전량
+    // 건너뛰어진다 — 화면이 "지금 벌어지고 있다" 와 "지금은 영향 없다" 를 구분해 말해야 한다.
+    // 스위치 값 자체는 비밀이 아니다(시스템 프로퍼티이고 기본값은 꺼짐이다).
+    node.put("sessionProfileMasterEnabled", SessionProfilePolicy.isEnabled());
+
     return node;
   }
 
@@ -638,6 +646,23 @@ public class AdminController {
     // 게이트·브라우저 자리에 막혀 이번 회차를 건너뛴 몰 (Phase 5-19).
     // skipped 와 나누는 이유는 처리가 다르기 때문이다 — 이쪽은 계정 연결을 끊지 않는다.
     List<String> blocked = new ArrayList<>();
+
+    // 쓸 자격증명도 저장된 세션도 없어 이번 요청에서 뺀 몰 (Phase 5-20).
+    //
+    // blocked 와 또 나눈다. blocked 는 '잠시 뒤 다시 하면 되는' 일시적 사유고 이쪽은 사람이
+    // 계정을 연결하거나 세션을 다시 떠야 풀린다 — 안내 문구가 정반대라 한 통에 담으면 둘 중
+    // 하나는 반드시 틀린 말을 하게 된다. 사유는 blockedReasons 에 함께 싣는다.
+    List<String> notQualified = new ArrayList<>();
+
+    // 저장해 둔 로그인 세션이 만료돼 건너뛴 몰 (Phase 5-10).
+    //
+    // blocked 와 또 나눈다. blocked 는 '잠시 뒤 다시 하면 되는' 일시적 사유인데 만료는 사람이
+    // '브라우저로 로그인' 을 다시 해야만 풀린다 — 안내 문구가 정반대라 한 통에 담으면 사용자는
+    // 아무것도 하지 않고 기다리게 되고, 그동안 그 몰은 계속 0건이다.
+    //
+    // skipped 에도 담지 않는다. 대시보드는 skipped 목록의 몰을 '계정연결' 버튼으로 되돌리는데,
+    // 세션만 쓰는 몰은 저장된 자격증명이 없는 것이 정상이라 그 안내가 처음부터 틀린 말이다.
+    List<String> sessionExpired = new ArrayList<>();
     ObjectNode blockedReasons = objectMapper.createObjectNode();
 
     // 모든 쇼핑몰에서 신규 추가된 주문 seq 수집
@@ -659,6 +684,17 @@ public class AdminController {
 
       for (String seq : req.getSeqs()) {
         try {
+          // 세션 만료 일시중단을 먼저 푼다 (Phase 5-10).
+          //
+          // 사용자가 이 몰을 직접 골라 요청한 회차다. 세션이 되살아났는지는 실제로 주입해 봐야만
+          // 알 수 있으므로, 사람이 '브라우저로 로그인' 을 다시 하고 수집을 누른 이 순간이 우리가
+          // 관측할 수 있는 유일한 복구 신호다. 여기서 풀지 않으면 사용자가 다시 로그인해도 다음
+          // 기동까지 이 몰의 자동수집이 돌아오지 않는다.
+          //
+          // 여전히 만료 상태면 아래에서 다시 중단되고 그때 한 행이 더 적힌다 — 그 행은 사용자가
+          // 직접 누른 결과라 주기마다 쌓이는 잡음이 아니다.
+          mallSchedulerService.resumeAfterSessionRecovery(seq);
+
           // 이미 수집 작업이 실행 중이면 스킵 (브라우저 실행 중)
           if (jangBoGoManager.isCollecting(seq)) {
             // 계정 문제가 아니다 (Phase 5-19). skipped 로 보내면 프런트가 이 몰을 '계정 연결 끊김' 으로
@@ -677,11 +713,10 @@ public class AdminController {
 
           JSONObject mall = jaDao.getMall(seq);
           if (mall == null) {
+            // 몰 행 자체가 없다. 예전에는 여기서도 account_status 를 0 으로 눌렀는데,
+            // 누를 행이 없으므로 아무 일도 일어나지 않는 호출이었다.
+            logger.warn("쇼핑몰 seq={} DB에서 찾을 수 없음", seq);
             skipped.add(seq);
-            try {
-              jaDao.update(seq, 0, null, null);
-            } catch (Exception ignore) {
-            }
             continue;
           }
 
@@ -689,37 +724,30 @@ public class AdminController {
               mall.get("encrypt_key") != null ? mall.get("encrypt_key").toString() : "";
           String encIvBase64 =
               mall.get("encrypt_iv") != null ? mall.get("encrypt_iv").toString() : "";
-          if (encKeyBase64.isEmpty() || encIvBase64.isEmpty()) {
-            skipped.add(seq);
-            try {
-              jaDao.update(seq, 0, null, null);
-            } catch (Exception ignore) {
-            }
-            continue;
-          }
 
-          Optional<com.jiniebox.jangbogo.dto.MallAccount> accOpt =
-              mallAccountYmlService.getAccountBySeq(seq);
-          if (accOpt.isEmpty()) {
-            skipped.add(seq);
-            try {
-              jaDao.update(seq, 0, null, null);
-            } catch (Exception ignore) {
-            }
-            continue;
-          }
+          // 수집 자격 판정은 JangBoGoManager 한 곳이 내린다 (Phase 5-20).
+          //
+          // 여기 있던 검사들(암호화 키/IV · 계정 유무 · 아이디/비밀번호 비어 있음)은 스케줄러의 판정을
+          // 복제한 것이었고, 게다가 건너뛸 때마다 account_status 를 0 으로 눌러 연결을 끊었다.
+          // 스케줄러만 넓혀도 즉시수집 한 번이면 원복되는 구조였다.
+          //
+          // 이제 자격증명이 없어도 캡처해 둔 세션이 있으면 수집 대상이다. 세션만 있는 몰은
+          // 자격증명이 없는 것이 정상 상태이지 연결이 끊긴 것이 아니다 — 그래서 아래에서 계정 상태를
+          // 건드리지 않는다.
+          JangBoGoManager.CollectEligibility eligibility =
+              JangBoGoManager.qualify(
+                  mall,
+                  () -> mallAccountYmlService.getAccountBySeq(seq).orElse(null),
+                  CollectTrigger.IMMEDIATE);
 
-          String cipherUsrId = accOpt.get().getId();
-          String cipherUsrPw = accOpt.get().getPass();
-          if (cipherUsrId == null
-              || cipherUsrId.isEmpty()
-              || cipherUsrPw == null
-              || cipherUsrPw.isEmpty()) {
-            skipped.add(seq);
-            try {
-              jaDao.update(seq, 0, null, null);
-            } catch (Exception ignore) {
-            }
+          if (!eligibility.qualified()) {
+            // skipped 로 보내지 않는다 (Phase 5-19 가 blocked 를 나눈 것과 같은 이유). 프런트는
+            // skipped 목록의 몰을 '계정 연결 끊김' 으로 그리는데, 서버가 끊지 않기로 한 이상
+            // 화면만 끊긴 것처럼 보이면 사용자는 멀쩡한 연결을 다시 맺으려 한다.
+            notQualified.add(seq);
+            blockedReasons.put(seq, eligibility.reason());
+            logger.info(
+                "쇼핑몰 seq={} 즉시수집 자격 없음 — {} ({})", seq, eligibility.code(), eligibility.reason());
             continue;
           }
 
@@ -733,7 +761,16 @@ public class AdminController {
             MallCollectOutcome outcome =
                 jangBoGoManager.collect(
                     mall,
-                    () -> decryptCredentials(encKeyBase64, encIvBase64, cipherUsrId, cipherUsrPw),
+                    eligibility,
+                    // 세션 경로면 복호화할 것 자체가 없다 (Phase 5-20).
+                    eligibility.needsCredentials()
+                        ? () ->
+                            decryptCredentials(
+                                encKeyBase64,
+                                encIvBase64,
+                                eligibility.account().getId(),
+                                eligibility.account().getPass())
+                        : null,
                     CollectTrigger.IMMEDIATE);
 
             if (outcome.collected()) {
@@ -746,6 +783,20 @@ public class AdminController {
                 Thread.sleep(sleepMs);
               } catch (InterruptedException ignore) {
               }
+            } else if (outcome.sessionExpired()) {
+              // 저장해 둔 세션이 죽었다 (Phase 5-10).
+              //
+              // 기록도 일시중단도 스케줄러의 통로 하나로 보낸다. 여기서 따로 적으면 즉시수집과
+              // 스케줄 수집이 서로 다른 코드·단계로 쌓여 화면의 사유 필터에서 한쪽이 사라진다.
+              // 그리고 계정 연결은 건드리지 않는다 — 만료된 것은 세션이지 계정이 아니다.
+              sessionExpired.add(seq);
+              blockedReasons.put(seq, outcome.reason());
+              mallSchedulerService.suspendForExpiredSession(
+                  seq,
+                  mall.get("name") != null ? mall.get("name").toString() : null,
+                  outcome.reason(),
+                  startedAt);
+              logger.info("쇼핑몰 seq={} 즉시 수집 건너뜀 — {} ({})", seq, outcome.code(), outcome.reason());
             } else {
               // 막힌 것은 계정 문제가 아니다. 연결을 끊지 않는다 (Phase 5-19 결정).
               // 스케줄 등록은 아래에서 그대로 진행한다 — 막힌 것은 '이번 회차' 지 설정이 아니다.
@@ -760,7 +811,16 @@ public class AdminController {
             // 복호화를 수집 시점으로 미룬 것은 게이트에 막힐 회차에서 비밀번호를 올리지 않기 위해서지,
             // 확인을 그만두려던 것이 아니다. 확인이 빠지면 복호화가 깨진 계정이 '주기적 수집 활성화'
             // 성공으로 보고되고, 사용자는 다음 주기가 실패할 때까지 모른다.
-            decryptCredentials(encKeyBase64, encIvBase64, cipherUsrId, cipherUsrPw);
+            //
+            // 세션 경로에는 확인할 암호문이 없다 (Phase 5-20). 여기서 복호화를 강행하면 비밀번호 없이
+            // 수집하는 몰이 '자격증명 확인 실패' 로 떨어져, 진입부에서 넓힌 자격이 여기서 다시 좁아진다.
+            if (eligibility.needsCredentials()) {
+              decryptCredentials(
+                  encKeyBase64,
+                  encIvBase64,
+                  eligibility.account().getId(),
+                  eligibility.account().getPass());
+            }
             logger.info("쇼핑몰 seq={} 즉시 실행 건너뜀 (executeNow=false)", seq);
           }
 
@@ -785,12 +845,11 @@ public class AdminController {
           }
           decryptionFailed.add(seq);
         } catch (Exception perMallEx) {
+          // 계정 상태를 건드리지 않는다 (Phase 5-20). 여기 걸리는 것은 조회 실패·파일 오류 등
+          // 무엇이든 될 수 있는데, 예전에는 그 전부를 '계정 연결 끊김' 으로 바꿔 놓았다.
+          // 원인을 모르는 실패에 사용자 설정을 되돌릴 근거는 없다.
           logger.warn("쇼핑몰 seq={} 자동수집 오류", seq, perMallEx);
           skipped.add(seq);
-          try {
-            jaDao.update(seq, 0, null, null);
-          } catch (Exception ignore) {
-          }
         }
       }
 
@@ -800,6 +859,8 @@ public class AdminController {
       response.set("skipped", objectMapper.valueToTree(skipped));
       response.set("decryptionFailed", objectMapper.valueToTree(decryptionFailed));
       response.set("blocked", objectMapper.valueToTree(blocked));
+      response.set("notQualified", objectMapper.valueToTree(notQualified));
+      response.set("sessionExpired", objectMapper.valueToTree(sessionExpired));
       response.set("blockedReasons", blockedReasons);
 
       // 메시지 구성
@@ -823,6 +884,20 @@ public class AdminController {
         message
             .append(blocked.size())
             .append("개 쇼핑몰은 지금 실행할 수 없어 건너뛰었습니다. 계정 연결은 그대로이니 잠시 뒤 다시 시도해 주세요.");
+      }
+      if (!notQualified.isEmpty()) {
+        if (message.length() > 0) message.append(". ");
+        message
+            .append(notQualified.size())
+            .append("개 쇼핑몰은 쓸 계정도 저장된 로그인 세션도 없어 건너뛰었습니다. '계정연결' 또는 '브라우저로 로그인' 을 먼저 실행해 주세요.");
+      }
+      if (!sessionExpired.isEmpty()) {
+        // blocked 와 문구가 정반대여야 한다 — 이쪽은 기다린다고 풀리지 않는다.
+        if (message.length() > 0) message.append(". ");
+        message
+            .append(sessionExpired.size())
+            .append("개 쇼핑몰은 저장된 로그인 세션이 만료되어 자동수집을 일시중단했습니다.")
+            .append(" 계정 연결은 그대로이니 '브라우저로 로그인' 을 다시 실행해 주세요.");
       }
       if (message.length() == 0) {
         message.append("처리된 쇼핑몰이 없습니다.");
@@ -1314,6 +1389,104 @@ public class AdminController {
       logger.error("자동수집 설정 저장 오류", e);
       response.put("success", false);
       response.put("message", "자동수집 설정 저장 중 오류가 발생했습니다.");
+      return response;
+    }
+  }
+
+  /**
+   * 몰별 세션 옵트인 토글 요청.
+   *
+   * <p>{@code seq} 는 문자열이다 — DAO 가 형태 검사를 소유하고, 숫자가 아닌 값을 Jackson 이 먼저 400 으로 튕기면 사용자는 사유 대신 빈 실패만
+   * 본다.
+   *
+   * <p>{@code enabled} 를 {@code Boolean} 으로 둔 것은 <b>빠뜨린 것과 false 를 구분</b>하기 위해서다. 원시형이면 필드가 없는 요청이
+   * 조용히 '끄기' 가 되어, 스위치를 켠 적도 없는 사람이 옵트인 해제를 당한다.
+   */
+  public static class SessionOptInRequest {
+    private String seq;
+    private Boolean enabled;
+
+    public String getSeq() {
+      return seq;
+    }
+
+    public void setSeq(String seq) {
+      this.seq = seq;
+    }
+
+    public Boolean getEnabled() {
+      return enabled;
+    }
+
+    public void setEnabled(Boolean enabled) {
+      this.enabled = enabled;
+    }
+  }
+
+  /**
+   * 몰별 세션 옵트인 저장 (Phase 5-21). {@code POST /malls/session-profile/opt-in}
+   *
+   * <p>body: <code>{ seq: "1", enabled: true }</code>
+   *
+   * <h2>왜 {@code /malls/auto-collect/flags} 에 얹지 않았나</h2>
+   *
+   * <p>그 API 는 <b>"seqs 에 없는 몰 = 해제"</b> 다. 세션 옵트인을 거기 실으면 화면 일부만 담아 보낸 요청 하나가 다른 몰의 옵트인을 조용히 끄고, 그
+   * 사고는 다음 회차에 <b>그 몰의 수집이 통째로 사라지는 형태</b>로만 드러난다. 여기는 <b>한 요청이 한 몰만</b> 건드린다 — seqs 배열을 받는 형태로 넓히지
+   * 마라. 넓히는 순간 같은 시맨틱이 되살아난다.
+   *
+   * <h2>옵트인만 켜는 것으로는 아무 일도 일어나지 않는다</h2>
+   *
+   * <p>이 값은 이중 게이트의 <b>한쪽</b>일 뿐이다({@code SessionProfilePolicy.appliesTo}). 마스터 킬스위치가 꺼져 있으면 켜도 런타임
+   * 동작은 그대로다. 반대로 킬스위치가 켜진 환경에서 <b>세션을 캡처하지 않은 채</b> 이걸 켜면 게이트가 {@code PROFILE_MISSING} 으로 막아 그 몰의
+   * 수집이 전량 건너뛰어진다 — 화면이 그 상태를 말해 주지 않으면 무증상 장애가 된다. 그 안내는 {@code index.html} 의 경고 배너가 맡는다.
+   *
+   * <p>캡처 전에도 켤 수 있어야 하므로 여기서 세션 유무로 <b>거부하지는 않는다.</b> 켠 뒤 캡처하는 순서와 캡처한 뒤 켜는 순서가 둘 다 성립해야 한다.
+   */
+  @PostMapping("/malls/session-profile/opt-in")
+  @ResponseBody
+  public JsonNode setSessionProfileOptIn(@RequestBody SessionOptInRequest req) {
+    ObjectMapper objectMapper = new ObjectMapper();
+    ObjectNode response = objectMapper.createObjectNode();
+
+    if (req == null || req.getSeq() == null || req.getSeq().trim().isEmpty()) {
+      response.put("success", false);
+      response.put("message", "쇼핑몰이 지정되지 않았습니다.");
+      return response;
+    }
+    if (req.getEnabled() == null) {
+      // 빠뜨린 것을 false 로 읽으면 켠 적 없는 사람이 해제를 당한다. 값으로 거절한다.
+      response.put("success", false);
+      response.put("message", "켤지 끌지가 지정되지 않았습니다.");
+      return response;
+    }
+
+    String seq = req.getSeq().trim();
+    boolean enabled = req.getEnabled();
+
+    try {
+      boolean updated = new JbgMallDataAccessObject().setSessionProfileEnabled(seq, enabled);
+      if (!updated) {
+        // WHERE 가 아무 행도 고르지 못했다. "저장했습니다" 라고 말하면 화면과 DB 가 갈린다.
+        logger.warn("세션 옵트인 저장 대상이 없다 — 쇼핑몰 seq={}", seq);
+        response.put("success", false);
+        response.put("message", "해당 쇼핑몰을 찾지 못했습니다.");
+        return response;
+      }
+      response.put("success", true);
+      response.put("seq", seq);
+      response.put("enabled", enabled);
+      response.put("message", enabled ? "저장된 세션으로 수집합니다." : "저장된 세션 사용을 껐습니다.");
+      return response;
+    } catch (IllegalArgumentException badSeq) {
+      // DAO 의 writeSeq 가 형태를 막은 경우다. 값이 아니라 요청이 잘못됐다.
+      logger.warn("세션 옵트인 저장 거부 — seq 형태가 잘못됐다: {}", badSeq.getMessage());
+      response.put("success", false);
+      response.put("message", "쇼핑몰 지정이 잘못되었습니다.");
+      return response;
+    } catch (Exception e) {
+      logger.error("세션 옵트인 저장 오류 - 쇼핑몰 seq={}", seq, e);
+      response.put("success", false);
+      response.put("message", "세션 설정 저장 중 오류가 발생했습니다.");
       return response;
     }
   }
