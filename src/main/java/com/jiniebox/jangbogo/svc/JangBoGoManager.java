@@ -526,7 +526,13 @@ public class JangBoGoManager {
         List<Integer> newOrderSeqs = runner.getNewOrderSeqs();
         logger.info("쇼핑몰 seq={} 수집 작업 완료, 신규 주문: {}개", seqMall, newOrderSeqs.size());
 
-        return MallCollectOutcome.success(newOrderSeqs);
+        // 실행기가 판정한 결과를 그대로 돌려준다 — 여기서 success 를 새로 만들면 이번 회차의 세션 만료가
+        // 통째로 지워진다 (Phase 5-10 배선의 마지막 한 홉).
+        //
+        // 만료가 아닌 회차에는 collectOutcome() 이 정확히 MallCollectOutcome.success(newOrderSeqs) 를
+        // 돌려주므로 기존 동작은 한 톨도 바뀌지 않는다. 만료 회차에만 결과가 갈리고, 그것을 스케줄러는
+        // 일시중단으로, 즉시수집은 응답 JSON 의 sessionExpired 목록으로 읽는다.
+        return runner.collectOutcome();
       } finally {
         runningCollections.remove(seqMall);
       }

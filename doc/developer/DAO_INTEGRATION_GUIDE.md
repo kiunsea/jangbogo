@@ -71,7 +71,13 @@ CREATE TABLE IF NOT EXISTS jbg_mall (
 
 ### 2. 삭제된 클래스
 
-- **`JbgAccessDataAccessObject.java`** → 백업: `JbgAccessDataAccessObject.java.bak`
+- **`JbgAccessDataAccessObject.java`** → 삭제됨. **백업 파일(`JbgAccessDataAccessObject.java.bak`)은 저장소에 없다.**
+  - 이 문서는 오랫동안 그 `.bak` 파일을 안내했지만 지금은 존재하지 않는다. 없는 파일을 가리키는 안내는
+    찾으러 간 사람이 "저장소가 망가졌거나 내 clone 이 잘못됐다" 고 판단하게 만든다 — 문서가 틀린 것보다
+    나쁜 결과다.
+  - 통합 전 구현이 필요하면 git 이력에서 꺼낸다: `git log --diff-filter=D -- '*JbgAccessDataAccessObject.java*'`
+  - 소스 트리에 `.java.bak` 을 다시 만들지 마라. 컴파일되지 않아 리팩터링·검색에서 빠지면서도 실제
+    구현인 것처럼 보여, 이미 고친 결함을 그대로 복사해 오는 통로가 된다.
 
 ### 3. 수정된 클래스 (import 변경)
 

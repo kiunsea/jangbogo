@@ -69,7 +69,7 @@ public enum MallRegistry {
       // 만료 판정 신호 (Phase 5-10).
       //
       // 주소 마커 "login" 은 프로브 실측이다 — 만료된 세션으로 회원 주문내역을 열면 SSG 가
-      // 로그인 화면으로 되민다(SsgSessionCollector.LOGIN_MARKER 가 같은 값을 쓴다).
+      // 로그인 화면으로 되민다(SsgSessionCollector 가 자기 상수를 두지 않고 이 선언을 그대로 읽는다).
       //
       // 셀렉터 셋은 Ssg.signin 이 매 회차 실제로 조작하는 로그인 폼의 요소들이다. Emart 의
       // 것(#userId·#userPw)은 일부러 넣지 않았다 — Emart 는 eapp.emart.com 이라 도메인도 폼도

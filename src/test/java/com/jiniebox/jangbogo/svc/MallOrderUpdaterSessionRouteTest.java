@@ -131,17 +131,20 @@ class MallOrderUpdaterSessionRouteTest {
   @Test
   @DisplayName("게이트가 꺼져 있으면 실행 계획이 통합 전과 완전히 같다")
   void planIsUnchangedWhenTheGateIsOff() {
-    List<PlannedCollector> plan = MallOrderUpdater.planCollectors(MallRegistry.SSG_GROUP, false);
+    List<PlannedCollector> plan =
+        MallOrderUpdater.planCollectors(MallRegistry.SSG_GROUP, false, true);
 
     assertEquals(List.of("SSG", "Emart"), plan.stream().map(PlannedCollector::name).toList());
     assertTrue(plan.stream().noneMatch(PlannedCollector::isSession), "세션 경로가 꺼졌는데 계획에 들어갔다.");
+    assertTrue(plan.stream().noneMatch(PlannedCollector::isSkipped), "자격증명이 있는데 건너뛰었다.");
   }
 
   @Test
   @DisplayName("게이트가 켜지면 SSG 자리만 세션 수집기로 대체되고 선언 순서는 그대로다")
   void sessionCollectorSubstitutesInPlace() {
     // 순서가 바뀌면 실행 순서가 바뀐다. 목록을 나눠 들고 다니면 대체된 자리가 맨 뒤로 밀린다.
-    List<PlannedCollector> plan = MallOrderUpdater.planCollectors(MallRegistry.SSG_GROUP, true);
+    List<PlannedCollector> plan =
+        MallOrderUpdater.planCollectors(MallRegistry.SSG_GROUP, true, true);
 
     assertEquals(
         List.of("SsgSession", "Emart"), plan.stream().map(PlannedCollector::name).toList());
@@ -152,7 +155,7 @@ class MallOrderUpdaterSessionRouteTest {
   @Test
   @DisplayName("세션 수집기를 선언하지 않은 몰은 게이트가 켜져도 계획이 그대로다")
   void mallsWithoutSessionCollectorsAreUnaffected() {
-    List<PlannedCollector> plan = MallOrderUpdater.planCollectors(MallRegistry.OASIS, true);
+    List<PlannedCollector> plan = MallOrderUpdater.planCollectors(MallRegistry.OASIS, true, true);
 
     assertEquals(List.of("Oasis"), plan.stream().map(PlannedCollector::name).toList());
     assertFalse(plan.get(0).isSession());
@@ -161,8 +164,37 @@ class MallOrderUpdaterSessionRouteTest {
   @Test
   @DisplayName("등록되지 않은 몰은 빈 계획이다")
   void unknownMallHasNoPlan() {
-    assertTrue(MallOrderUpdater.planCollectors(null, true).isEmpty());
-    assertTrue(MallOrderUpdater.planCollectors(null, false).isEmpty());
+    assertTrue(MallOrderUpdater.planCollectors(null, true, true).isEmpty());
+    assertTrue(MallOrderUpdater.planCollectors(null, false, false).isEmpty());
+  }
+
+  // ── 자격증명이 없는 회차 ─────────────────────────────────────────────
+
+  @Test
+  @DisplayName("자격증명이 없으면 자격증명 수집기를 건너뛴다 — 세션 경로가 Emart 를 죽이지 않는다")
+  void credentialCollectorsAreSkippedWhenThereAreNoCredentials() {
+    // 이 검사가 없으면 세션만 있는 seq=1 에서 Emart 가 null 아이디/비밀번호로 로그인을 시도해
+    // 매 회차 FAIL 이 쌓이고, 브레이커가 Emart 를 자동 차단한다. 사람이 세션을 다시 떠도
+    // 쿨다운이 끝날 때까지 오프라인 영수증 수집이 돌아오지 않는다.
+    List<PlannedCollector> plan =
+        MallOrderUpdater.planCollectors(MallRegistry.SSG_GROUP, true, false);
+
+    assertEquals(
+        List.of("SsgSession", "Emart"),
+        plan.stream().map(PlannedCollector::name).toList(),
+        "자리를 통째로 없애면 사유가 어디에도 남지 않아 '왜 Emart 가 안 도는가' 를 물을 단서가 사라진다.");
+    assertTrue(plan.get(0).isSession(), "세션 수집기는 비밀번호를 쓰지 않으므로 자격증명 유무와 무관하다.");
+    assertTrue(plan.get(1).isSkipped(), "자격증명이 없는데 Emart 가 로그인을 시도하게 뒀다.");
+    assertEquals(MallOrderUpdater.REASON_NO_CREDENTIALS, plan.get(1).skipReason());
+  }
+
+  @Test
+  @DisplayName("자격증명이 없으면 세션 경로가 없는 몰은 통째로 건너뛴다")
+  void mallsWithoutASessionRouteAreFullySkippedWithoutCredentials() {
+    List<PlannedCollector> plan = MallOrderUpdater.planCollectors(MallRegistry.OASIS, false, false);
+
+    assertEquals(List.of("Oasis"), plan.stream().map(PlannedCollector::name).toList());
+    assertTrue(plan.get(0).isSkipped());
   }
 
   // ── 세션 수집기 결과 기록 ────────────────────────────────────────────
@@ -176,7 +208,12 @@ class MallOrderUpdaterSessionRouteTest {
 
     JSONArray items =
         mou.collectFromSession(
-            "SsgSession", 0, 0, () -> SessionCollector.Result.skipped("저장된 로그인 세션이 없다"));
+            "SsgSession",
+            0,
+            0,
+            () ->
+                SessionCollector.Result.skipped(
+                    SessionCollector.SkipCause.NO_SESSION, "저장된 로그인 세션이 없다"));
 
     assertTrue(items.isEmpty());
     assertTrue(mou.getPartialFailures().isEmpty(), "건너뜀이 실패로 기록됐다.");
@@ -185,6 +222,28 @@ class MallOrderUpdaterSessionRouteTest {
     assertEquals(1, outcomes.size());
     assertEquals(CollectOutcome.SKIPPED, outcomes.get(0).status());
     assertEquals("저장된 로그인 세션이 없다", outcomes.get(0).reason(), "사유가 화면까지 그대로 나가야 한다.");
+    assertFalse(outcomes.get(0).sessionExpired(), "세션 부재를 만료로 승격하면 몰이 통째로 일시중단된다.");
+  }
+
+  @Test
+  @DisplayName("세션 만료는 종류로 실려 올라온다 — 사유 문자열로 판정하지 않는다")
+  void expiryIsCarriedAsATypeNotAString() {
+    // 문구는 화면에 나가는 값이라 앞으로도 계속 다듬게 된다. 그때 판정이 조용히 깨지면
+    // 만료만 승격되지 않고, 일시중단·재개가 통째로 무동작이 된다.
+    MallOrderUpdater mou = new MallOrderUpdater(seq -> true);
+
+    mou.collectFromSession(
+        "SsgSession",
+        0,
+        0,
+        () ->
+            SessionCollector.Result.skipped(
+                SessionCollector.SkipCause.SESSION_EXPIRED, "문구는 언제든 바뀔 수 있다"));
+
+    CollectOutcome outcome = mou.getOutcomes().get(0);
+    assertEquals(CollectOutcome.SKIPPED, outcome.status(), "만료를 FAIL 로 세면 브레이커가 열린다.");
+    assertTrue(outcome.sessionExpired(), "만료 종류가 위로 올라오지 않으면 승격 자체가 일어나지 않는다.");
+    assertTrue(mou.getPartialFailures().isEmpty());
   }
 
   @Test

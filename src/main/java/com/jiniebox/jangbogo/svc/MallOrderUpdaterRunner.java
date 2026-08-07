@@ -27,6 +27,15 @@ public class MallOrderUpdaterRunner implements Runnable {
   private List<Integer> newOrderSeqs = new ArrayList<>();
 
   /**
+   * 이번 회차에 관측된 세션 만료 사유. 만료가 없었거나 승격 대상이 아니면 null (Phase 5-10 배선).
+   *
+   * <p>{@link #collectOutcome()} 가 이 값을 읽어 실행 결과를 {@code MallCollectOutcome.sessionExpired} 로 바꾼다.
+   * 이 필드가 없던 동안 만료는 수집기별 SKIPPED 한 행에서 끝났고, 그래서 {@code MallSchedulerService}·{@code
+   * AdminController} 의 만료 분기는 <b>도달 불가 코드</b>였다 — 테스트는 전부 초록인데 일시중단도 재개도 실제로는 일어나지 않았다.
+   */
+  private String sessionExpiredReason;
+
+  /**
    * @param seqMall 수집할 쇼핑몰
    * @param mallId
    * @param mallPw
@@ -47,13 +56,23 @@ public class MallOrderUpdaterRunner implements Runnable {
     try {
       MallOrderUpdater mou = new MallOrderUpdater();
       JSONArray itemArr = mou.collectItems(this.seqMall, this.mallId, this.mallPw);
+      List<MallOrderUpdater.CollectOutcome> outcomes = mou.getOutcomes();
+
+      // 세션 만료를 '실행 결과' 로 승격한다 — 이 한 줄이 없으면 만료는 수집기 한 행에서 끝나고,
+      // 위쪽의 일시중단·재개는 입력이 오지 않아 통째로 무동작이 된다 (Phase 5-10 배선).
+      //
+      // 승격을 아래 DB 접촉보다 '앞' 에 둔다. 순수 함수라 여기서 돌 수 있고, 뒤에 두면 몰 이름 조회나
+      // 로그 저장이 한 번 흔들리는 것만으로 이번 회차의 만료가 통째로 사라진다 — 바깥 catch 로 빠져
+      // 이 필드가 null 로 남으면 collectOutcome() 이 '0건 수집 성공' 을 돌려주고, 일시중단이 걸리지
+      // 않아 죽은 세션으로 매 주기 몰을 계속 두드리게 된다. 관측한 사실을 DB 가용성에 걸지 않는다.
+      this.sessionExpiredReason = promotableExpiryReason(outcomes, itemArr);
 
       JbgMallDataAccessObject jmDao = new JbgMallDataAccessObject();
       mallName = jmDao.getName(this.seqMall);
 
       // 수집기별 결과(성공·실패·브레이커 건너뜀)를 각각 한 행으로 남긴다.
       // 실행 단위 집계 행은 아래에서 따로 기록된다.
-      recordCollectorOutcomes(mou.getOutcomes(), mallName, startedAt);
+      recordCollectorOutcomes(outcomes, mallName, startedAt);
 
       logger.info("===========================================================================");
       logger.info("쇼핑몰: {} (seq={})", mallName, this.seqMall);
@@ -61,6 +80,13 @@ public class MallOrderUpdaterRunner implements Runnable {
       logger.info("===========================================================================");
 
       if (itemArr == null || itemArr.isEmpty()) {
+        if (this.sessionExpiredReason != null) {
+          // 세션이 죽어서 0건인 회차다. 여기서 SUCCESS 집계 행을 적으면 화면에는 '수집 성공' 으로
+          // 보이면서 실제로는 아무것도 모이지 않는다 — 사람이 다시 로그인해야 한다는 사실이
+          // 대시보드에서 지워진다. 만료 행은 호출부(스케줄러·즉시수집)가 SKIPPED 로 한 번 적는다.
+          logger.warn("쇼핑몰 seq={} 세션 만료로 수집된 주문이 없다 — 성공으로 적지 않는다", this.seqMall);
+          return;
+        }
         logger.warn("수집된 주문 데이터가 없습니다. 쇼핑몰 seq={}", this.seqMall);
         // 수집된 데이터가 없어도 성공으로 기록
         saveCollectLog(
@@ -304,6 +330,62 @@ public class MallOrderUpdaterRunner implements Runnable {
   }
 
   /**
+   * 이번 회차의 실행 결과 (Phase 5-10 배선).
+   *
+   * <p><b>이 메서드가 만료를 사용자에게 닿게 하는 유일한 통로다.</b> {@code JangBoGoManager.collect} 가 이 값을 그대로 돌려주고, 그것을
+   * 스케줄러는 일시중단으로, 즉시수집은 응답 JSON 의 {@code sessionExpired} 목록으로 읽는다. 여기서 만료를 흘리면 그 아래 모든 만료 처리가 도달 불가
+   * 코드가 된다.
+   *
+   * @return 세션이 만료된 회차면 만료 결과, 아니면 신규 주문 목록을 실은 성공 결과
+   */
+  public MallCollectOutcome collectOutcome() {
+    if (sessionExpiredReason != null) {
+      return MallCollectOutcome.sessionExpired(sessionExpiredReason);
+    }
+    return MallCollectOutcome.success(newOrderSeqs);
+  }
+
+  /**
+   * 이번 회차의 만료를 실행 결과로 <b>승격할 것인가</b>, 승격한다면 어떤 사유로 할 것인가.
+   *
+   * <p>순수 함수다 — DB·브라우저를 건드리지 않는다.
+   *
+   * <h2>다른 수집기가 주문을 가져왔으면 승격하지 않는다</h2>
+   *
+   * <p>seq=1 처럼 수집기가 둘인 몰에서, SSG 세션이 죽어도 Emart 오프라인 영수증은 멀쩡히 수집될 수 있다. 그 회차를 만료로 승격하면 두 가지가 함께
+   * 망가진다.
+   *
+   * <ul>
+   *   <li>만료 결과는 신규 주문 목록이 <b>빈 목록</b>이라, 스케줄러가 {@code processFileExport} 앞에서 물러난다 — 방금 DB 에 저장한
+   *       주문이 내보내기에서 통째로 빠지고, 다음 회차에는 중복으로 걸러져 <b>영영 나가지 않는다.</b>
+   *   <li>몰 단위로 일시중단되므로 멀쩡한 Emart 수집까지 사람이 다시 로그인할 때까지 멈춘다.
+   * </ul>
+   *
+   * <p>승격하지 않아도 그 회차의 만료는 <b>수집기별 SKIPPED 한 행</b>으로 남아 수집 로그 화면에 그대로 보인다. 사라지는 것은 '몰 전체 일시중단' 뿐이고,
+   * 그것은 애초에 세션 말고는 수집할 방법이 없는 몰을 위한 장치다.
+   *
+   * @param outcomes 수집기별 결과
+   * @param items 이번 회차에 모은 주문 목록
+   * @return 승격할 만료 사유. 승격하지 않으면 null
+   */
+  static String promotableExpiryReason(
+      List<MallOrderUpdater.CollectOutcome> outcomes, JSONArray items) {
+
+    if (items != null && !items.isEmpty()) {
+      return null;
+    }
+    if (outcomes == null) {
+      return null;
+    }
+    for (MallOrderUpdater.CollectOutcome outcome : outcomes) {
+      if (outcome != null && outcome.sessionExpired()) {
+        return outcome.reason();
+      }
+    }
+    return null;
+  }
+
+  /**
    * 수집 실행 결과의 SUCCESS/FAIL 을 판정한다.
    *
    * <p>실패로 볼 조건은 "수집해 온 주문이 하나도 쓸 수 없었을 때" 뿐이다.
@@ -354,6 +436,13 @@ public class MallOrderUpdaterRunner implements Runnable {
       if (outcome.isFailure()) {
         logger.warn("수집기 실패 기록 - 수집기: {}, 단계: {}", outcome.collector(), ce.getStepName());
       }
+      // 만료 행에는 단계 이름을 붙인다. 수집 로그 화면이 이 값으로 단계 필터를 만들기 때문에,
+      // 비워 두면 만료가 '단계 없음' 무리에 섞여 사람이 골라 볼 수 없다. 관측 도중 난 오류와
+      // 같은 이름이라(SessionExpiryDetector.STEP_DETECT_EXPIRY) 둘이 한 화면에 모인다.
+      String step =
+          ce != null
+              ? ce.getStepName()
+              : (outcome.sessionExpired() ? MallCollectOutcome.STEP_SESSION_EXPIRY : null);
       try {
         logDao.addLog(
             seqMallInt,
@@ -364,7 +453,7 @@ public class MallOrderUpdaterRunner implements Runnable {
             0,
             ce != null ? ce.getMessage() : outcome.reason(),
             ce != null ? ExceptionUtil.getExceptionInfo(ce) : null,
-            ce != null ? ce.getStepName() : null,
+            step,
             ce != null ? ce.getCurrentUrl() : null,
             ce != null ? ce.getPageTitle() : null,
             ce != null ? ce.getTargetSelector() : null,

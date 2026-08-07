@@ -1,6 +1,7 @@
 package com.jiniebox.jangbogo.svc.mall;
 
 import com.jiniebox.jangbogo.svc.util.CollectStep;
+import com.jiniebox.jangbogo.svc.util.SessionExpiryDetector;
 import com.jiniebox.jangbogo.svc.util.SessionProfilePolicy;
 import com.jiniebox.jangbogo.svc.util.SessionSnapshot;
 import com.jiniebox.jangbogo.svc.util.SessionSnapshotStore;
@@ -10,7 +11,6 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Locale;
 import java.util.function.LongConsumer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -66,6 +66,24 @@ import org.openqa.selenium.WebDriver;
  * <p>대신 두 가지는 가른다 — 반영이 <b>0개</b>면 주입이 성립하지 않은 것이므로 건너뛴다. 그리고 진짜 만료 판정은 <b>회원 페이지에 도달했는가</b>로 한다.
  * 그것이 이 축에서 실측 가능한 유일한 신호다.
  *
+ * <h2>만료 판정은 여기서 하지 않는다 — {@link SessionExpiryDetector} 에 맡긴다</h2>
+ *
+ * <p>이 클래스는 한때 자기 상수({@code MEMBER_MARKER}·{@code LOGIN_MARKER})로 도달 여부를 직접 갈랐다. 같은 지식이 {@code
+ * MallRegistry.loginSignals()} 에도 선언돼 있었으므로 <b>같은 사실이 두 곳에 있었다.</b> 한쪽만 고치면 컴파일도 테스트도 통과하는데 판정만
+ * 어긋난다 — 이 프로젝트가 반복해서 고쳐 온 결함 형태 그대로다. 그래서 판정을 레지스트리 선언 한 곳으로 모으고, 여기서는 관측기를 <b>부르기만</b> 한다.
+ *
+ * <p>덤으로 판정 축이 하나 늘었다. 예전 판정은 주소만 봤는데, 사이트가 주소를 바꾸지 않고 화면만 로그인 폼으로 갈아 끼우면 만료를 통째로 놓친다({@code
+ * Ssg.isSignedIn} 을 고치게 만든 그 형태다). 관측기는 <b>로그인 요소가 보이는가</b>를 함께 본다.
+ *
+ * <h2>신호를 선언하지 않은 몰에서는 — 만료 판정을 하지 않고 <b>통과시킨다</b></h2>
+ *
+ * <p>{@code loginSignals()} 가 미선언({@code UNDECLARED})이면 관측기는 {@code NOT_JUDGED} 를 준다. 그때 예전의 주소 표식
+ * 판정으로 되돌아가지 <b>않는다.</b> 그 표식({@code purchaselist})은 ssg 전용 실측값이라, 선언조차 없는 몰에 그것을 들이대는 것은 <b>추측한
+ * 마커로 만료를 단정하는 것</b>과 같다. 정상 회원 페이지를 만료로 읽으면 사람이 알아채기 전까지 그 몰은 아무것도 모으지 않는다 — 만료를 한 회차 놓치는 것보다 나쁘다.
+ *
+ * <p>그래서 통과시킨다. 통과한 뒤 실제로 만료였다면 파싱이 0건을 내놓고, 그것은 {@code EMPTY} 로 기록되어 {@code CollectHealthPolicy} 가
+ * 지켜본다 — 조용히 사라지지 않는다. 신호를 실측해 레지스트리에 채우는 순간 그 몰도 만료 판정 대상이 된다.
+ *
  * <h2>프로필 락 — 캡처 프로필을 쓰지 않는다</h2>
  *
  * <p>주입용 드라이버도 {@code profileDir} 을 넘겨야 마스킹이 걸린다. 그런데 그 경로를 <b>캡처 프로필과 같게 두면</b> 사람이 '브라우저로 로그인' 창을
@@ -100,12 +118,6 @@ public class SsgSessionCollector implements SessionCollector {
   static final String MEMBER_URL =
       "https://www.ssg.com/myssg/productMng/purchaseList.ssg?menu=purchaseList";
 
-  /** 회원 페이지에 도달했음을 가르는 표식(소문자 비교). 프로브가 쓰던 기준 그대로다. */
-  static final String MEMBER_MARKER = "purchaselist";
-
-  /** 로그인 화면으로 밀렸음을 가르는 표식(소문자 비교). */
-  static final String LOGIN_MARKER = "login";
-
   /** 주입용 프로필 이름의 꼬리. 캡처 프로필({@code <몰id>})과 반드시 달라야 한다. */
   static final String INJECT_PROFILE_SUFFIX = "-inject";
 
@@ -119,7 +131,9 @@ public class SsgSessionCollector implements SessionCollector {
 
   static final String REASON_NOTHING_APPLIED = "세션을 주입했으나 반영된 쿠키가 0개다. '브라우저로 로그인' 을 다시 실행할 것";
 
-  static final String REASON_EXPIRED = "저장된 세션이 만료되어 로그인 화면으로 밀렸다. '브라우저로 로그인' 을 다시 실행할 것";
+  // 만료 사유 문구는 여기 두지 않는다. SessionExpiryDetector.Verdict.EXPIRED 가 들고 있는 것을 그대로
+  // 실어 보낸다 — 판정한 쪽과 사유를 적는 쪽이 갈리면 같은 사실이 화면에 두 문구로 쌓이고, 사유로
+  // 거르는 화면에서 한쪽이 통째로 안 보인다.
 
   // ── 협력자 (브라우저·DB·파일을 만지는 지점은 전부 여기로 모은다) ──────────────────────────
   //
@@ -200,7 +214,7 @@ public class SsgSessionCollector implements SessionCollector {
     SessionSnapshot snapshot = loader.load(seqMall);
     if (snapshot == null || snapshot.isEmpty()) {
       log.warn("{} 건너뜀 — 저장된 세션이 없다 (seq={}). 브라우저를 띄우지 않는다.", COLLECTOR_NAME, seqMall);
-      return Result.skipped(REASON_NO_SESSION);
+      return Result.skipped(SkipCause.NO_SESSION, REASON_NO_SESSION);
     }
 
     Path profileDir = SessionProfilePolicy.profileDir(injectProfileName(seqMall));
@@ -227,7 +241,7 @@ public class SsgSessionCollector implements SessionCollector {
               driver, COLLECTOR_NAME, "inject-session", () -> injector.inject(driver, snapshot));
       if (applied <= 0) {
         log.warn("{} 건너뜀 — 쿠키 {}개를 주입했으나 반영이 0개다.", COLLECTOR_NAME, snapshot.size());
-        return Result.skipped(REASON_NOTHING_APPLIED);
+        return Result.skipped(SkipCause.NOTHING_APPLIED, REASON_NOTHING_APPLIED);
       }
       if (applied < snapshot.size()) {
         // 만료가 아니다 — 스냅샷에는 대상 몰과 무관한 호스트의 쿠키가 섞여 있다 (클래스 javadoc 참조).
@@ -239,13 +253,16 @@ public class SsgSessionCollector implements SessionCollector {
           driver, COLLECTOR_NAME, "navigate-member", () -> driver.navigate().to(MEMBER_URL));
       sleeper.accept(AFTER_MEMBER_MILLIS);
 
-      // 파싱 '앞' 에서 도달을 확인한다. 뒤로 미루면 만료가 셀렉터 실패로 둔갑해,
+      // 파싱 '앞' 에서 만료를 확인한다. 뒤로 미루면 만료가 셀렉터 실패로 둔갑해,
       // 사람은 '다시 로그인' 대신 '사이트 구조가 바뀌었다' 를 뒤지게 된다.
-      String landed =
-          CollectStep.call(driver, COLLECTOR_NAME, "verify-member", driver::getCurrentUrl);
-      if (!reachedMemberPage(landed)) {
-        log.warn("{} 건너뜀 — 회원 페이지에 도달하지 못했다 (세션 만료로 본다).", COLLECTOR_NAME);
-        return Result.skipped(REASON_EXPIRED);
+      //
+      // 대기 함수를 넘기는 이유는 이 클래스가 이미 하나를 들고 있기 때문이다. 관측기가 자기 것을
+      // 따로 쓰면 한 회차에 대역으로 갈아 끼울 수 없는 sleep 이 하나 더 생긴다.
+      SessionExpiryDetector.Verdict verdict =
+          SessionExpiryDetector.observe(driver, COLLECTOR_NAME, loginSignals(seqMall), sleeper);
+      if (verdict.expired()) {
+        log.warn("{} 건너뜀 — 저장된 세션이 만료됐다.", COLLECTOR_NAME);
+        return Result.skipped(SkipCause.SESSION_EXPIRED, verdict.reason());
       }
 
       // Ssg.navigatePurchased 가 같은 주소를 한 번 더 연다. 한 번의 여분 로드를 감수한 것이다 —
@@ -274,21 +291,17 @@ public class SsgSessionCollector implements SessionCollector {
   }
 
   /**
-   * 회원 페이지에 도달했는지 판정한다.
+   * 이 몰의 로그인 화면 신호를 레지스트리에서 읽는다.
    *
-   * <p>표식이 있다는 것만으로는 부족하다 — SSG 는 만료된 세션을 로그인 페이지로 보내면서 <b>원래 가려던 주소를 되돌아갈 파라미터로 달아 준다.</b> 그러면 로그인
-   * 화면의 URL 안에도 {@code purchaseList} 가 들어 있어, 표식만 보면 만료를 도달로 읽는다. 그래서 {@code login} 이 섞여 있으면 도달이
-   * 아니다. 프로브가 쓰던 기준 그대로다.
+   * <p>등록되지 않은 seq 면 미선언으로 본다 — 모르는 몰에 ssg 의 마커를 들이대면 정상 회원 페이지를 만료로 읽는다(클래스 javadoc 의 '통과시킨다' 참조).
    *
-   * @param currentUrl 지금 열려 있는 주소
-   * @return 회원 페이지로 보이면 true
+   * @param seqMall {@code jbg_mall.seq}
+   * @return 로그인 화면 신호. 없으면 {@code UNDECLARED}
    */
-  static boolean reachedMemberPage(String currentUrl) {
-    if (currentUrl == null || currentUrl.isBlank()) {
-      return false;
-    }
-    String lower = currentUrl.toLowerCase(Locale.ROOT);
-    return lower.contains(MEMBER_MARKER) && !lower.contains(LOGIN_MARKER);
+  static SessionExpiryDetector.LoginSignals loginSignals(String seqMall) {
+    return MallRegistry.bySeq(seqMall)
+        .map(MallRegistry::loginSignals)
+        .orElse(SessionExpiryDetector.LoginSignals.UNDECLARED);
   }
 
   // ── 프로덕션 협력자 구현 ──────────────────────────────────────────────

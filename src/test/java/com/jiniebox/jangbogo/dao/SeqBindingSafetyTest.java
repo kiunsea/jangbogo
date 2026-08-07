@@ -203,6 +203,44 @@ class SeqBindingSafetyTest {
         "체크하지도 않은 몰의 자동수집이 켜졌다. 사용자가 켠 적 없는 계정으로 로그인이 돌기 시작한다.");
   }
 
+  @Test
+  @DisplayName("세션 옵트인 저장은 숫자가 아닌 seq 를 거부하고 다른 몰의 옵트인을 건드리지 않는다")
+  void sessionProfileOptInWriteRejectsNonNumericSeq() throws Exception {
+    JbgMallDataAccessObject dao = new JbgMallDataAccessObject();
+
+    // 옆 몰만 켜 둔 상태에서 시작한다. 이 값이 뒤집히는 사고는 화면에 아무 흔적을 남기지 않는다 —
+    // 꺼지면 그 몰은 다음 회차부터 조용히 예전 경로로 돌고, 세션을 떠 두지 않은 몰에서 켜지면
+    // 게이트가 PROFILE_MISSING 으로 막아 수집이 통째로 사라진다. 어느 쪽이든 사용자는 모른다.
+    dao.setSessionProfileEnabled(String.valueOf(OTHER_MALL), true);
+
+    assertThrows(
+        IllegalArgumentException.class, () -> dao.setSessionProfileEnabled(INJECTION, false));
+    assertThrows(
+        IllegalArgumentException.class, () -> dao.setSessionProfileEnabled(DROP_ATTEMPT, false));
+    // 깎는 필터가 되살아나면 이 값이 11 이 되어 OTHER_MALL 의 옵트인을 끈다.
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> dao.setSessionProfileEnabled(MANGLES_TO_ANOTHER_MALL, false));
+
+    assertEquals(
+        1,
+        intColumn("SELECT session_profile_enabled FROM jbg_mall WHERE seq=?", OTHER_MALL),
+        "거부됐어야 할 seq 가 남의 몰 옵트인을 껐다. 그 몰은 다음 회차부터 예전 경로로 조용히 돌아간다.");
+    assertEquals(
+        0,
+        intColumn("SELECT session_profile_enabled FROM jbg_mall WHERE seq=?", MALL),
+        "켠 적 없는 몰의 옵트인이 켜졌다.");
+
+    // 정상 seq 로는 실제로 저장된다 — 위의 '안 바뀜' 이 DAO 가 원래 아무 일도 못 하는 것이
+    // 아니라 거부한 결과임을 못 박는다.
+    assertTrue(dao.setSessionProfileEnabled(String.valueOf(MALL), true), "정상 저장이 깨졌다.");
+    assertEquals(1, intColumn("SELECT session_profile_enabled FROM jbg_mall WHERE seq=?", MALL));
+    assertEquals(
+        1,
+        intColumn("SELECT session_profile_enabled FROM jbg_mall WHERE seq=?", OTHER_MALL),
+        "한 몰을 켜는 요청이 다른 몰의 옵트인까지 건드렸다.");
+  }
+
   // ---------------------------------------------------------------
   // 롤백 — 여러 문장을 한 트랜잭션에 묶은 자리
   // ---------------------------------------------------------------

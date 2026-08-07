@@ -38,9 +38,20 @@ public class MallOrderUpdater {
    * @param status SUCCESS / FAIL / SKIPPED
    * @param cause 실패 컨텍스트 (실패가 아니면 null)
    * @param reason 건너뛴 사유 (건너뜀이 아니면 null)
+   * @param skipCause 건너뛴 <b>종류</b> (건너뜀이 아니거나 종류를 모르면 null). 세션 만료만 위쪽에서 다르게 다뤄지는데, 그 갈림을 사유 문자열
+   *     비교로 하면 문구를 다듬는 순간 조용히 깨진다 ({@link SessionCollector.SkipCause} 참조)
    */
   public record CollectOutcome(
-      String collector, String status, CollectException cause, String reason) {
+      String collector,
+      String status,
+      CollectException cause,
+      String reason,
+      SessionCollector.SkipCause skipCause) {
+
+    /** 종류를 가릴 것이 없는 결과(성공·실패·브레이커 차단)를 위한 짧은 형태. */
+    public CollectOutcome(String collector, String status, CollectException cause, String reason) {
+      this(collector, status, cause, reason, null);
+    }
 
     public static final String SUCCESS = "SUCCESS";
     public static final String FAIL = "FAIL";
@@ -69,6 +80,16 @@ public class MallOrderUpdater {
     public boolean isCompleted() {
       return SUCCESS.equals(status) || EMPTY.equals(status);
     }
+
+    /**
+     * 주입한 세션이 죽어서 물러난 회차인가 (Phase 5-10 배선).
+     *
+     * <p>{@code MallOrderUpdaterRunner} 가 이 값을 보고 실행 결과를 {@code MallCollectOutcome.sessionExpired}
+     * 로 승격한다. 승격되지 않으면 스케줄러·즉시수집의 만료 분기는 <b>도달 불가 코드</b>가 되고, 일시중단·재개가 전부 무동작이 된다.
+     */
+    public boolean sessionExpired() {
+      return skipCause != null && skipCause.sessionExpired();
+    }
   }
 
   /**
@@ -77,25 +98,40 @@ public class MallOrderUpdater {
    * <p>자격증명 경로와 세션 주입 경로 중 <b>하나만</b> 채워진다. 두 목록을 따로 들고 다니지 않는 이유는 <b>선언 순서를 지키기 위해서</b>다 — seq=1 은
    * SSG 다음 Emart 순으로 돌게 선언돼 있고, 세션 경로가 SSG 자리를 대체해도 그 순서는 그대로여야 한다. 목록을 나누면 대체된 자리가 맨 뒤로 밀린다.
    *
+   * <p>셋째 형태가 있다 — <b>돌리지 않기로 이미 정해진 자리</b>({@link #skipped})다. 계획에서 아예 빼지 않는 이유는 그러면 그 수집기가 화면에서
+   * 소리 없이 사라지기 때문이다. 자리를 남겨 두면 사유가 한 행으로 남아 사람이 "왜 Emart 가 안 도는가" 를 물을 수 있다.
+   *
    * @param name 수집기 이름 (로그·브레이커 키)
-   * @param credential 자격증명 수집기. 세션 자리면 null
-   * @param session 세션 주입 수집기. 자격증명 자리면 null
+   * @param credential 자격증명 수집기. 세션 자리·건너뛴 자리면 null
+   * @param session 세션 주입 수집기. 자격증명 자리·건너뛴 자리면 null
+   * @param skipReason 이 자리를 돌리지 않는 사유. 돌릴 자리면 null
    */
   record PlannedCollector(
       String name,
       MallRegistry.CollectorSpec credential,
-      MallRegistry.SessionCollectorSpec session) {
+      MallRegistry.SessionCollectorSpec session,
+      String skipReason) {
 
     static PlannedCollector of(MallRegistry.CollectorSpec spec) {
-      return new PlannedCollector(spec.name(), spec, null);
+      return new PlannedCollector(spec.name(), spec, null, null);
     }
 
     static PlannedCollector of(MallRegistry.SessionCollectorSpec spec) {
-      return new PlannedCollector(spec.name(), null, spec);
+      return new PlannedCollector(spec.name(), null, spec, null);
+    }
+
+    /** 돌리지 않기로 이미 정해진 자리. 브레이커는 건드리지 않는다. */
+    static PlannedCollector skipped(String name, String reason) {
+      return new PlannedCollector(name, null, null, reason);
     }
 
     boolean isSession() {
       return session != null;
+    }
+
+    /** 이번 회차에 돌리지 않는 자리인가. */
+    boolean isSkipped() {
+      return credential == null && session == null;
     }
   }
 
@@ -109,6 +145,14 @@ public class MallOrderUpdater {
   interface MallOptInReader {
     boolean isOptedIn(String seqMall) throws Exception;
   }
+
+  /**
+   * 저장된 자격증명이 없어 자격증명 수집기를 건너뛴 사유.
+   *
+   * <p>화면에 그대로 나가는 문구다. "실패" 가 아니라 "건너뛴다" 라고 적는 것이 중요하다 — 세션만으로 도는 몰에서는 이것이 <b>정상 상태</b>이고, 실패로 읽히면
+   * 사람이 있지도 않은 계정 문제를 뒤진다.
+   */
+  static final String REASON_NO_CREDENTIALS = "저장된 자격증명이 없어 이 수집기는 건너뛴다";
 
   /** 이번 수집에서 각 수집기가 어떻게 끝났는지. */
   private final List<CollectOutcome> outcomes = new ArrayList<>();
@@ -194,13 +238,30 @@ public class MallOrderUpdater {
     // 분기만 탄다 — 옵트인 OFF 몰의 런타임 동작이 바뀌지 않는다는 보장이 거기서 나온다.
     MallRegistry mall = MallRegistry.bySeq(seqMallInt).orElse(null);
     List<PlannedCollector> plan =
-        planCollectors(mall, sessionRouteApplies(mall, String.valueOf(seqMallInt)));
+        planCollectors(
+            mall, sessionRouteApplies(mall, String.valueOf(seqMallInt)), hasCredentials(mallId));
     if (plan.isEmpty()) {
       logger.warn("등록되지 않은 쇼핑몰 seq={} — 수집기가 없다", seqMall);
     }
 
-    int attempted = plan.size();
+    int attempted = 0;
     for (PlannedCollector planned : plan) {
+      if (planned.isSkipped()) {
+        // 돌리지 않기로 계획 단계에서 이미 정해진 자리다 (지금은 '자격증명 없음' 하나뿐).
+        //
+        // 브레이커를 건드리지 않는다. 세션 만료를 FAIL 로 세지 않는 것과 같은 이유다 — 자격증명이
+        // 없는 것은 사이트 장애가 아닌데 연속 실패로 계산되면 브레이커가 그 수집기를 자동 차단하고,
+        // 사람이 계정을 다시 연결해도 쿨다운이 끝날 때까지 돌지 않는다.
+        //
+        // '시도' 로도 세지 않는다. 세면 아래 전멸 판정(전부 실패면 예외로 올린다)의 분모가 부풀어,
+        // 실제로 돈 수집기가 전부 실패해도 그 사실이 상위로 올라가지 않는다.
+        logger.warn("{} 수집 건너뜀 — {}", planned.name(), planned.skipReason());
+        outcomes.add(
+            new CollectOutcome(planned.name(), CollectOutcome.SKIPPED, null, planned.skipReason()));
+        continue;
+      }
+
+      attempted++;
       if (planned.isSession()) {
         MallRegistry.SessionCollectorSpec spec = planned.session();
         // seq 는 정규화한 값을 넘긴다 — 스냅샷 파일명·DB 키로 쓰이므로 공백이 섞인 원문을 그대로
@@ -228,9 +289,12 @@ public class MallOrderUpdater {
       throw failures.get(0).cause();
     }
 
+    // 이 수는 더 이상 브레이커 것만이 아니다 — 자격증명 없음·세션 없음·주입 반영 0개·세션 만료가
+    // 모두 SKIPPED 로 들어온다. 예전 문구("브레이커 건너뜀")를 그대로 두면 세션이 죽어서 물러난
+    // 회차를 읽은 사람이 브레이커 상태부터 뒤지게 된다. 사유별 내역은 수집기별 행에 남아 있다.
     long skipped = outcomes.stream().filter(o -> CollectOutcome.SKIPPED.equals(o.status())).count();
     logger.info(
-        "전체 수집 완료 - 총 {} 건 (부분 실패 {} 건, 브레이커 건너뜀 {} 건)", itemArr.size(), failures.size(), skipped);
+        "전체 수집 완료 - 총 {} 건 (부분 실패 {} 건, 건너뜀 {} 건)", itemArr.size(), failures.size(), skipped);
     return itemArr;
   }
 
@@ -278,11 +342,25 @@ public class MallOrderUpdater {
    * <p>세션 수집기는 자기가 선언한 {@code replaces} 자리를 <b>대체</b>한다. 덧붙이지 않는 이유는, 둘 다 돌리면 비밀번호 로그인이 그대로 남아 이
    * 국면의 목적이 성립하지 않기 때문이다. 대체되지 않은 자리(seq=1 의 Emart)는 그대로 자격증명 경로로 돈다.
    *
+   * <h2>자격증명이 없으면 자격증명 수집기를 건너뛴다 — 킬스위치를 켜기 전 필수 조건이다</h2>
+   *
+   * <p>이 검사가 없으면 <b>세션만 있는 seq=1 이 Emart 를 자동으로 죽인다.</b> 세션 경로는 SSG 자리 하나만 대체하므로 Emart 는 자격증명 경로로
+   * 남는데, 그 몰에는 저장된 아이디·비밀번호가 없어 {@code mallId}·{@code mallPw} 가 null 로 내려온다. 그대로 돌리면 null 로 로그인을
+   * 시도해 매 회차 FAIL 이 쌓이고, 연속 실패가 임계를 넘는 순간 <b>브레이커가 Emart 를 차단한다.</b> 그다음부터는 사람이 세션을 다시 떠도 쿨다운이 끝날
+   * 때까지 Emart 는 돌지 않는다 — 세션 기능을 켠 것만으로 멀쩡하던 오프라인 영수증 수집이 멈춘다.
+   *
+   * <p>그래서 그 자리를 <b>건너뜀</b>으로 남긴다. 계획에서 통째로 빼지 않는 이유는 그러면 사유가 어디에도 남지 않아, 사람이 "Emart 는 왜 안 도는가" 를
+   * 물을 단서가 사라지기 때문이다.
+   *
+   * <p>세션 수집기는 이 검사에 걸리지 않는다. 그쪽은 애초에 비밀번호를 쓰지 않으므로 자격증명이 없는 것이 <b>정상</b>이다.
+   *
    * @param mall 등록된 몰. null 이면 빈 목록
    * @param sessionRouteApplies 이중 게이트 판정 결과
+   * @param hasCredentials 이번 회차에 쓸 수 있는 아이디·비밀번호가 있는가
    * @return 선언 순서를 유지한 실행 계획
    */
-  static List<PlannedCollector> planCollectors(MallRegistry mall, boolean sessionRouteApplies) {
+  static List<PlannedCollector> planCollectors(
+      MallRegistry mall, boolean sessionRouteApplies, boolean hasCredentials) {
     if (mall == null) {
       return List.of();
     }
@@ -297,6 +375,8 @@ public class MallOrderUpdater {
       if (replacement.isPresent()) {
         plan.add(PlannedCollector.of(replacement.get()));
         substituted.add(replacement.get().name());
+      } else if (!hasCredentials) {
+        plan.add(PlannedCollector.skipped(spec.name(), REASON_NO_CREDENTIALS));
       } else {
         plan.add(PlannedCollector.of(spec));
       }
@@ -312,6 +392,18 @@ public class MallOrderUpdater {
       }
     }
     return plan;
+  }
+
+  /**
+   * 이번 회차에 쓸 수 있는 자격증명이 있는가.
+   *
+   * <p>{@code JangBoGoManager.collect} 는 세션 경로에서 복호화를 아예 하지 않고 {@code mallId} 를 null 로 내려보낸다 — 그것이
+   * '비밀번호를 메모리에 올리지 않는다' 는 이 국면의 목적이다. 즉 여기서 보는 null 은 사고가 아니라 <b>정상 신호</b>다.
+   *
+   * <p>공백도 없는 것으로 본다. 빈 문자열로 로그인 폼을 제출하면 실패하는 것은 null 과 같은데, 그것이 FAIL 로 쌓이면 브레이커가 열린다.
+   */
+  private static boolean hasCredentials(String mallId) {
+    return mallId != null && !mallId.isBlank();
   }
 
   /**
@@ -411,7 +503,16 @@ public class MallOrderUpdater {
       }
       if (result.isSkipped()) {
         logger.warn("{} 세션 주입 수집 건너뜀 — {}", name, result.skipReason());
-        outcomes.add(new CollectOutcome(name, CollectOutcome.SKIPPED, null, result.skipReason()));
+        // 종류를 그대로 실어 올린다. 위쪽(MallOrderUpdaterRunner)이 만료만 골라 실행 결과로 승격하는데,
+        // 그 판정을 사유 문자열 비교로 하면 문구를 다듬는 순간 조용히 깨진다.
+        //
+        // recordBreaker 를 부르지 않는다는 점이 이 분기의 핵심이다. 건너뜀은 실패도 성공도 아니다 —
+        // 실패로 세면 세션이 죽었다는 이유만으로 연속 실패가 쌓여 수집기가 자동 차단되고(사람이 세션을
+        // 다시 떠도 쿨다운 전까지 안 돈다), 성공으로 세면 last_nonempty_time 이 갱신돼 조용한 실패를
+        // 잡아내는 유일한 신호가 사라진다.
+        outcomes.add(
+            new CollectOutcome(
+                name, CollectOutcome.SKIPPED, null, result.skipReason(), result.skipCause()));
         return new JSONArray();
       }
       return recordItems(name, seqMall, result.items());

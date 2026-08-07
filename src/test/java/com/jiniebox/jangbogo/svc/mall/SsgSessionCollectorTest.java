@@ -12,6 +12,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.jiniebox.jangbogo.svc.mall.SessionCollector.Result;
+import com.jiniebox.jangbogo.svc.mall.SessionCollector.SkipCause;
+import com.jiniebox.jangbogo.svc.util.SessionExpiryDetector;
 import com.jiniebox.jangbogo.svc.util.SessionProfilePolicy;
 import com.jiniebox.jangbogo.svc.util.SessionSnapshot;
 import com.jiniebox.jangbogo.svc.util.SessionSnapshotTestSupport;
@@ -26,7 +28,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.mockito.Mockito;
+import org.openqa.selenium.By;
 import org.openqa.selenium.WebDriver;
+import org.openqa.selenium.WebElement;
 
 /**
  * 세션 주입 수집 경로의 계약 검증 (Phase 5-9′ 파일럿).
@@ -104,9 +109,19 @@ class SsgSessionCollectorTest {
    */
   private SsgSessionCollector collector(
       SessionSnapshot snapshot, int applied, String landedUrl, JSONArray items) {
+    return collector(SEQ, snapshot, applied, landedUrl, items);
+  }
+
+  /**
+   * 몰을 골라 대역을 배선한다.
+   *
+   * @param seqMall 어느 몰로 도는가. 로그인 신호 선언이 몰마다 다르므로 만료 판정이 갈린다
+   */
+  private SsgSessionCollector collector(
+      String seqMall, SessionSnapshot snapshot, int applied, String landedUrl, JSONArray items) {
     when(driver.getCurrentUrl()).thenReturn(landedUrl);
     return new SsgSessionCollector(
-        SEQ,
+        seqMall,
         profileDir -> {
           calls.add("launch:" + profileDir.getFileName());
           return driver;
@@ -191,6 +206,8 @@ class SsgSessionCollectorTest {
     Result result = sut.collect();
 
     assertTrue(result.isSkipped());
+    assertEquals(SkipCause.NO_SESSION, result.skipCause());
+    assertFalse(result.isSessionExpired(), "세션이 '없는' 것을 '만료' 로 읽으면 몰이 통째로 일시중단된다.");
     assertEquals(SsgSessionCollector.REASON_NO_SESSION, result.skipReason());
     assertTrue(result.items().isEmpty());
     assertEquals(List.of("load:" + SEQ), calls, "세션이 없는데 브라우저를 띄웠다: " + calls);
@@ -209,6 +226,8 @@ class SsgSessionCollectorTest {
     Result result = sut.collect();
 
     assertTrue(result.isSkipped());
+    assertEquals(SkipCause.NOTHING_APPLIED, result.skipCause());
+    assertFalse(result.isSessionExpired(), "주입 실패는 만료가 아니다 — 사람이 할 일이 다르다.");
     assertEquals(SsgSessionCollector.REASON_NOTHING_APPLIED, result.skipReason());
     assertFalse(calls.contains("read"), "주입이 성립하지 않았는데 파싱까지 갔다: " + calls);
     verify(driver).quit();
@@ -243,9 +262,50 @@ class SsgSessionCollectorTest {
     Result result = sut.collect();
 
     assertTrue(result.isSkipped());
-    assertEquals(SsgSessionCollector.REASON_EXPIRED, result.skipReason());
+    assertEquals(SkipCause.SESSION_EXPIRED, result.skipCause());
+    assertTrue(result.isSessionExpired(), "만료가 종류로 실리지 않으면 위쪽 일시중단이 통째로 무동작이 된다.");
+    assertEquals(
+        SessionExpiryDetector.Verdict.EXPIRED.reason(),
+        result.skipReason(),
+        "판정한 쪽과 사유를 적는 쪽이 갈리면 같은 사실이 화면에 두 문구로 쌓인다.");
     assertFalse(calls.contains("read"), "만료된 세션으로 파싱까지 갔다: " + calls);
     verify(driver).quit();
+  }
+
+  @Test
+  @DisplayName("주소가 그대로여도 로그인 폼이 보이면 만료다 — 레지스트리의 셀렉터를 실제로 쓴다")
+  void visibleLoginFormIsExpiryEvenWhenTheUrlDidNotChange() {
+    // 사이트가 주소를 바꾸지 않고 화면만 로그인 폼으로 갈아 끼우면 주소만 보는 판정은 만료를
+    // 통째로 놓친다 (Ssg.isSignedIn 을 고치게 만든 그 형태다). 이 축이 살아 있는지를 잰다.
+    WebElement visibleLoginField = mock(WebElement.class);
+    when(visibleLoginField.isDisplayed()).thenReturn(true);
+    when(driver.findElements(Mockito.any(By.class))).thenReturn(List.of(visibleLoginField));
+
+    SsgSessionCollector sut =
+        collector(
+            SessionSnapshotTestSupport.withCookies(3),
+            3,
+            SsgSessionCollector.MEMBER_URL,
+            orders("A"));
+
+    Result result = sut.collect();
+
+    assertTrue(result.isSessionExpired(), "로그인 폼이 보이는데 만료로 읽지 않았다: " + result.skipReason());
+    assertFalse(calls.contains("read"), "만료된 세션으로 파싱까지 갔다: " + calls);
+  }
+
+  @Test
+  @DisplayName("로그인 신호를 선언하지 않은 몰에서는 만료로 단정하지 않고 통과시킨다")
+  void undeclaredMallsAreNeverJudgedAsExpired() {
+    // ssg 전용 실측 마커(purchaselist)를 모르는 몰에 들이대면 정상 회원 페이지를 만료로 읽어
+    // 멀쩡한 수집이 멈춘다 — 만료를 한 회차 놓치는 것보다 나쁘다. seq=2(oasis)는 미선언이다.
+    SsgSessionCollector sut =
+        collector("2", SessionSnapshotTestSupport.withCookies(3), 3, BOUNCED_TO_LOGIN, orders("A"));
+
+    Result result = sut.collect();
+
+    assertFalse(result.isSkipped(), "선언하지 않은 몰을 추측으로 만료 판정했다: " + result.skipReason());
+    assertEquals(1, result.items().size());
   }
 
   @Test
@@ -289,12 +349,18 @@ class SsgSessionCollectorTest {
   }
 
   @Test
-  @DisplayName("회원 페이지 도달 판정은 표식과 로그인 여부를 함께 본다")
-  void memberPageJudgementNeedsBothSignals() {
-    assertTrue(SsgSessionCollector.reachedMemberPage(SsgSessionCollector.MEMBER_URL));
-    assertFalse(SsgSessionCollector.reachedMemberPage(null));
-    assertFalse(SsgSessionCollector.reachedMemberPage("  "));
-    assertFalse(SsgSessionCollector.reachedMemberPage("https://www.ssg.com/"), "표식이 없다");
-    assertFalse(SsgSessionCollector.reachedMemberPage(BOUNCED_TO_LOGIN), "로그인 화면이면 도달이 아니다");
+  @DisplayName("만료 판정 기준은 레지스트리 선언에서만 온다 — 수집기가 자기 마커를 따로 들지 않는다")
+  void expirySignalsComeFromTheRegistryOnly() {
+    // 같은 지식이 두 곳에 있으면 한쪽만 고쳐도 컴파일과 테스트가 통과하고 판정만 어긋난다.
+    assertEquals(
+        MallRegistry.SSG_GROUP.loginSignals(),
+        SsgSessionCollector.loginSignals("1"),
+        "수집기가 레지스트리와 다른 신호를 쓴다.");
+    assertEquals(
+        SessionExpiryDetector.LoginSignals.UNDECLARED,
+        SsgSessionCollector.loginSignals("99"),
+        "등록되지 않은 seq 에 남의 마커를 들이대면 정상 페이지를 만료로 읽는다.");
+    assertFalse(
+        SsgSessionCollector.loginSignals("2").isDeclared(), "oasis 는 아직 실측되지 않았다 — 판정 대상이 아니다.");
   }
 }

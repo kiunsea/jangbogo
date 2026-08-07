@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.jiniebox.jangbogo.svc.mall.MallRegistry.CollectorSpec;
@@ -276,15 +277,15 @@ class MallRegistryTest {
   }
 
   @Test
-  @DisplayName("만료 판정의 로그인 마커가 세션 주입 수집기의 것과 갈리지 않는다")
-  void loginMarkerMatchesTheSessionCollector() {
-    // 같은 사실을 두 곳이 들고 있다. 한쪽만 고치면 컴파일도 테스트도 통과하면서 판정이 갈리는데,
-    // 갈린 쪽은 '만료를 도달로 읽어 0건이 성공으로 굳는' 형태로만 드러난다.
-    List<String> markers = MallRegistry.SSG_GROUP.loginSignals().urlMarkers();
-
-    assertTrue(
-        markers.contains(SsgSessionCollector.LOGIN_MARKER),
-        "레지스트리의 로그인 마커와 SsgSessionCollector.LOGIN_MARKER 가 갈렸다.");
+  @DisplayName("세션 주입 수집기는 자기 마커를 따로 들지 않고 이 선언을 그대로 읽는다")
+  void theSessionCollectorReadsTheseSignalsInsteadOfKeepingItsOwn() {
+    // 예전에는 같은 사실을 두 곳이 들고 있었다(SsgSessionCollector.LOGIN_MARKER). 한쪽만 고치면
+    // 컴파일도 테스트도 통과하면서 판정이 갈리고, 갈린 쪽은 '만료를 도달로 읽어 0건이 성공으로 굳는'
+    // 형태로만 드러난다. 그래서 사본을 없앴고, 없앤 상태가 유지되는지를 여기서 잰다.
+    assertSame(
+        MallRegistry.SSG_GROUP.loginSignals(),
+        SsgSessionCollector.loginSignals("1"),
+        "수집기가 레지스트리 선언이 아닌 자기 사본을 쓰고 있다.");
   }
 
   @Test

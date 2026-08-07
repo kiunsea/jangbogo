@@ -471,7 +471,10 @@ public class AdminController {
         }
 
         int resultConn = jangBoGoManager.connectToMall(seqMall, usrid, usrpass);
-        logger.info("쇼핑몰 연결 결과 - seq: {}, user: {} = " + resultConn);
+        // 자리표시자 두 개를 써 놓고 인자를 하나도 넘기지 않아, 실제 로그에는 seq 도 user 도 없이
+        // "{}" 두 개가 그대로 찍히고 있었다. 연결 실패를 조사할 때 어느 몰의 기록인지 알 수 없는
+        // 줄이 남는다. 결과값(0:실패, 1:성공, 2:재시도 대기)까지 자리표시자로 넘긴다.
+        logger.info("쇼핑몰 연결 결과 - seq: {}, user: {}, result: {}", seqMall, username, resultConn);
         if (resultConn == 1) {
           /** 연결테스트에 성공한 경우 */
           SecretKey key = StringEncrypter.generateKey(256);
@@ -525,13 +528,25 @@ public class AdminController {
           } catch (IOException e) {
             // YAML 파일 저장 실패
             logger.error("mall_account.yml 저장 실패 - seqMall: {}", seqMall, e);
-            // DB 업데이트는 성공했지만 YAML 저장 실패 - 경고만 남기고 계속 진행
-            logger.warn("계정 정보 저장 중 오류가 발생했지만 연결은 완료되었습니다: {}", e.getMessage());
+            // "연결은 완료되었습니다" 라고 찍고 있었는데 사실이 아니다. 여기까지 오면 DB 는
+            // account_status=1 로 바뀌었지만 계정 암호문은 어디에도 저장되지 않았다 —
+            // JangBoGoManager.qualify 가 저장된 계정을 못 찾아 다음 수집부터 그 몰을 통째로
+            // 건너뛴다. 화면은 '연결됨' 으로 보이는데 수집만 0건인, 가장 알아채기 어려운 형태다.
+            logger.warn(
+                "쇼핑몰 seq={} 계정 암호문 저장 실패 — DB 는 연결됨(1)이지만 저장된 계정이 없어"
+                    + " 다음 수집부터 자격 없음으로 건너뛴다. '계정연결' 을 다시 실행해야 한다: {}",
+                seqMall,
+                e.getMessage());
           } catch (Exception e) {
             // 쇼핑몰 정보 조회 실패 등 기타 오류
             logger.error("쇼핑몰 계정 정보 저장 처리 중 오류 발생 - seqMall: {}", seqMall, e);
-            // DB 업데이트는 성공했지만 후처리 실패 - 경고만 남기고 계속 진행
-            logger.warn("계정 정보 저장 처리 중 오류가 발생했지만 연결은 완료되었습니다: {}", e.getMessage());
+            // 위와 같은 이유로 "연결은 완료되었습니다" 를 지웠다. 저장까지 갔는지 아닌지를 여기서는
+            // 알 수 없으므로 단정하지 않고 확인해야 할 것을 적는다.
+            logger.warn(
+                "쇼핑몰 seq={} 계정 저장 후처리 실패 — DB 는 연결됨(1)이나 계정 암호문이 저장됐는지"
+                    + " 확인되지 않았다. 수집이 자격 없음으로 건너뛰면 '계정연결' 을 다시 실행해야 한다: {}",
+                seqMall,
+                e.getMessage());
           }
 
           // 저장 성공 응답
@@ -836,12 +851,24 @@ public class AdminController {
           }
         } catch (BadPaddingException bpe) {
           logger.warn("쇼핑몰 seq={} 자동수집 복호화 실패 (BadPaddingException)", seq);
-          // 계정 복호화 오류 발생 시 DB 키/IV 삭제 및 상태 0 초기화
+
+          // 복호화가 깨진 계정은 사람이 다시 연결해야 하므로 account_status 만 0 으로 내린다.
+          //
+          // 키/IV 는 지워지지 않는다 — 이 호출은 애초에 지울 수도 없다.
+          // JbgMallDataAccessObject.update 는 null 인자를 isEmpty 로 걸러 SET 절에 붙이지 않으므로
+          // 실제로 바뀌는 컬럼은 account_status 하나뿐이다. 그런데 예전 로그는 "암호화 키/IV 초기화
+          // 완료" 라고 찍었다. 코드를 열어 보지 않은 사람은 키가 지워진 줄 알고 장애 조사를
+          // 시작하게 되는데, 사실과 다른 로그는 없는 로그보다 나쁘다 — 없으면 확인하러 가지만
+          // 있으면 그것을 근거로 다음 판단을 쌓는다.
+          //
+          // 지우는 쪽으로 맞추지 않은 이유: 재연결(POST /mall/connect)이 새 키/IV 를 만들어 덮어쓰므로
+          // 남겨 두어도 동작에 문제가 없다. 반대로 지우면 이 UPDATE 와 재연결 사이에 무엇이든
+          // 실패하는 순간 되돌릴 방법이 없다 — 얻는 것 없이 복구 불가만 늘어난다.
           try {
             jaDao.update(seq, 0, null, null);
-            logger.info("쇼핑몰 seq={} 암호화 키/IV 초기화 및 account_status=0 설정 완료", seq);
+            logger.info("쇼핑몰 seq={} account_status=0 설정 완료 (암호화 키/IV 는 그대로 남는다)", seq);
           } catch (Exception resetEx) {
-            logger.warn("쇼핑몰 seq={} DB 인증정보 초기화 실패: {}", seq, resetEx.getMessage());
+            logger.warn("쇼핑몰 seq={} account_status=0 설정 실패: {}", seq, resetEx.getMessage());
           }
           decryptionFailed.add(seq);
         } catch (Exception perMallEx) {

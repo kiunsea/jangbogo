@@ -234,9 +234,11 @@ public final class SessionExpiryDetector {
    * <p>WebDriver 접촉은 전부 {@link CollectStep} 으로 감싼다. 셀렉터 조회는 <b>셀렉터별로</b> 감싸므로, 어느 셀렉터에서 깨졌는지가 실패
    * 컨텍스트에 그대로 남는다.
    *
-   * <p><b>지금 프로덕션 호출자가 없다.</b> 이 관측이 붙을 자리는 세션 주입 수집기의 회원 페이지 도달 확인 지점인데(그 수집기는 지금 주소 한 조각만 보고 만료를
-   * 단정한다), 이번 변경에서 그 파일은 손대지 않기로 되어 있어 배선이 뒤로 밀렸다. 그 배선 전까지 만료 판정은 <b>일어나지 않는다</b> — 아래 기록·일시중단 경로는
-   * 만들어져 있으나 입력이 오지 않는 상태다. 이 문단이 지워질 때가 배선이 끝난 때다.
+   * <p><b>프로덕션 호출자는 {@code SsgSessionCollector.collect} 하나다</b> — 세션을 주입하고 회원 주문내역으로 이동한 직후, 목록을
+   * 파싱하기 <b>전</b>에 부른다. 파싱 뒤로 미루면 만료가 셀렉터 실패로 둔갑해, 사람은 '다시 로그인' 대신 '사이트 구조가 바뀌었다' 를 뒤진다.
+   *
+   * <p>호출자가 0 이면 이 클래스는 <b>아무 일도 하지 않는다</b> — 아래 기록·일시중단 경로가 전부 도달 불가가 되고, 테스트가 전부 초록이어도 사용자에게는 만료가
+   * 보이지 않는다. 실제로 한 번 그 상태로 머문 적이 있어서, 지금은 {@code SessionExpiryWiringTest} 가 호출자 수를 소스에서 직접 센다.
    *
    * @param driver 회원 페이지로 이동을 마친 드라이버. null 이면 판정하지 않는다
    * @param collectorName 실패 컨텍스트·스크린샷 파일명에 쓸 수집기 이름
@@ -248,7 +250,11 @@ public final class SessionExpiryDetector {
   }
 
   /**
-   * 대기 방식을 갈아 끼울 수 있는 형태. 테스트가 실제로 기다리지 않게 하려고 나눠 두었다.
+   * 대기 방식을 갈아 끼울 수 있는 형태.
+   *
+   * <p>테스트가 실제로 기다리지 않게 하려고 나눈 것이지만, <b>프로덕션도 이쪽을 쓴다.</b> 수집기는 이미 자기 대기 함수를 하나 들고 있어서(페이지 전환 뒤의 실측
+   * 대기값), 여기서 또 하나의 대기 구현을 갖게 두면 같은 회차에 서로 다른 두 개의 {@code Thread.sleep} 이 생긴다. 그러면 테스트가 한쪽만 대역으로 갈아
+   * 끼우고 나머지 한쪽에서 실제로 잠들어, 왜 느린지 아무도 모르는 테스트가 된다. 그래서 {@code public} 이다.
    *
    * @param driver 회원 페이지로 이동을 마친 드라이버
    * @param collectorName 실패 컨텍스트에 쓸 수집기 이름
@@ -256,7 +262,7 @@ public final class SessionExpiryDetector {
    * @param settle 렌더 대기. null 이면 기다리지 않는다
    * @return 판정
    */
-  static Verdict observe(
+  public static Verdict observe(
       WebDriver driver, String collectorName, LoginSignals signals, LongConsumer settle) {
 
     if (signals == null || !signals.isDeclared()) {
