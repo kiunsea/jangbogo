@@ -247,6 +247,31 @@ class MallOrderUpdaterSessionRouteTest {
   }
 
   @Test
+  @DisplayName("프로필이 잠긴 회차도 SKIPPED 로 남고 브레이커를 건드리지 않는다")
+  void aLockedProfileIsRecordedAsSkippedNotFailure() {
+    // 프로필 겹침은 다음 회차면 저절로 풀린다. 실패로 세면 연속 실패가 쌓여 브레이커가 열리고,
+    // 겹침이 끝난 뒤에도 쿨다운이 지날 때까지 그 수집기가 돌지 않는다 — 원인과 증상이 완전히
+    // 어긋나서 사람이 세션을 다시 떠도 아무 변화가 없다.
+    MallOrderUpdater mou = new MallOrderUpdater(seq -> true);
+
+    JSONArray items =
+        mou.collectFromSession(
+            "SsgSession",
+            0,
+            0,
+            () ->
+                SessionCollector.Result.skipped(
+                    SessionCollector.SkipCause.PROFILE_LOCKED, "문구는 언제든 바뀔 수 있다"));
+
+    assertTrue(items.isEmpty());
+    assertTrue(mou.getPartialFailures().isEmpty(), "프로필 겹침이 실패로 기록됐다 — 브레이커가 열린다.");
+
+    CollectOutcome outcome = mou.getOutcomes().get(0);
+    assertEquals(CollectOutcome.SKIPPED, outcome.status());
+    assertFalse(outcome.sessionExpired(), "프로필 겹침을 만료로 승격하면 몰이 통째로 일시중단된다.");
+  }
+
+  @Test
   @DisplayName("세션 수집기가 주문을 가져오면 SUCCESS 로 남는다")
   void collectedOrdersAreRecordedAsSuccess() {
     MallOrderUpdater mou = new MallOrderUpdater(seq -> true);

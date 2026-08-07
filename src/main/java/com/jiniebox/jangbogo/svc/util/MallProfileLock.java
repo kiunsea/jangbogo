@@ -31,8 +31,13 @@ import org.apache.logging.log4j.Logger;
  *   <li><b>락 파일은 지우지 않는다.</b> 지우는 순간 다른 프로세스가 이미 연 파일 핸들과 새로 만든 파일이 갈라져 락이 무의미해진다. 빈 파일 하나가 남는 비용이
  *       그 위험보다 싸다.
  *   <li><b>{@code BrowserConcurrencyLimiter} 와 함께 쓸 때는 이 락이 안쪽이다.</b> 획득 순서는 제한기 바깥 / 프로필 락 안쪽 — 락을
- *       바깥에 두면 세마포어 대기 중 프로세스 경계 락을 놀리면서 쥔다. 아직 수집 경로에 배선하지 않았다(Phase 5-3 재검토 항목). 배선하는 쪽이 이 순서를
- *       지켜야 한다.
+ *       바깥에 두면 세마포어 대기 중 프로세스 경계 락을 놀리면서 쥔다. 수집 경로({@code SsgSessionCollector.collect})는 {@code
+ *       JangBoGoManager} 가 {@code CollectAdmission} 으로 제한기 자리를 <b>이미 잡은 뒤</b> 불리므로 그 순서를 지킨다. 캡처
+ *       경로({@code SessionCaptureService})는 제한기 자리를 <b>일부러 잡지 않으므로</b>(사람 페이스로 몇 분씩 열려 있어 잡으면 주기 수집이
+ *       굶는다 — 그쪽 javadoc 참조) 순서 문제가 없다.
+ *   <li><b>{@code WebDriverManager.killOrphanProfileChrome} 보다 반드시 먼저 잡는다.</b> 그 정리는 프로필을 문 {@code
+ *       chrome.exe} 를 <b>전부</b> 죽인다. "지금 이 프로필을 쓰는 활성 캡처가 없다" 는 전제는 <b>이 JVM 안에서만</b> 참이므로, 락 없이
+ *       부르면 다른 프로세스가 사람 로그인용으로 띄워 둔 살아 있는 창까지 죽인다. 뒤에 잡으면 죽인 다음에 잠그는 꼴이라 아무것도 막지 못한다.
  * </ul>
  *
  * <p>세 상태를 구분한다 — 잡았다 / 남이 갖고 있다 / 잠글 수 없는 환경이다. 마지막은 실패가 아니다(네트워크 드라이브 등에서 파일 락이 지원되지 않을 수 있다).
@@ -64,11 +69,33 @@ public final class MallProfileLock implements AutoCloseable {
   private final FileChannel channel;
   private final FileLock lock;
 
+  /**
+   * 이미 놓았는가.
+   *
+   * <p>캡처 경로는 이 락을 HTTP 요청 <b>여럿에 걸쳐</b> 들고 있어 try-with-resources 로 감쌀 수 없고, 해제 지점이 여섯 곳(정상 완료·취소·창
+   * 만료·유휴 회수·리퍼·종료)이다. 그중 둘이 겹쳐 닿으면 두 번째 {@code release()} 가 {@code ClosedChannelException} 을 내고 "락
+   * 해제 실패" 경고만 남는다 — 실제로는 정상인데 사람이 락 누수를 의심하게 된다. 한 번만 놓는다.
+   */
+  private boolean released;
+
   private MallProfileLock(Outcome outcome, String profileName, FileChannel channel, FileLock lock) {
     this.outcome = outcome;
     this.profileName = profileName;
     this.channel = channel;
     this.lock = lock;
+  }
+
+  /**
+   * 프로필 루트 아래에서 이 프로필의 락을 시도한다.
+   *
+   * <p>운영 경로는 이것을 쓴다. 락 루트를 호출부마다 계산하면 <b>같은 프로필인데 락 파일이 갈리는</b> 순간 락이 통째로 무의미해지는데, 그 어긋남은 아무 예외도
+   * 내지 않고 "두 프로세스가 같은 프로필을 동시에 열었다" 로만 드러난다. 그래서 루트를 여기 한 곳에 둔다.
+   *
+   * @param profileName 프로필 이름 — 이것이 곧 락 키다. 캡처는 {@code <몰id>}, 주입 수집은 {@code <몰id>-inject} 다
+   * @return 결과를 담은 락 객체. 반드시 close 할 것
+   */
+  public static MallProfileLock tryAcquireProfile(String profileName) {
+    return tryAcquire(SessionProfilePolicy.profileRoot(), profileName);
   }
 
   /**
@@ -136,6 +163,10 @@ public final class MallProfileLock implements AutoCloseable {
 
   @Override
   public void close() {
+    if (released) {
+      return;
+    }
+    released = true;
     // 락 파일 자체는 지우지 않는다 (위 주석 참조). 핸들만 놓는다.
     if (lock != null) {
       try {

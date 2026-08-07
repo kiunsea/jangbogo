@@ -4,6 +4,8 @@ import com.jiniebox.jangbogo.dao.JbgMallDataAccessObject;
 import com.jiniebox.jangbogo.svc.mall.MallRegistry;
 import com.jiniebox.jangbogo.svc.util.ExecutionContextDetector;
 import com.jiniebox.jangbogo.svc.util.ExecutionContextDetector.ExecutionContext;
+import com.jiniebox.jangbogo.svc.util.MallProfileLock;
+import com.jiniebox.jangbogo.svc.util.SessionProfileGate;
 import com.jiniebox.jangbogo.svc.util.SessionProfilePolicy;
 import com.jiniebox.jangbogo.svc.util.SessionSnapshot;
 import com.jiniebox.jangbogo.svc.util.SessionSnapshotStore;
@@ -69,6 +71,27 @@ import org.springframework.stereotype.Service;
  * 창이 만료된 캡처를 회수하고, {@link #start} 도 진입 시 오래된 활성을 먼저 회수해 영구 잠김({@code ALREADY_ACTIVE})을 막는다. 종료 시에는
  * {@link #shutdown()} 이 남은 창을 닫는다.
  *
+ * <h2>프로필 락을 고아 정리보다 <b>먼저</b> 잡는다</h2>
+ *
+ * <p>{@link WebDriverManager#killOrphanProfileChrome} 은 그 프로필을 문 chrome.exe 를 <b>전부</b> 죽인다. 그
+ * 전제("지금 이 프로필을 쓰는 활성 캡처가 없다")는 {@link #active} 한 필드로 판정되므로 <b>이 JVM 안에서만</b> 참이다. 서비스로 도는 인스턴스와
+ * 사용자가 직접 띄운 인스턴스는 다른 프로세스라, 락이 없으면 한쪽이 다른 쪽에서 사람이 로그인해 둔 살아 있는 창을 죽인다 — 인증 쿠키가 세션 스코프라 그 창이 닫히면
+ * 세션도 함께 사라진다.
+ *
+ * <p>그래서 {@link #start} 는 프로필 디렉터리를 만든 직후, <b>고아 정리보다 앞에서</b> {@link MallProfileLock} 을 잡는다. 못 잡으면
+ * ({@code HELD_BY_OTHER}) 정리도 기동도 하지 않고 {@link Outcome#PROFILE_LOCKED} 로 물러난다. 순서가 뒤집히면 죽인 다음에 잠그는
+ * 꼴이라 락이 아무것도 막지 못한다. {@code UNAVAILABLE}(파일 락을 걸 수 없는 환경)은 막지 않는다 — 막을 근거가 없다는 것이 {@code
+ * SessionProfileGate} 의 판단이고, 경고는 락 쪽이 남긴다.
+ *
+ * <p><b>해제가 이 배선의 가장 큰 위험이다.</b> 캡처는 {@code start} → {@code status} 폴링 → {@code capture}/{@code
+ * cancel} 로 HTTP 요청 여럿에 걸쳐 있어 try-with-resources 로 감쌀 수 없고, 락을 {@link ActiveCapture} 필드로 들고 다닌다.
+ * 그래서 끝나는 길이 여섯이다 — 정상 완료·취소·창 만료·유휴 회수·리퍼·종료, 그리고 기동 실패. 하나라도 빠지면 락 파일이 잡힌 채 남아 <b>다음 캡처가 영구히</b>
+ * {@code PROFILE_LOCKED} 로 막힌다. 그 길을 {@link #releaseActive()} 한 곳으로 모아 두었다. 여기에 새 종료 경로를 만들 때는 반드시
+ * 그것을 부른다.
+ *
+ * <p>{@code BrowserConcurrencyLimiter} 자리는 위에 적은 대로 잡지 않으므로 "제한기 바깥 / 프로필 락 안쪽" 이라는 획득 순서 규칙과 충돌하지
+ * 않는다.
+ *
  * <p><b>알면서 받아들인 것:</b> 각 메서드는 이 객체의 모니터를 잡은 채 브라우저 기동·CDP 캡처 같은 블로킹 호출을 한다. 그 호출이 오래 걸리면 같은 락을
  * 기다리는 {@code status}/{@code cancel} 이 그 뒤로 직렬화된다. 단일 관리자·로컬 실행이라는 전제와 Selenium 자체 타임아웃(페이지 로드 60초)
  * 아래에서 실질적 위험이 낮아 락 구조를 단순하게 두었다. 진짜 문제가 관측되면 캡처 호출을 락 밖으로 빼는 것이 다음 수다.
@@ -92,6 +115,11 @@ public class SessionCaptureService {
     REQUIRES_USER_SESSION(
         "브라우저를 띄울 수 없는 실행 환경입니다(서비스 모드). 서비스를 중지하고 Jangbogo.bat 으로 실행한 뒤 다시 시도하세요."),
     ALREADY_ACTIVE("이미 진행 중인 세션 캡처가 있습니다. 마치거나 취소한 뒤 다시 시도하세요."),
+    // ALREADY_ACTIVE 와 나눈다. 저쪽은 '이 프로그램 안에서' 진행 중이라 사람이 그 창을 마치거나
+    // 취소하면 풀리지만, 이쪽은 다른 프로세스(서비스로 도는 인스턴스 등)가 쥔 것이라 여기서 할 수
+    // 있는 일이 없다. 같은 값으로 묶으면 화면이 "마치거나 취소하세요" 라고 안내하는데 마칠 창이
+    // 이 화면에 없어서, 사람이 무엇을 해도 풀리지 않는 안내를 계속 읽게 된다.
+    PROFILE_LOCKED("이 쇼핑몰 프로필을 다른 프로세스가 쓰고 있습니다. 서비스나 다른 창의 작업이 끝난 뒤 다시 시도하세요."),
     LAUNCH_FAILED("브라우저를 띄우지 못했습니다."),
     AWAITING_LOGIN("로그인을 기다리는 중입니다."),
     EXPIRED("관리자 세션 시간이 다 되어 캡처 창을 닫았습니다. 다시 로그인한 뒤 시도하세요."),
@@ -179,6 +207,18 @@ public class SessionCaptureService {
     final List<String> authCookieNames;
 
     final WebDriver driver;
+
+    /**
+     * 이 캡처가 쥐고 있는 프로필 락. <b>{@code null} 이 아니다.</b>
+     *
+     * <p>{@link SessionCaptureService#start} 가 고아 정리보다 먼저 잡은 것을 그대로 실어 나른다. try-with-resources 로 감쌀
+     * 수 없는 이유(요청 여럿에 걸친 흐름)와 해제 경로 전부를 {@link SessionCaptureService#releaseActive()} 로 모은 이유는 클래스
+     * javadoc 에 적었다.
+     *
+     * <p>{@code UNAVAILABLE}(잠글 수 없는 환경)도 여기 담긴다 — 진행은 하되 닫기는 똑같이 해야 채널이 남지 않는다.
+     */
+    final MallProfileLock lock;
+
     final long loginTimeMillis;
 
     /** 마지막으로 폴링이 닿은 시각. 리퍼가 유휴를 판정하는 근거다. */
@@ -189,12 +229,14 @@ public class SessionCaptureService {
         String profileName,
         List<String> authCookieNames,
         WebDriver driver,
+        MallProfileLock lock,
         long loginTimeMillis,
         long lastTouchMillis) {
       this.seqMall = seqMall;
       this.profileName = profileName;
       this.authCookieNames = authCookieNames;
       this.driver = driver;
+      this.lock = lock;
       this.loginTimeMillis = loginTimeMillis;
       this.lastTouchMillis = lastTouchMillis;
     }
@@ -276,14 +318,34 @@ public class SessionCaptureService {
         TimeUnit.MILLISECONDS);
   }
 
-  /** 종료 시 리퍼를 멈추고 남아 있는 캡처 브라우저를 닫는다 — 살아 있는 세션을 매달아 두지 않는다. */
+  /**
+   * 종료 시 리퍼를 멈추고 남아 있는 캡처 브라우저를 닫는다 — 살아 있는 세션을 매달아 두지 않는다.
+   *
+   * <p>프로필 락도 여기서 놓는다. JVM 이 죽으면 OS 가 파일 락을 회수하긴 하지만, 여기서 놓지 않으면 <b>정상 종료 뒤에도 잠깐</b> 잡힌 채로 남아 곧바로
+   * 재기동한 인스턴스가 {@link Outcome#PROFILE_LOCKED} 를 본다.
+   */
   @PreDestroy
   synchronized void shutdown() {
     reaper.shutdownNow();
-    if (active != null) {
-      quitQuietly(active.driver);
-      active = null;
+    releaseActive();
+  }
+
+  /**
+   * 활성 캡처를 정리한다 — 브라우저를 닫고 프로필 락을 놓고 상태를 비운다.
+   *
+   * <p><b>캡처가 끝나는 모든 길은 여기를 지난다.</b> 정상 완료·취소·창 만료·유휴 회수·리퍼·종료가 각자 락을 놓으면 언젠가 하나가 빠지고, 그때 락 파일이 잡힌
+   * 채 남아 <b>다음 캡처가 영구히</b> {@link Outcome#PROFILE_LOCKED} 로 막힌다. 화면에는 "다른 프로세스가 쓰고 있다" 로만 보여서 사람이 할
+   * 수 있는 일이 없다 — 그것이 이 배선의 가장 큰 위험이라 한 곳으로 모았다.
+   *
+   * <p>활성이 없으면 아무 일도 하지 않는다. 두 경로가 겹쳐 닿아도 안전하다.
+   */
+  private synchronized void releaseActive() {
+    if (active == null) {
+      return;
     }
+    quitQuietly(active.driver);
+    releaseQuietly(active.lock);
+    active = null;
   }
 
   /** 리퍼 스레드가 부른다. 예외가 새면 스케줄이 멈추므로 삼킨다. */
@@ -310,8 +372,8 @@ public class SessionCaptureService {
     boolean idle = (now - active.lastTouchMillis) > IDLE_TIMEOUT_MILLIS;
     if (windowExpired || idle) {
       logger.info("방치된 세션 캡처를 회수한다 — seq={} (창만료={}, 유휴={})", active.seqMall, windowExpired, idle);
-      quitQuietly(active.driver);
-      active = null;
+      // 브라우저와 함께 프로필 락도 놓는다. 여기서 놓지 않으면 방치된 캡처 하나가 이후 캡처를 전부 막는다.
+      releaseActive();
     }
   }
 
@@ -346,14 +408,32 @@ public class SessionCaptureService {
 
     WebDriver driver = null;
     Path profileDir = null;
+    // 아직 ActiveCapture 로 넘기지 않은 락. 여기 값이 남은 채 이 메서드를 벗어나면 락이 샌다.
+    MallProfileLock lock = null;
     try {
       // 이 한 값이 디렉터리 이름이자 나중에 게이트가 읽을 session_profile_name 이 된다.
       // 두 곳에서 따로 구하면 갈릴 수 있어 여기서 한 번만 정하고 ActiveCapture 로 실어 나른다.
       String profileName = mall.get().mallId();
       profileDir = SessionProfilePolicy.profileDir(profileName);
       Files.createDirectories(profileDir);
+
+      // 프로필 락을 '고아 정리보다 먼저' 잡는다. 아래 정리는 이 프로필을 문 chrome.exe 를 전부
+      // 죽이는데, 그래도 된다는 전제("활성 캡처가 없다")는 이 JVM 안에서만 참이다. 다른 프로세스가
+      // 같은 프로필로 사람 로그인 창을 띄워 뒀다면 그 살아 있는 세션을 죽인다. 뒤에 잡으면 죽인
+      // 다음에 잠그는 꼴이라 아무것도 막지 못한다.
+      lock = MallProfileLock.tryAcquireProfile(profileName);
+      if (!SessionProfileGate.fromLockOutcome(lock.outcome()).canProceed()) {
+        // 못 잡았으면 정리도 기동도 하지 않는다. 이 배선의 목적 전체가 이 한 줄이다.
+        releaseQuietly(lock);
+        lock = null;
+        logger.info("프로필 '{}' 이 다른 프로세스에 잡혀 있어 캡처를 시작하지 않는다.", profileName);
+        return CaptureResult.of(Outcome.PROFILE_LOCKED);
+      }
+      // UNAVAILABLE(잠글 수 없는 환경)은 여기서 막지 않는다 — 막을 근거가 없다는 것이 게이트의
+      // 판단이고, 경고는 MallProfileLock 이 남긴다.
+
       // 이전 실패·강제 종료가 남긴 고아 브라우저가 프로필 락을 쥐고 있으면 이번 기동도 "user data
-      // directory is already in use" 로 실패한다. 활성 캡처가 없는 지금 이 프로필을 문 크롬은 전부
+      // directory is already in use" 로 실패한다. 락을 쥔 지금 이 프로필을 문 크롬은 전부
       // 고아이므로 먼저 정리한다 — 실측에서 고아 하나가 이후 시도 전부를 막았다.
       int stale = webDriverManager.killOrphanProfileChrome(profileDir);
       if (stale > 0) {
@@ -362,27 +442,35 @@ public class SessionCaptureService {
       // profileDir 이 있으므로 WebDriverManager 가 마스킹을 자동으로 건다(WebDriverManager:138-140).
       driver = webDriverManager.getWebDriver(WebDriverManager.BROWSER_NAME_CHROME, profileDir);
       driver.navigate().to(mall.get().loginUrl());
+      logger.info("세션 캡처 시작 — seq={} (로그인 대기)", normalize(seqMall));
       active =
           new ActiveCapture(
               normalize(seqMall),
               profileName,
               mall.get().authCookieNames(),
               driver,
+              lock,
               loginTimeMillis,
               now);
-      logger.info("세션 캡처 시작 — seq={} (로그인 대기)", normalize(seqMall));
+      // 락의 소유권이 active 로 넘어갔다. 지역 변수를 비워 아래 catch 가 두 번 놓지 않게 한다.
+      lock = null;
       return CaptureResult.of(Outcome.STARTED);
     } catch (Exception e) {
       // 실패는 값으로. 부분 생성된 브라우저는 정리한다. 핸드셰이크 실패면 driver 가 null 인 채
       // chrome.exe 만 떠 있어 quit() 으로 닿을 수 없다 — 프로필 명령줄로 찾아 마저 정리한다.
       quitQuietly(driver);
-      if (profileDir != null) {
+      // 락을 쥐고 있을 때만 정리한다. 못 잡은 채(또는 잡기 전에) 터진 경우까지 죽이면 다른
+      // 프로세스의 살아 있는 세션을 날린다 — 이 배선이 막으려는 바로 그 사고다.
+      if (profileDir != null && lock != null) {
         int orphans = webDriverManager.killOrphanProfileChrome(profileDir);
         if (orphans > 0) {
           logger.info("기동 실패로 남은 고아 브라우저 {}개를 정리했다.", orphans);
         }
       }
-      active = null;
+      // 정리 '뒤에' 놓는다. 먼저 놓으면 그 틈에 다른 프로세스가 잡고 브라우저를 띄울 수 있다.
+      releaseQuietly(lock);
+      // 넘긴 뒤에 터진 경우(사실상 오지 않는 길)까지 막는다. 활성이 없으면 아무 일도 하지 않는다.
+      releaseActive();
       // 클래스명만 남기면 근본 원인이 가려진다(실측 — "user data directory already in use" 를 못 봤다).
       // 기동은 로그인 전이라 메시지에 세션 값이 섞일 수 없다. 첫 줄만 warn, 전체 스택은 debug.
       logger.warn("세션 캡처 시작 실패({}): {}", e.getClass().getSimpleName(), firstLine(e.getMessage()));
@@ -406,9 +494,9 @@ public class SessionCaptureService {
     long now = clock.getAsLong();
     long remaining = remainingWindowMillis(active.loginTimeMillis, now);
     if (remaining <= 0) {
-      // 상한은 관리자 세션 잔여다. 넘기면 창을 닫는다 — 보안 동작(슬라이딩 만료)은 바꾸지 않는다.
-      quitQuietly(active.driver);
-      active = null;
+      // 상한은 관리자 세션 잔여다. 넘기면 창을 닫고 프로필 락도 놓는다 — 보안 동작(슬라이딩 만료)은
+      // 바꾸지 않는다. 락을 여기서 안 놓으면 만료 한 번이 이후 캡처를 전부 막는다.
+      releaseActive();
       return CaptureResult.of(Outcome.EXPIRED);
     }
     // 폴링이 살아 있다는 신호. 리퍼가 이 캡처를 유휴로 회수하지 않게 한다.
@@ -491,8 +579,8 @@ public class SessionCaptureService {
     }
 
     int count = snapshot.size();
-    quitQuietly(active.driver);
-    active = null;
+    // 개수를 먼저 읽어 둔다 — 정리 뒤에는 active 가 비어 있다.
+    releaseActive();
     logger.info("세션 캡처 완료 — 쿠키 {}개 저장 (값은 기록하지 않는다)", count);
     return CaptureResult.captured(count);
   }
@@ -507,8 +595,9 @@ public class SessionCaptureService {
     if (active == null) {
       return CaptureResult.of(Outcome.NO_ACTIVE_CAPTURE);
     }
-    quitQuietly(active.driver);
-    active = null;
+    // 취소는 사람이 가장 자주 쓰는 종료 길이다. 여기서 락을 놓지 않으면 한 번 취소한 사람이
+    // 그 뒤로 영영 캡처를 시작하지 못한다.
+    releaseActive();
     return CaptureResult.of(Outcome.CANCELLED);
   }
 
@@ -577,6 +666,24 @@ public class SessionCaptureService {
       driver.quit();
     } catch (RuntimeException e) {
       logger.debug("드라이버 종료 중 예외({})", e.getClass().getSimpleName());
+    }
+  }
+
+  /**
+   * 프로필 락을 놓는다. 어떤 실패도 밖으로 던지지 않는다.
+   *
+   * <p>해제가 정리 단계에서 불리므로 여기서 던지면 그 위의 정리(브라우저 종료·상태 비우기)가 통째로 건너뛰어진다. {@link
+   * MallProfileLock#close()} 는 이미 내부 실패를 삼키지만, 두 번 놓기·null 같은 호출측 사정까지 여기서 막아 호출 지점마다 방어를 베끼지 않게
+   * 한다.
+   */
+  private static void releaseQuietly(MallProfileLock lock) {
+    if (lock == null) {
+      return;
+    }
+    try {
+      lock.close();
+    } catch (RuntimeException e) {
+      logger.debug("프로필 락 해제 중 예외({})", e.getClass().getSimpleName());
     }
   }
 }

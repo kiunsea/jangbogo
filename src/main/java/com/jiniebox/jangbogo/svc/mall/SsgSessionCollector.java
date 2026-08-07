@@ -1,7 +1,9 @@
 package com.jiniebox.jangbogo.svc.mall;
 
 import com.jiniebox.jangbogo.svc.util.CollectStep;
+import com.jiniebox.jangbogo.svc.util.MallProfileLock;
 import com.jiniebox.jangbogo.svc.util.SessionExpiryDetector;
+import com.jiniebox.jangbogo.svc.util.SessionProfileGate;
 import com.jiniebox.jangbogo.svc.util.SessionProfilePolicy;
 import com.jiniebox.jangbogo.svc.util.SessionSnapshot;
 import com.jiniebox.jangbogo.svc.util.SessionSnapshotStore;
@@ -96,6 +98,25 @@ import org.openqa.selenium.WebDriver;
  * <p>기동 전에 이 프로필을 문 고아 Chrome 을 정리한다. ChromeDriver 는 chrome.exe 를 띄운 뒤에 핸드셰이크하므로, 핸드셰이크가 깨지면 {@code
  * quit()} 으로 닿을 수 없는 브라우저가 락을 쥔 채 남는다 — 실측에서 고아 하나가 이후 시도 전부를 막았다.
  *
+ * <h2>고아 정리 앞에 프로세스 경계 락을 잡는다</h2>
+ *
+ * <p>바로 위의 그 정리({@code WebDriverManager.killOrphanProfileChrome})는 이 프로필을 문 chrome.exe 를 <b>가리지 않고
+ * 전부</b> 죽인다. "이 경로만 쓰는 디렉터리라 지금 물고 있는 것은 전부 고아다" 라는 전제는 <b>이 JVM 안에서만</b> 참이다. 서비스로 도는 인스턴스와 사용자가
+ * 직접 띄운 인스턴스는 다른 프로세스이므로, 한쪽 수집이 도는 중에 다른 쪽이 이 정리를 부르면 <b>멀쩡히 돌고 있는 수집 브라우저</b>를 죽인다.
+ *
+ * <p>그래서 {@link MallProfileLock} 을 <b>정리보다 먼저</b> 잡는다. 못 잡으면({@code HELD_BY_OTHER}) 죽이지 않고 그대로 물러난다
+ * — 판정은 {@code SessionProfileGate.fromLockOutcome} 에 맡기고, 결과는 {@code SkipCause.PROFILE_LOCKED} 로 값에
+ * 실어 보낸다. 순서가 뒤집히면 죽인 다음에 잠그는 꼴이라 락이 아무것도 막지 못한다.
+ *
+ * <p><b>브레이커는 건드리지 않는다.</b> 건너뜀은 실패도 성공도 아니다({@code MallOrderUpdater.collectFromSession} 이 그 규칙을 갖고
+ * 있고, 만료 처리와 같다). 프로필이 겹친 것을 실패로 세면 연속 실패가 쌓여 수집기가 자동 차단되는데, 정작 원인은 <b>다음 회차면 저절로 풀릴 일</b>이다.
+ *
+ * <p>{@code UNAVAILABLE}(파일 락을 걸 수 없는 환경)은 막지 않는다 — 막을 근거가 없다는 것이 게이트의 명시적 판단이다. 경고는 락 쪽이 남긴다.
+ *
+ * <p>획득 순서는 <b>{@code BrowserConcurrencyLimiter} 바깥 / 프로필 락 안쪽</b>이다. 제한기 자리는 {@code
+ * JangBoGoManager} 가 {@code CollectAdmission} 으로 이 메서드보다 <b>앞에서</b> 잡으므로 그대로 성립한다. 뒤집으면 세마포어를 기다리는
+ * 동안 프로세스 경계 락을 놀리면서 쥐게 된다.
+ *
  * @author KIUNSEA
  */
 public class SsgSessionCollector implements SessionCollector {
@@ -141,6 +162,17 @@ public class SsgSessionCollector implements SessionCollector {
   // 검사할 수 있어야 하기 때문이다. 순서가 어긋나면 예외가 아니라 '조용한 실패' 가 되므로,
   // 실사이트에서만 드러나는 형태로 두면 아무도 회귀를 잡지 못한다.
 
+  /**
+   * 이 프로필을 물고 있는 고아 Chrome 을 정리하고 죽인 수를 돌려준다.
+   *
+   * <p><b>드라이버 기동과 따로 둔 이유는 순서를 검사할 수 있게 하기 위해서다.</b> 이 호출은 프로필 락을 쥔 뒤에만 일어나야 하는데, 기동 함수 안에 숨겨 두면
+   * "락을 못 잡았는데도 죽였다" 는 회귀를 브라우저 없이 잡을 방법이 없다. 대역으로 호출 여부를 직접 셀 수 있어야 한다.
+   */
+  @FunctionalInterface
+  interface OrphanSweeper {
+    int sweep(Path profileDir);
+  }
+
   /** 마스킹이 걸린 드라이버를 띄운다. */
   @FunctionalInterface
   interface DriverLauncher {
@@ -166,6 +198,7 @@ public class SsgSessionCollector implements SessionCollector {
   }
 
   private final String seqMall;
+  private final OrphanSweeper sweeper;
   private final DriverLauncher launcher;
   private final SnapshotLoader loader;
   private final SnapshotInjector injector;
@@ -183,6 +216,7 @@ public class SsgSessionCollector implements SessionCollector {
   public SsgSessionCollector(String seqMall) {
     this(
         seqMall,
+        SsgSessionCollector::sweepOrphans,
         SsgSessionCollector::launchMaskedDriver,
         new SessionSnapshotStore()::load,
         SessionTransfer::inject,
@@ -195,12 +229,14 @@ public class SsgSessionCollector implements SessionCollector {
   /** 테스트가 협력자를 갈아 끼우는 생성자. */
   SsgSessionCollector(
       String seqMall,
+      OrphanSweeper sweeper,
       DriverLauncher launcher,
       SnapshotLoader loader,
       SnapshotInjector injector,
       PurchaseListReader reader,
       LongConsumer sleeper) {
     this.seqMall = seqMall;
+    this.sweeper = sweeper;
     this.launcher = launcher;
     this.loader = loader;
     this.injector = injector;
@@ -217,7 +253,41 @@ public class SsgSessionCollector implements SessionCollector {
       return Result.skipped(SkipCause.NO_SESSION, REASON_NO_SESSION);
     }
 
-    Path profileDir = SessionProfilePolicy.profileDir(injectProfileName(seqMall));
+    String profileName = injectProfileName(seqMall);
+    Path profileDir = SessionProfilePolicy.profileDir(profileName);
+
+    // 2) 프로필 락. 여기는 한 메서드 안에서 끝나므로 try-with-resources 로 충분하다.
+    //    이 블록을 아래 고아 정리보다 앞에 두는 것이 이 배선의 전부다 (클래스 javadoc 참조).
+    try (MallProfileLock lock = MallProfileLock.tryAcquireProfile(profileName)) {
+      SessionProfileGate.Decision decision = SessionProfileGate.fromLockOutcome(lock.outcome());
+      if (!decision.canProceed()) {
+        // 못 잡았으면 고아 정리도 기동도 하지 않는다. 지금 그 프로필을 물고 있는 것은
+        // '고아' 가 아니라 다른 프로세스가 쓰고 있는 살아 있는 브라우저다.
+        log.warn("{} 건너뜀 — 프로필 '{}' 을 다른 프로세스가 쓰고 있다.", COLLECTOR_NAME, profileName);
+        return Result.skipped(SkipCause.PROFILE_LOCKED, decision.reason());
+      }
+      // UNAVAILABLE 은 여기서 막지 않는다 — 막을 근거가 없다는 것이 게이트의 판단이다.
+      return collectWithProfile(snapshot, profileDir);
+    }
+  }
+
+  /**
+   * 프로필 락을 쥔 상태에서 한 회차를 돌린다.
+   *
+   * <p>{@link #collect()} 에서 갈라낸 이유는 락 획득과 실제 수집을 눈으로 갈라 두기 위해서다 — 이 메서드에 들어왔다는 것 자체가 "그 프로필은 지금 우리
+   * 것이다" 라는 뜻이고, 고아 정리를 불러도 되는 근거가 그것 하나다.
+   *
+   * @param snapshot 되읽은 세션 스냅샷 (비어 있지 않은 것이 전제다)
+   * @param profileDir 주입용 프로필 디렉터리
+   * @return 수집 결과 또는 건너뛴 사유
+   */
+  private Result collectWithProfile(SessionSnapshot snapshot, Path profileDir) {
+    // 이 디렉터리는 주입 경로만 쓴다. 락을 쥔 지금 이 경로를 문 크롬이 있다면 이전 실패가 남긴 고아다.
+    int orphans = sweeper.sweep(profileDir);
+    if (orphans > 0) {
+      log.info("주입용 프로필을 물고 있던 고아 브라우저 {}개를 정리했다.", orphans);
+    }
+
     WebDriver driver = launcher.launch(profileDir);
     if (driver == null) {
       // 세션은 멀쩡한데 우리 쪽이 브라우저를 못 띄운 것이다. 건너뜀으로 뭉뚱그리면 사람이
@@ -231,11 +301,11 @@ public class SsgSessionCollector implements SessionCollector {
     }
 
     try {
-      // 2) 대상 도메인 선방문. 이 줄을 주입 뒤로 옮기면 예외 없이 조용히 실패한다.
+      // 3) 대상 도메인 선방문. 이 줄을 주입 뒤로 옮기면 예외 없이 조용히 실패한다.
       CollectStep.run(driver, COLLECTOR_NAME, "visit-home", () -> driver.get(HOME_URL));
       sleeper.accept(AFTER_HOME_MILLIS);
 
-      // 3) 주입.
+      // 4) 주입.
       int applied =
           CollectStep.call(
               driver, COLLECTOR_NAME, "inject-session", () -> injector.inject(driver, snapshot));
@@ -248,7 +318,7 @@ public class SsgSessionCollector implements SessionCollector {
         log.info("{} 세션 주입 — 요청 {}개 중 {}개 반영.", COLLECTOR_NAME, snapshot.size(), applied);
       }
 
-      // 4) 회원 주문내역으로 직행. signin() 은 부르지 않는다.
+      // 5) 회원 주문내역으로 직행. signin() 은 부르지 않는다.
       CollectStep.run(
           driver, COLLECTOR_NAME, "navigate-member", () -> driver.navigate().to(MEMBER_URL));
       sleeper.accept(AFTER_MEMBER_MILLIS);
@@ -307,10 +377,24 @@ public class SsgSessionCollector implements SessionCollector {
   // ── 프로덕션 협력자 구현 ──────────────────────────────────────────────
 
   /**
+   * 이 프로필을 물고 있는 고아 Chrome 을 정리한다.
+   *
+   * <p><b>{@code MallProfileLock} 을 쥔 뒤에만 불린다</b>({@link #collectWithProfile} 안). 락 없이 부르면 다른 프로세스가
+   * 같은 프로필로 돌리고 있는 살아 있는 브라우저를 죽인다 — {@code WebDriverManager.killOrphanProfileChrome} 의 호출 계약이 그
+   * 사실을 적고 있다.
+   */
+  private static int sweepOrphans(Path profileDir) {
+    return new WebDriverManager().killOrphanProfileChrome(profileDir);
+  }
+
+  /**
    * 마스킹이 걸린 드라이버를 띄운다.
    *
    * <p>{@code profileDir} 을 넘기는 것이 핵심이다 — {@code WebDriverManager} 는 이 값이 null 이면 자동화 표식 제거도 {@code
    * navigator.webdriver} 마스킹도 붙이지 않는다.
+   *
+   * <p>고아 정리는 여기서 하지 않는다. 그 호출은 락을 쥔 뒤라는 조건이 붙는데, 기동 함수 안에 숨겨 두면 조건이 지켜지는지를 밖에서 볼 수 없다({@link
+   * OrphanSweeper} javadoc 참조).
    */
   private static WebDriver launchMaskedDriver(Path profileDir) {
     try {
@@ -320,13 +404,7 @@ public class SsgSessionCollector implements SessionCollector {
       // 삼키면 '왜 매번 로그인 화면이지' 로만 보이므로 올린다 — 호출부가 FAIL 로 기록한다.
       throw new UncheckedIOException("주입용 프로필 디렉터리를 만들지 못했다: " + profileDir.getFileName(), e);
     }
-    WebDriverManager wdm = new WebDriverManager();
-    // 이 디렉터리는 주입 경로만 쓴다. 지금 이 경로를 문 크롬이 있다면 이전 실패가 남긴 고아다.
-    int orphans = wdm.killOrphanProfileChrome(profileDir);
-    if (orphans > 0) {
-      log.info("주입용 프로필을 물고 있던 고아 브라우저 {}개를 정리했다.", orphans);
-    }
-    return wdm.getWebDriver(WebDriverManager.BROWSER_NAME_CHROME, profileDir);
+    return new WebDriverManager().getWebDriver(WebDriverManager.BROWSER_NAME_CHROME, profileDir);
   }
 
   /** 페이지 전환 뒤의 대기. 인터럽트를 삼키지 않고 플래그를 되살린다. */

@@ -644,6 +644,53 @@ public class AdminController {
   }
 
   /**
+   * 즉시수집 한 회차의 분류.
+   *
+   * <p>회차마다 이 값을 <b>하나만</b> 정하고, 응답 목록으로는 맨 마지막에 한 번만 옮긴다. 예전에는 분기마다 목록에 곧바로 담았고 그래서 한 seq 가 여러 통에
+   * 실릴 수 있었다 — 세션 만료로 끝난 몰이 뒤이은 스케줄 등록에서 예외를 만나면 포괄 {@code catch} 가 같은 seq 를 {@code skipped} 에도 담아,
+   * 응답 하나가 "계정을 안 끊었다"({@code sessionExpired})와 "끊긴 것처럼 그려라"({@code skipped})를 동시에 말했다.
+   *
+   * <p>지금은 화면이 {@code keepConnected} 필터로 그 모순을 가려 주지만, 서버가 모순된 응답을 내는 것 자체가 결함이다. 다음에 화면을 손보는 사람이 그
+   * 필터를 지우면 사용자는 끊기지도 않은 계정을 다시 연결하고, 정작 해야 할 '브라우저로 로그인' 은 하지 않는다 — 그 몰은 계속 0건이다.
+   *
+   * <p>{@code scheduled} 와 {@code scheduleFailed} 는 여기 없다. 그 둘은 수집 판정이 아니라 <b>수집이 끝난 뒤의 일</b>이라,
+   * 만료로 끝난 회차의 스케줄 등록이 실패하면 두 사실이 각각 보고돼야 한다.
+   */
+  private enum CollectBucket {
+    /** 수집이 실제로 돌았다. */
+    PROCESSED,
+    /** 몰 행이 없거나 수집에 들어가기도 전에 원인 모를 오류가 났다. 화면이 '계정 연결 끊김' 으로 되돌린다. */
+    SKIPPED,
+    /** 저장된 암호문을 열지 못했다. 사람이 계정을 다시 연결해야 한다. */
+    DECRYPTION_FAILED,
+    /** 이미 수집 중·게이트·브라우저 자리 부족 등 이번 회차만의 사유. 계정은 건드리지 않는다. */
+    BLOCKED,
+    /** 쓸 자격증명도 저장된 세션도 없다. */
+    NOT_QUALIFIED,
+    /** 저장해 둔 로그인 세션이 만료됐다. */
+    SESSION_EXPIRED
+  }
+
+  /**
+   * 수집 판정이 난 <b>뒤에</b> 실패한 뒷일을 따로 기록한다.
+   *
+   * <p>만료 일시중단 기록·주기 스케줄 등록에서 난 예외는 수집 결과와 <b>다른 사건</b>이다. 이것을 수집 판정 위에 덮어쓰면 "수집은 만료로 끝났다" 와 "계정이
+   * 끊겼다" 가 한 응답에 함께 실린다. 그래서 앞선 판정은 그대로 두고 이 통에만 담는다.
+   *
+   * <p>사유를 {@code blockedReasons} 가 아니라 별도 맵에 담는 것도 같은 이유다. 같은 seq 의 수집 사유를 덮어쓰면 화면이 만료 안내 자리에 스케줄
+   * 오류 문구를 그린다.
+   *
+   * <p>이 통은 화면의 {@code errs}(계정 연결을 끊긴 것으로 되돌리는 목록)에 <b>들어가면 안 된다.</b> 스케줄 등록이 실패한 것과 계정이 끊긴 것은 아무
+   * 관계가 없다.
+   */
+  private void recordScheduleFailure(
+      String seq, List<String> scheduleFailed, ObjectNode scheduleFailedReasons, Exception cause) {
+    scheduleFailed.add(seq);
+    scheduleFailedReasons.put(seq, getErrorMessage(cause));
+    logger.warn("쇼핑몰 seq={} 수집 뒤의 처리(만료 기록·스케줄 등록)가 실패했다 — 수집 판정은 그대로 둔다", seq, cause);
+  }
+
+  /**
    * 선택한 쇼핑몰들에 대한 자동 수집 실행 - executeNow=true: 즉시 실행 후 주기적 스케줄링 시작 - executeNow=false: 주기적 스케줄링만 시작
    * (즉시 실행 안 함) - 이미 수집 작업 실행 중인 쇼핑몰은 스킵 POST /malls/auto-collect
    */
@@ -680,6 +727,14 @@ public class AdminController {
     List<String> sessionExpired = new ArrayList<>();
     ObjectNode blockedReasons = objectMapper.createObjectNode();
 
+    // 수집은 끝났는데 그 뒤의 처리(만료 일시중단 기록·주기 스케줄 등록)가 실패한 몰.
+    //
+    // 위 통들과 반드시 따로 둔다. 예전에는 이 실패가 포괄 catch 로 흘러 같은 seq 를 skipped 에도
+    // 담았고, 그래서 만료로 끝난 몰이 응답 한 개 안에서 "계정을 안 끊었다" 와 "끊긴 것처럼 그려라"
+    // 를 동시에 말했다. 스케줄 등록이 실패한 것과 계정이 끊긴 것은 아무 관계가 없다.
+    List<String> scheduleFailed = new ArrayList<>();
+    ObjectNode scheduleFailedReasons = objectMapper.createObjectNode();
+
     // 모든 쇼핑몰에서 신규 추가된 주문 seq 수집
     List<Integer> allNewOrderSeqs = new ArrayList<>();
 
@@ -698,6 +753,14 @@ public class AdminController {
       JbgMallDataAccessObject jaDao = new JbgMallDataAccessObject();
 
       for (String seq : req.getSeqs()) {
+        // 이 회차의 분류. 분기에서 응답 목록에 곧바로 담지 않고 아래 finally 가 딱 한 번 옮긴다 —
+        // 한 seq 가 두 통에 실리는 형태가 아예 성립하지 않게 하려는 것이다. 경위는 CollectBucket 참고.
+        CollectBucket bucket = null;
+
+        // 수집 단계를 지났는가. 아래 catch 가 '수집이 실패한 것' 과 '수집은 끝났는데 뒷일이 실패한
+        // 것' 을 가르는 기준이다. 뒤쪽이 앞선 판정을 덮으면 응답이 스스로 모순된다.
+        boolean collectPhaseDone = false;
+
         try {
           // 세션 만료 일시중단을 먼저 푼다 (Phase 5-10).
           //
@@ -714,7 +777,7 @@ public class AdminController {
           if (jangBoGoManager.isCollecting(seq)) {
             // 계정 문제가 아니다 (Phase 5-19). skipped 로 보내면 프런트가 이 몰을 '계정 연결 끊김' 으로
             // 그린다 — 서버는 끊지도 않았는데 사용자는 다시 연결해야 하는 것처럼 본다.
-            blocked.add(seq);
+            bucket = CollectBucket.BLOCKED;
             blockedReasons.put(seq, "이 몰의 수집이 이미 실행 중입니다.");
             logger.warn("쇼핑몰 seq={} 이미 수집 중, 건너뜀", seq);
             continue;
@@ -731,7 +794,7 @@ public class AdminController {
             // 몰 행 자체가 없다. 예전에는 여기서도 account_status 를 0 으로 눌렀는데,
             // 누를 행이 없으므로 아무 일도 일어나지 않는 호출이었다.
             logger.warn("쇼핑몰 seq={} DB에서 찾을 수 없음", seq);
-            skipped.add(seq);
+            bucket = CollectBucket.SKIPPED;
             continue;
           }
 
@@ -759,7 +822,7 @@ public class AdminController {
             // skipped 로 보내지 않는다 (Phase 5-19 가 blocked 를 나눈 것과 같은 이유). 프런트는
             // skipped 목록의 몰을 '계정 연결 끊김' 으로 그리는데, 서버가 끊지 않기로 한 이상
             // 화면만 끊긴 것처럼 보이면 사용자는 멀쩡한 연결을 다시 맺으려 한다.
-            notQualified.add(seq);
+            bucket = CollectBucket.NOT_QUALIFIED;
             blockedReasons.put(seq, eligibility.reason());
             logger.info(
                 "쇼핑몰 seq={} 즉시수집 자격 없음 — {} ({})", seq, eligibility.code(), eligibility.reason());
@@ -788,11 +851,15 @@ public class AdminController {
                         : null,
                     CollectTrigger.IMMEDIATE);
 
+            // 수집 단계는 여기서 끝난다. 아래 판정 처리(만료 기록 등)와 스케줄 등록에서 나는 예외는
+            // 전부 '수집이 끝난 뒤의 사건' 이라, 여기서 정할 수집 판정을 덮어서는 안 된다.
+            collectPhaseDone = true;
+
             if (outcome.collected()) {
               List<Integer> newSeqs = outcome.newOrderSeqs();
               allNewOrderSeqs.addAll(newSeqs);
 
-              processed.add(seq);
+              bucket = CollectBucket.PROCESSED;
               logger.info("쇼핑몰 seq={} 즉시 수집 실행 완료, 신규 주문: {}개", seq, newSeqs.size());
               try {
                 Thread.sleep(sleepMs);
@@ -804,7 +871,7 @@ public class AdminController {
               // 기록도 일시중단도 스케줄러의 통로 하나로 보낸다. 여기서 따로 적으면 즉시수집과
               // 스케줄 수집이 서로 다른 코드·단계로 쌓여 화면의 사유 필터에서 한쪽이 사라진다.
               // 그리고 계정 연결은 건드리지 않는다 — 만료된 것은 세션이지 계정이 아니다.
-              sessionExpired.add(seq);
+              bucket = CollectBucket.SESSION_EXPIRED;
               blockedReasons.put(seq, outcome.reason());
               mallSchedulerService.suspendForExpiredSession(
                   seq,
@@ -815,7 +882,7 @@ public class AdminController {
             } else {
               // 막힌 것은 계정 문제가 아니다. 연결을 끊지 않는다 (Phase 5-19 결정).
               // 스케줄 등록은 아래에서 그대로 진행한다 — 막힌 것은 '이번 회차' 지 설정이 아니다.
-              blocked.add(seq);
+              bucket = CollectBucket.BLOCKED;
               blockedReasons.put(seq, outcome.reason());
               saveImmediateSkipLog(seq, mall, outcome, startedAt);
               logger.info("쇼핑몰 seq={} 즉시 수집 건너뜀 — {} ({})", seq, outcome.code(), outcome.reason());
@@ -836,6 +903,9 @@ public class AdminController {
                   eligibility.account().getId(),
                   eligibility.account().getPass());
             }
+            // 이 경로에도 수집 단계의 끝이 있다. 확인까지 통과한 뒤 스케줄 등록에서 난 예외를
+            // skipped 로 담으면, 자격증명이 멀쩡한 몰이 '계정 연결 끊김' 으로 화면에서 되돌려진다.
+            collectPhaseDone = true;
             logger.info("쇼핑몰 seq={} 즉시 실행 건너뜀 (executeNow=false)", seq);
           }
 
@@ -850,6 +920,16 @@ public class AdminController {
             logger.info("쇼핑몰 seq={} 주기적 스케줄 등록 (다음 자동수집: {}분 후)", seq, intervalMinutes);
           }
         } catch (BadPaddingException bpe) {
+          // 앞선 판정을 덮지 않는다.
+          //
+          // 복호화는 수집 단계 안에서만 일어난다. 그런데도 여기까지 왔다면 그 뒤의 처리에서 올라온
+          // 예외이고, 그때 아래 account_status=0 을 실행하면 이미 수집에 성공한 몰의 연결이 끊긴다.
+          // 복호화 실패로 읽어도 되는 것은 수집 단계 안에서 난 것뿐이다.
+          if (collectPhaseDone || bucket != null) {
+            recordScheduleFailure(seq, scheduleFailed, scheduleFailedReasons, bpe);
+            continue;
+          }
+
           logger.warn("쇼핑몰 seq={} 자동수집 복호화 실패 (BadPaddingException)", seq);
 
           // 복호화가 깨진 계정은 사람이 다시 연결해야 하므로 account_status 만 0 으로 내린다.
@@ -870,13 +950,39 @@ public class AdminController {
           } catch (Exception resetEx) {
             logger.warn("쇼핑몰 seq={} account_status=0 설정 실패: {}", seq, resetEx.getMessage());
           }
-          decryptionFailed.add(seq);
+          bucket = CollectBucket.DECRYPTION_FAILED;
         } catch (Exception perMallEx) {
+          // 앞선 판정을 덮지 않는다.
+          //
+          // 수집이 끝난 뒤(만료 기록·스케줄 등록)에 난 예외는 수집 결과와 다른 사건이다. 예전에는
+          // 그것도 여기서 skipped 에 담아, 만료로 끝난 seq 가 sessionExpired 와 skipped 양쪽에
+          // 실렸다 — 한 응답이 "계정을 안 끊었다" 와 "끊긴 것처럼 그려라" 를 동시에 말한 것이다.
+          // 지금은 화면 필터가 가려 주지만, 그 필터를 지우는 순간 되살아난다.
+          if (collectPhaseDone || bucket != null) {
+            recordScheduleFailure(seq, scheduleFailed, scheduleFailedReasons, perMallEx);
+            continue;
+          }
+
           // 계정 상태를 건드리지 않는다 (Phase 5-20). 여기 걸리는 것은 조회 실패·파일 오류 등
           // 무엇이든 될 수 있는데, 예전에는 그 전부를 '계정 연결 끊김' 으로 바꿔 놓았다.
           // 원인을 모르는 실패에 사용자 설정을 되돌릴 근거는 없다.
           logger.warn("쇼핑몰 seq={} 자동수집 오류", seq, perMallEx);
-          skipped.add(seq);
+          bucket = CollectBucket.SKIPPED;
+        } finally {
+          // 응답 목록으로 옮기는 곳은 여기 하나뿐이다.
+          //
+          // 분기에서 직접 add 하면 한 seq 가 두 통에 담기는 형태가 되살아난다 — 이 구조는 그 사고를
+          // 문법으로 막으려고 만든 것이다. 새 사유를 붙일 때도 bucket 만 정하고 여기로 보내라.
+          if (bucket != null) {
+            switch (bucket) {
+              case PROCESSED -> processed.add(seq);
+              case SKIPPED -> skipped.add(seq);
+              case DECRYPTION_FAILED -> decryptionFailed.add(seq);
+              case BLOCKED -> blocked.add(seq);
+              case NOT_QUALIFIED -> notQualified.add(seq);
+              case SESSION_EXPIRED -> sessionExpired.add(seq);
+            }
+          }
         }
       }
 
@@ -889,6 +995,11 @@ public class AdminController {
       response.set("notQualified", objectMapper.valueToTree(notQualified));
       response.set("sessionExpired", objectMapper.valueToTree(sessionExpired));
       response.set("blockedReasons", blockedReasons);
+
+      // 수집 판정과 나란히, 그러나 섞이지 않게 싣는다. 만료로 끝난 몰의 스케줄 등록이 실패했다면
+      // 응답은 그 두 가지를 각각 말해야 한다 — 하나로 합치면 둘 중 하나는 반드시 사라진다.
+      response.set("scheduleFailed", objectMapper.valueToTree(scheduleFailed));
+      response.set("scheduleFailedReasons", scheduleFailedReasons);
 
       // 메시지 구성
       StringBuilder message = new StringBuilder();
@@ -925,6 +1036,15 @@ public class AdminController {
             .append(sessionExpired.size())
             .append("개 쇼핑몰은 저장된 로그인 세션이 만료되어 자동수집을 일시중단했습니다.")
             .append(" 계정 연결은 그대로이니 '브라우저로 로그인' 을 다시 실행해 주세요.");
+      }
+      if (!scheduleFailed.isEmpty()) {
+        // 위 통들과 한 문장으로 합치지 않는다. 같은 몰이 '만료' 이면서 '주기 등록 실패' 일 수 있고,
+        // 합치면 둘 중 하나가 지워져 사용자는 남은 한쪽만 조치하고 끝낸다.
+        if (message.length() > 0) message.append(". ");
+        message
+            .append(scheduleFailed.size())
+            .append("개 쇼핑몰은 주기적 수집 등록에 실패했습니다. 이번 수집 결과나 계정 연결과는 별개의 문제이니,")
+            .append(" 잠시 뒤 자동수집을 다시 실행해 주세요.");
       }
       if (message.length() == 0) {
         message.append("처리된 쇼핑몰이 없습니다.");

@@ -17,17 +17,20 @@ import com.jiniebox.jangbogo.svc.SessionCaptureService.Outcome;
 import com.jiniebox.jangbogo.svc.SessionCaptureService.ProfileIdentityWriter;
 import com.jiniebox.jangbogo.svc.mall.MallRegistry;
 import com.jiniebox.jangbogo.svc.util.ExecutionContextDetector.ExecutionContext;
+import com.jiniebox.jangbogo.svc.util.MallProfileLock;
 import com.jiniebox.jangbogo.svc.util.SessionProfilePolicy;
 import com.jiniebox.jangbogo.svc.util.SessionSnapshot;
 import com.jiniebox.jangbogo.svc.util.SessionSnapshotStore;
 import com.jiniebox.jangbogo.svc.util.SessionSnapshotTestSupport;
 import com.jiniebox.jangbogo.svc.util.SessionTransfer;
 import com.jiniebox.jangbogo.svc.util.WebDriverManager;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
@@ -77,8 +80,18 @@ class SessionCaptureServiceTest {
    */
   private static final String SSG_AUTH_COOKIE = MallRegistry.SSG_GROUP.authCookieNames().get(0);
 
+  /**
+   * 캡처가 잠그는 키. 프로필 이름이 곧 락 키다.
+   *
+   * <p>이름을 베껴 적지 않고 레지스트리에서 가져온다 — 베껴 적으면 프로덕션이 키를 바꿔도 이 테스트는 <b>제가 만든 다른 락</b>을 잡고 통과한다.
+   */
+  private static final String SSG_PROFILE = MallRegistry.SSG_GROUP.mallId();
+
   private String previousEnabled;
   private String previousRoot;
+
+  /** 프로필 루트. 락 파일도 이 아래({@code .locks/})에 실제로 만들어진다. */
+  private Path profileRoot;
 
   private WebDriverManager wdm;
   private SessionSnapshotStore store;
@@ -86,15 +99,24 @@ class SessionCaptureServiceTest {
   private Supplier<ExecutionContext> interactive;
   private RecordingIdentityWriter identity;
 
+  /**
+   * 이 테스트가 만든 서비스들. 끝날 때 전부 닫는다.
+   *
+   * <p>로그인 대기 상태로 끝난 캡처는 <b>프로필 락 파일 핸들을 쥔 채</b>다. Windows 는 열린 핸들이 있는 파일을 지우지 못하므로, 놓지 않으면
+   * {@code @TempDir} 정리가 실패해 <b>엉뚱한 테스트</b>가 깨진다 — 원인을 찾기 가장 어려운 형태다.
+   */
+  private final List<SessionCaptureService> services = new ArrayList<>();
+
   @BeforeEach
-  void setUp(@TempDir Path profileRoot) {
+  void setUp(@TempDir Path tempProfileRoot) {
     previousEnabled = System.getProperty(SessionProfilePolicy.ENABLED_PROPERTY);
     previousRoot = System.getProperty(SessionProfilePolicy.ROOT_PROPERTY);
     // 캡처는 킬스위치 뒤에 있다 — 대부분의 테스트는 켠 상태를 전제한다.
     System.setProperty(SessionProfilePolicy.ENABLED_PROPERTY, "true");
-    // start 는 프로필 디렉터리를 실제로 만든다. 임시 루트로 돌리지 않으면 테스트가
+    // start 는 프로필 디렉터리와 락 파일을 실제로 만든다. 임시 루트로 돌리지 않으면 테스트가
     // 사용자의 진짜 %LOCALAPPDATA% 아래에 폴더를 남긴다.
-    System.setProperty(SessionProfilePolicy.ROOT_PROPERTY, profileRoot.toString());
+    profileRoot = tempProfileRoot;
+    System.setProperty(SessionProfilePolicy.ROOT_PROPERTY, tempProfileRoot.toString());
 
     wdm = mock(WebDriverManager.class);
     store = mock(SessionSnapshotStore.class);
@@ -106,6 +128,11 @@ class SessionCaptureServiceTest {
 
   @AfterEach
   void tearDown() {
+    // 남은 캡처를 닫아 프로필 락 파일 핸들을 놓는다 (services 필드 javadoc 참조).
+    for (SessionCaptureService svc : services) {
+      svc.shutdown();
+    }
+    services.clear();
     restore(SessionProfilePolicy.ENABLED_PROPERTY, previousEnabled);
     restore(SessionProfilePolicy.ROOT_PROPERTY, previousRoot);
   }
@@ -119,12 +146,18 @@ class SessionCaptureServiceTest {
   }
 
   private SessionCaptureService service(Function<WebDriver, SessionSnapshot> capturer) {
-    return new SessionCaptureService(wdm, store, interactive, capturer, identity);
+    return track(new SessionCaptureService(wdm, store, interactive, capturer, identity));
   }
 
   private SessionCaptureService service(
       Function<WebDriver, SessionSnapshot> capturer, LongSupplier clock) {
-    return new SessionCaptureService(wdm, store, interactive, capturer, clock, identity);
+    return track(new SessionCaptureService(wdm, store, interactive, capturer, clock, identity));
+  }
+
+  /** 뒷정리 대상으로 등록한다. 등록을 빠뜨리면 그 테스트가 아니라 <b>다음 테스트</b>가 깨진다. */
+  private SessionCaptureService track(SessionCaptureService svc) {
+    services.add(svc);
+    return svc;
   }
 
   private static long now() {
@@ -194,12 +227,13 @@ class SessionCaptureServiceTest {
   @DisplayName("세션 0 자리에서는 브라우저를 띄우지 않고 값으로 거부한다")
   void startRequiresUserSession() {
     SessionCaptureService svc =
-        new SessionCaptureService(
-            wdm,
-            store,
-            () -> ExecutionContext.SERVICE_SESSION_0,
-            d -> SessionSnapshot.empty(),
-            identity);
+        track(
+            new SessionCaptureService(
+                wdm,
+                store,
+                () -> ExecutionContext.SERVICE_SESSION_0,
+                d -> SessionSnapshot.empty(),
+                identity));
 
     CaptureResult r = svc.start("1", now());
 
@@ -588,5 +622,178 @@ class SessionCaptureServiceTest {
 
     assertEquals(Outcome.STARTED, r.outcome());
     verify(driver).quit(); // 방치된 이전 브라우저가 닫혔다
+  }
+
+  // ── 프로필 락 (프로세스 간 안전장치) ────────────────────────────────────────
+
+  /**
+   * 이 프로필 락이 지금 비어 있는지 단언한다.
+   *
+   * <p>해제를 이렇게 재는 이유는, 내부 필드를 들여다보면 <b>"락 객체를 버렸다"</b> 만 확인하게 되기 때문이다. 실제로 중요한 것은 파일 락이 풀려 <b>다음
+   * 캡처가 잡을 수 있는가</b> 이고, 그것은 밖에서 잡아 봐야만 알 수 있다.
+   */
+  private static void assertProfileLockIsFree(String why) {
+    try (MallProfileLock next = MallProfileLock.tryAcquireProfile(SSG_PROFILE)) {
+      assertEquals(MallProfileLock.Outcome.ACQUIRED, next.outcome(), why);
+    }
+  }
+
+  @Test
+  @DisplayName("다른 쪽이 프로필 락을 쥐고 있으면 고아 정리도 기동도 하지 않는다")
+  void startDoesNotSweepOrLaunchWhileAnotherProcessHoldsTheProfile() {
+    // killOrphanProfileChrome 은 그 프로필을 문 chrome.exe 를 가리지 않고 전부 죽인다.
+    // '활성 캡처가 없으니 전부 고아다' 라는 전제는 이 JVM 안에서만 참이라, 락 없이 부르면
+    // 다른 프로세스에서 사람이 로그인해 둔 살아 있는 창까지 죽인다 — 되돌릴 방법이 없다.
+    try (MallProfileLock heldElsewhere = MallProfileLock.tryAcquireProfile(SSG_PROFILE)) {
+      assertEquals(MallProfileLock.Outcome.ACQUIRED, heldElsewhere.outcome(), "테스트 전제가 깨졌다.");
+
+      CaptureResult r = service(d -> SessionSnapshot.empty()).start("1", now());
+
+      assertEquals(Outcome.PROFILE_LOCKED, r.outcome());
+      // 대역으로 호출 여부를 직접 센다. 결과 코드만 보면 '죽이고 나서 물러난' 경우를 놓친다.
+      verify(wdm, never()).killOrphanProfileChrome(any());
+      verify(wdm, never()).getWebDriver(any(), any());
+    }
+  }
+
+  @Test
+  @DisplayName("고아 정리는 락을 쥔 상태에서만 일어난다 — 잡기 전에 죽이면 배선이 무의미하다")
+  void theOrphanSweepHappensWhileHoldingTheLock() {
+    // 순서가 뒤집히면(죽인 다음에 잠그면) 락이 아무것도 막지 못한다. 호출 순서만으로는 그것을
+    // 알 수 없으므로, 정리가 불리는 그 순간에 밖에서 같은 락을 잡아 본다.
+    AtomicReference<MallProfileLock.Outcome> whileSweeping = new AtomicReference<>();
+    when(wdm.killOrphanProfileChrome(any()))
+        .thenAnswer(
+            invocation -> {
+              try (MallProfileLock probe = MallProfileLock.tryAcquireProfile(SSG_PROFILE)) {
+                whileSweeping.set(probe.outcome());
+              }
+              return 0;
+            });
+
+    SessionCaptureService svc = service(d -> SessionSnapshot.empty());
+    assertEquals(Outcome.STARTED, svc.start("1", now()).outcome());
+
+    assertEquals(
+        MallProfileLock.Outcome.HELD_BY_OTHER,
+        whileSweeping.get(),
+        "고아를 죽이는 시점에 프로필 락을 쥐고 있지 않았다 — 잠그기 전에 죽였다는 뜻이다.");
+  }
+
+  @Test
+  @DisplayName("잠글 수 없는 환경(UNAVAILABLE)은 막지 않는다 — 경고만 남기고 진행한다")
+  void anUnlockableEnvironmentDoesNotBlockCapture() throws Exception {
+    // 파일 락이 지원되지 않는 위치가 있다(네트워크 드라이브 등). 못 잠근다고 캡처를 막을 근거는
+    // 없다는 것이 게이트의 명시적 판단이다. 락 파일 자리에 디렉터리를 두어 획득을 실패시킨다.
+    Files.createDirectories(profileRoot.resolve(".locks").resolve(SSG_PROFILE + ".lock"));
+
+    CaptureResult r = service(d -> SessionSnapshot.empty()).start("1", now());
+
+    assertEquals(Outcome.STARTED, r.outcome(), "잠글 수 없다는 이유로 캡처를 막았다.");
+    verify(wdm).getWebDriver(eq(WebDriverManager.BROWSER_NAME_CHROME), any());
+  }
+
+  @Test
+  @DisplayName("정상 완료가 락을 놓는다")
+  void captureSuccessReleasesTheLock() {
+    SessionCaptureService svc = service(d -> snapshotOf(SSG_AUTH_COOKIE));
+    svc.start("1", now());
+
+    assertEquals(Outcome.CAPTURED, svc.capture("1").outcome());
+
+    assertProfileLockIsFree("캡처를 마쳤는데 락이 잡힌 채로 남았다 — 다음 캡처가 영구히 막힌다.");
+  }
+
+  @Test
+  @DisplayName("취소가 락을 놓는다")
+  void cancelReleasesTheLock() {
+    SessionCaptureService svc = service(d -> SessionSnapshot.empty());
+    svc.start("1", now());
+
+    assertEquals(Outcome.CANCELLED, svc.cancel("1").outcome());
+
+    assertProfileLockIsFree("취소했는데 락이 남았다 — 한 번 취소한 사람이 그 뒤로 캡처를 못 한다.");
+  }
+
+  @Test
+  @DisplayName("관리자 세션 만료(status)가 락을 놓는다")
+  void windowExpiryReleasesTheLock() {
+    long[] nowHolder = {1_000_000_000_000L};
+    SessionCaptureService svc = service(d -> SessionSnapshot.empty(), () -> nowHolder[0]);
+    svc.start("1", nowHolder[0]);
+
+    nowHolder[0] += 31L * 60 * 1000;
+    assertEquals(Outcome.EXPIRED, svc.status("1").outcome());
+
+    assertProfileLockIsFree("창 만료가 락을 남겼다.");
+  }
+
+  @Test
+  @DisplayName("유휴 회수(리퍼)가 락을 놓는다")
+  void reapReleasesTheLock() {
+    long[] nowHolder = {1_000_000_000_000L};
+    SessionCaptureService svc = service(d -> SessionSnapshot.empty(), () -> nowHolder[0]);
+    svc.start("1", nowHolder[0]);
+
+    // 폴링이 끊긴 채 유휴 임계를 넘긴다.
+    nowHolder[0] += SessionCaptureService.IDLE_TIMEOUT_MILLIS + 1000;
+    svc.reapStale();
+
+    assertProfileLockIsFree("리퍼가 브라우저만 닫고 락을 남겼다 — 방치된 캡처 하나가 이후 전부를 막는다.");
+  }
+
+  @Test
+  @DisplayName("종료(shutdown)가 락을 놓는다")
+  void shutdownReleasesTheLock() {
+    SessionCaptureService svc = service(d -> SessionSnapshot.empty());
+    svc.start("1", now());
+
+    svc.shutdown();
+
+    assertProfileLockIsFree("종료가 락을 남겼다 — 곧바로 재기동한 인스턴스가 막힌다.");
+    verify(driver).quit();
+  }
+
+  @Test
+  @DisplayName("기동 실패가 락을 놓는다 — 정리를 마친 뒤에 놓는다")
+  void launchFailureReleasesTheLock() {
+    when(wdm.getWebDriver(eq(WebDriverManager.BROWSER_NAME_CHROME), any()))
+        .thenThrow(new RuntimeException("session not created"));
+    SessionCaptureService svc = service(d -> SessionSnapshot.empty());
+
+    assertEquals(Outcome.LAUNCH_FAILED, svc.start("1", now()).outcome());
+
+    assertProfileLockIsFree("기동 실패가 락을 남겼다 — 재시도가 전부 PROFILE_LOCKED 로 막힌다.");
+    // 실패 정리는 락을 쥔 채로 했다(기동 전 예방 + 실패 후, 두 번).
+    verify(wdm, times(2)).killOrphanProfileChrome(any());
+  }
+
+  @Test
+  @DisplayName("락을 못 잡은 회차는 락을 남기지 않는다 — 남기면 남의 락을 우리가 못 놓는다")
+  void aBlockedStartDoesNotLeakAnything() {
+    try (MallProfileLock heldElsewhere = MallProfileLock.tryAcquireProfile(SSG_PROFILE)) {
+      assertEquals(MallProfileLock.Outcome.ACQUIRED, heldElsewhere.outcome(), "테스트 전제가 깨졌다.");
+      assertEquals(
+          Outcome.PROFILE_LOCKED,
+          service(d -> SessionSnapshot.empty()).start("1", now()).outcome());
+    }
+    // 쥐고 있던 쪽이 놓으면 곧바로 잡힌다 — 실패한 시도가 무언가를 붙잡고 있지 않다.
+    assertProfileLockIsFree("락 실패 회차가 채널을 붙잡고 있다.");
+  }
+
+  @Test
+  @DisplayName("캡처가 진행 중인 동안에는 프로필이 잠겨 있다")
+  void theProfileStaysLockedWhileCaptureIsActive() {
+    SessionCaptureService svc = service(d -> SessionSnapshot.empty());
+    svc.start("1", now());
+
+    try (MallProfileLock other = MallProfileLock.tryAcquireProfile(SSG_PROFILE)) {
+      assertEquals(
+          MallProfileLock.Outcome.HELD_BY_OTHER,
+          other.outcome(),
+          "로그인 대기 중인 캡처가 프로필을 잠그고 있지 않다 — 다른 프로세스가 이 창을 죽일 수 있다.");
+    }
+    // 뒷정리. 남겨 두면 다음 테스트가 임시 루트를 지울 때 파일 핸들이 잡혀 있을 수 있다.
+    svc.cancel("1");
   }
 }

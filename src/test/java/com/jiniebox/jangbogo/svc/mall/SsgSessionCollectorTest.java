@@ -13,14 +13,18 @@ import static org.mockito.Mockito.when;
 
 import com.jiniebox.jangbogo.svc.mall.SessionCollector.Result;
 import com.jiniebox.jangbogo.svc.mall.SessionCollector.SkipCause;
+import com.jiniebox.jangbogo.svc.util.MallProfileLock;
 import com.jiniebox.jangbogo.svc.util.SessionExpiryDetector;
+import com.jiniebox.jangbogo.svc.util.SessionProfileGate;
 import com.jiniebox.jangbogo.svc.util.SessionProfilePolicy;
 import com.jiniebox.jangbogo.svc.util.SessionSnapshot;
 import com.jiniebox.jangbogo.svc.util.SessionSnapshotTestSupport;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.LongConsumer;
 import org.json.simple.JSONArray;
 import org.junit.jupiter.api.AfterEach;
@@ -59,15 +63,20 @@ class SsgSessionCollectorTest {
   private WebDriver driver;
   private String previousRoot;
 
+  /** 프로필 루트. 락 파일도 이 아래({@code .locks/})에 실제로 만들어진다. */
+  private Path profileRoot;
+
   /** 잠들지 않는다 — 지연은 실사이트용이고 여기서 재는 것은 순서다. */
   private final LongConsumer noSleep = millis -> {};
 
   @BeforeEach
-  void setUp(@TempDir Path profileRoot) {
+  void setUp(@TempDir Path tempProfileRoot) {
     previousRoot = System.getProperty(SessionProfilePolicy.ROOT_PROPERTY);
     // 프로필 경로 계산이 사용자의 실제 %LOCALAPPDATA% 를 가리키지 않게 한다.
-    // (대역이 드라이버를 띄우지 않으므로 디렉터리가 실제로 만들어지지는 않는다)
-    System.setProperty(SessionProfilePolicy.ROOT_PROPERTY, profileRoot.toString());
+    // (대역이 드라이버를 띄우지 않으므로 프로필 디렉터리가 실제로 만들어지지는 않는다.
+    //  락 파일은 다르다 — 프로세스 경계 락이 진짜인지 재려면 실제 파일 락을 걸어야 한다)
+    profileRoot = tempProfileRoot;
+    System.setProperty(SessionProfilePolicy.ROOT_PROPERTY, tempProfileRoot.toString());
 
     calls = new ArrayList<>();
     driver = mock(WebDriver.class);
@@ -122,6 +131,11 @@ class SsgSessionCollectorTest {
     when(driver.getCurrentUrl()).thenReturn(landedUrl);
     return new SsgSessionCollector(
         seqMall,
+        profileDir -> {
+          // 고아 정리 대역. 이 줄이 목록에 남았다는 것은 '그 프로필을 문 크롬을 전부 죽였다' 는 뜻이다.
+          calls.add("sweep:" + profileDir.getFileName());
+          return 0;
+        },
         profileDir -> {
           calls.add("launch:" + profileDir.getFileName());
           return driver;
@@ -185,6 +199,8 @@ class SsgSessionCollectorTest {
     assertEquals(
         List.of(
             "load:" + SEQ,
+            // 고아 정리는 프로필 락을 쥔 뒤에만 일어난다. 기동보다 앞이라는 것도 여기서 고정된다.
+            "sweep:ssg-inject",
             "launch:ssg-inject",
             "get:" + SsgSessionCollector.HOME_URL,
             "inject:2",
@@ -326,6 +342,7 @@ class SsgSessionCollectorTest {
     SsgSessionCollector sut =
         new SsgSessionCollector(
             SEQ,
+            profileDir -> 0,
             profileDir -> driver,
             seq -> SessionSnapshotTestSupport.withCookies(3),
             (usedDriver, used) -> 3,
@@ -346,6 +363,160 @@ class SsgSessionCollectorTest {
     assertNotEquals(MallRegistry.SSG_GROUP.mallId(), SsgSessionCollector.injectProfileName("1"));
     assertEquals("ssg-inject", SsgSessionCollector.injectProfileName("1"));
     assertEquals("session-inject", SsgSessionCollector.injectProfileName("99"), "등록되지 않은 seq");
+  }
+
+  // ── 프로필 락 (프로세스 간 안전장치) ──────────────────────────────────────
+
+  /**
+   * 이 수집기가 잠그는 키. 주입용 프로필 이름이 곧 락 키다.
+   *
+   * <p>이름을 여기 베껴 적지 않고 프로덕션에서 가져온다 — 베껴 적으면 프로덕션이 키를 바꿔도 이 테스트는 <b>제가 만든 다른 락</b>을 잡고 통과한다. 그 이름
+   * 자체를 고정하는 일은 {@code injectionProfileIsSeparateFromTheCaptureProfile} 이 맡는다.
+   */
+  private static final String INJECT_PROFILE = SsgSessionCollector.injectProfileName(SEQ);
+
+  @Test
+  @DisplayName("다른 쪽이 프로필 락을 쥐고 있으면 고아 정리도 기동도 하지 않고 건너뛴다")
+  void doesNotSweepOrLaunchWhileAnotherProcessHoldsTheProfile() {
+    // killOrphanProfileChrome 은 그 프로필을 문 chrome.exe 를 가리지 않고 전부 죽인다.
+    // '전부 고아다' 라는 전제는 이 JVM 안에서만 참이라, 락 없이 부르면 다른 프로세스가 그 프로필로
+    // 돌리고 있는 살아 있는 브라우저를 죽인다. 그것을 막는 것이 이 배선의 목적 전체다.
+    try (MallProfileLock heldElsewhere = MallProfileLock.tryAcquireProfile(INJECT_PROFILE)) {
+      assertEquals(MallProfileLock.Outcome.ACQUIRED, heldElsewhere.outcome(), "테스트 전제가 깨졌다.");
+
+      SsgSessionCollector sut =
+          collector(
+              SessionSnapshotTestSupport.withCookies(3),
+              3,
+              SsgSessionCollector.MEMBER_URL,
+              orders("A"));
+
+      Result result = sut.collect();
+
+      assertTrue(result.isSkipped());
+      assertEquals(SkipCause.PROFILE_LOCKED, result.skipCause());
+      assertEquals(
+          SessionProfileGate.Decision.PROFILE_LOCKED.reason(),
+          result.skipReason(),
+          "판정한 쪽과 사유를 적는 쪽이 갈리면 같은 사실이 화면에 두 문구로 쌓인다.");
+      // 대역 호출 여부를 직접 센다. '건너뛰었다' 는 결과만 보면 죽이고 나서 건너뛴 경우를 놓친다.
+      assertFalse(calls.contains("sweep:" + INJECT_PROFILE), "락을 못 잡았는데 고아를 죽였다: " + calls);
+      assertFalse(calls.contains("launch:" + INJECT_PROFILE), "락을 못 잡았는데 브라우저를 띄웠다: " + calls);
+      assertEquals(List.of("load:" + SEQ), calls, "락 실패 회차가 다른 일을 했다: " + calls);
+    }
+  }
+
+  @Test
+  @DisplayName("락 실패는 만료로 승격되지 않는다 — 브레이커도 일시중단도 건드리지 않는다")
+  void aLockedProfileIsNotPromotedToExpiry() {
+    // 세션이 죽은 것이 아니라 잠깐 겹친 것뿐이다. 만료로 승격하면 다음 회차면 저절로 풀릴 일이
+    // 사람이 다시 로그인할 때까지 몰 전체를 멈춘다. FAIL 로 세면 브레이커가 열린다.
+    assertFalse(SkipCause.PROFILE_LOCKED.sessionExpired());
+
+    try (MallProfileLock heldElsewhere = MallProfileLock.tryAcquireProfile(INJECT_PROFILE)) {
+      assertEquals(MallProfileLock.Outcome.ACQUIRED, heldElsewhere.outcome(), "테스트 전제가 깨졌다.");
+
+      Result result =
+          collector(
+                  SessionSnapshotTestSupport.withCookies(3),
+                  3,
+                  SsgSessionCollector.MEMBER_URL,
+                  orders("A"))
+              .collect();
+
+      assertFalse(result.isSessionExpired(), "프로필 겹침을 만료로 읽으면 몰이 통째로 일시중단된다.");
+      assertTrue(result.items().isEmpty());
+    }
+  }
+
+  @Test
+  @DisplayName("고아 정리는 락을 쥔 상태에서만 일어난다 — 잡기 전에 죽이면 배선이 무의미하다")
+  void theSweepHappensWhileHoldingTheLock() {
+    // 순서가 뒤집히면(죽인 다음에 잠그면) 락이 아무것도 막지 못한다. 그런데 '먼저 잡았다' 는
+    // 호출 순서 목록만으로는 알 수 없으므로, 정리 시점에 밖에서 같은 락을 잡아 본다.
+    AtomicReference<MallProfileLock.Outcome> whileSweeping = new AtomicReference<>();
+    when(driver.getCurrentUrl()).thenReturn(SsgSessionCollector.MEMBER_URL);
+
+    SsgSessionCollector sut =
+        new SsgSessionCollector(
+            SEQ,
+            profileDir -> {
+              try (MallProfileLock probe = MallProfileLock.tryAcquireProfile(INJECT_PROFILE)) {
+                whileSweeping.set(probe.outcome());
+              }
+              return 0;
+            },
+            profileDir -> driver,
+            seq -> SessionSnapshotTestSupport.withCookies(3),
+            (usedDriver, used) -> 3,
+            usedDriver -> orders("A"),
+            noSleep);
+
+    sut.collect();
+
+    assertEquals(
+        MallProfileLock.Outcome.HELD_BY_OTHER,
+        whileSweeping.get(),
+        "고아를 죽이는 시점에 프로필 락을 쥐고 있지 않았다 — 잠그기 전에 죽였다는 뜻이다.");
+  }
+
+  @Test
+  @DisplayName("회차가 끝나면 락을 놓는다 — 다음 회차가 영구히 막히지 않는다")
+  void theLockIsReleasedWhenTheRoundEnds() {
+    collector(
+            SessionSnapshotTestSupport.withCookies(3),
+            3,
+            SsgSessionCollector.MEMBER_URL,
+            orders("A"))
+        .collect();
+
+    try (MallProfileLock next = MallProfileLock.tryAcquireProfile(INJECT_PROFILE)) {
+      assertEquals(MallProfileLock.Outcome.ACQUIRED, next.outcome(), "수집이 끝났는데 락이 잡힌 채로 남았다.");
+    }
+  }
+
+  @Test
+  @DisplayName("파싱이 던진 회차에서도 락을 놓는다")
+  void theLockIsReleasedEvenWhenParsingThrows() {
+    when(driver.getCurrentUrl()).thenReturn(SsgSessionCollector.MEMBER_URL);
+
+    SsgSessionCollector sut =
+        new SsgSessionCollector(
+            SEQ,
+            profileDir -> 0,
+            profileDir -> driver,
+            seq -> SessionSnapshotTestSupport.withCookies(3),
+            (usedDriver, used) -> 3,
+            usedDriver -> {
+              throw new IllegalStateException("셀렉터 어긋남");
+            },
+            noSleep);
+
+    assertThrows(RuntimeException.class, sut::collect);
+
+    try (MallProfileLock next = MallProfileLock.tryAcquireProfile(INJECT_PROFILE)) {
+      assertEquals(MallProfileLock.Outcome.ACQUIRED, next.outcome(), "예외가 난 회차가 락을 쥔 채로 빠져나갔다.");
+    }
+  }
+
+  @Test
+  @DisplayName("잠글 수 없는 환경(UNAVAILABLE)은 막지 않는다 — 경고만 남기고 진행한다")
+  void anUnlockableEnvironmentDoesNotBlockTheRound() throws Exception {
+    // 파일 락이 지원되지 않는 위치가 있다(네트워크 드라이브 등). 못 잠근다고 수집을 멈출 근거는
+    // 없다는 것이 게이트의 명시적 판단이다. 락 파일 자리에 디렉터리를 두어 획득을 실패시킨다.
+    Files.createDirectories(profileRoot.resolve(".locks").resolve(INJECT_PROFILE + ".lock"));
+
+    Result result =
+        collector(
+                SessionSnapshotTestSupport.withCookies(3),
+                3,
+                SsgSessionCollector.MEMBER_URL,
+                orders("A"))
+            .collect();
+
+    assertFalse(result.isSkipped(), "잠글 수 없다는 이유로 수집을 막았다: " + result.skipReason());
+    assertTrue(calls.contains("launch:" + INJECT_PROFILE), "UNAVAILABLE 인데 진행하지 않았다: " + calls);
+    assertEquals(1, result.items().size());
   }
 
   @Test

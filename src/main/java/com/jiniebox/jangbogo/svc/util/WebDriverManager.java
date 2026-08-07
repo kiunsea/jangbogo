@@ -235,9 +235,23 @@ public class WebDriverManager {
    * 쓰므로, 활성 캡처가 없을 때 그 경로를 문 크롬은 전부 고아다. 개인 Chrome 은 이 인자를 갖지 않아 건드리지 않는다. Java 의 {@link
    * ProcessHandle} 은 Windows 에서 다른 프로세스의 명령줄을 주지 않으므로 PowerShell(CIM)로 조회한다.
    *
+   * <h3>⚠ 호출 계약 — {@link MallProfileLock} 을 쥔 채로만 부른다</h3>
+   *
+   * <p>이 메서드는 그 프로필을 문 chrome.exe 를 <b>가리지 않고 전부</b> 죽인다. 위 문단의 "활성 캡처가 없으면 전부 고아다" 라는 전제는 <b>이 JVM
+   * 안에서만</b> 참이다. 서비스로 도는 인스턴스와 사용자가 직접 띄운 인스턴스는 다른 프로세스이므로, 락 없이 부르면 <b>다른 프로세스가 사람이 로그인해 둔 살아 있는
+   * 세션</b>을 그 프로필로 열어 두고 있어도 그대로 죽인다. 죽은 뒤에는 되돌릴 방법이 없다 — 인증 쿠키가 세션 스코프라 창이 닫히는 순간 사라진다(ADR-0001).
+   *
+   * <p>그래서 호출부는 <b>먼저</b> {@code MallProfileLock.tryAcquireProfile(프로필이름)} 으로 그 프로필을 잠그고, 잡지
+   * 못하면({@code HELD_BY_OTHER}) 이 메서드를 <b>부르지 않고 물러나야 한다.</b> 순서가 뒤집히면(죽인 다음에 잠그면) 락이 아무것도 막지 못한다.
+   * {@code UNAVAILABLE}(파일 락을 걸 수 없는 환경)은 막지 않는다 — 막을 근거가 없다는 것이 {@code SessionProfileGate} 의 판단이다.
+   *
+   * <p>현재 호출부는 {@code SessionCaptureService}(기동 전 예방 정리·기동 실패 후 정리)와 {@code SsgSessionCollector}(주입
+   * 프로필 정리) 뿐이고 둘 다 이 계약을 지킨다. {@code MallProfileLockWiringTest} 가 소스에서 그 사실을 감시한다 — 락 없이 부르는 호출자가
+   * 하나라도 생기면 그 테스트가 깨진다.
+   *
    * <p>정리는 최선 노력이다 — 어떤 실패도 밖으로 던지지 않는다. 캡처 흐름은 "실패는 값으로" 계약이라, 정리 실패가 흐름을 끊어서는 안 된다.
    *
-   * @param profileDir 캡처 프로필 디렉터리
+   * @param profileDir 캡처 프로필 디렉터리. <b>이 프로필의 락을 쥔 상태</b>여야 한다
    * @return 종료한 프로세스 수. 비-Windows·조회 실패면 0
    */
   public int killOrphanProfileChrome(Path profileDir) {
