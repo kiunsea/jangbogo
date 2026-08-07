@@ -43,9 +43,12 @@ Push 워크플로우의 1~7단계를 모두 수행한 뒤, 이어서:
 
 ## 빌드 및 실행
 ```bash
-# 개발 모드 실행
+# 개발 모드 실행 — 소스에서 직접(핫리로드). clean 하지 않는다.
 bat\test_run.bat
-# 또는: ./gradlew clean bootRun
+# 또는: ./gradlew bootRun --args="--jangbogo.startup.collect.enabled=false"
+
+# 빌드된 JAR 실행 — 패키징 산출물 검증
+bat\run_jar.bat
 
 # 배포 패키지 빌드
 bat\build_package.bat
@@ -60,6 +63,13 @@ bat\clean_build.bat
 # 컴파일 확인
 ./gradlew compileJava
 ```
+
+> ⚠️ **`build/` 아래를 직접 지우지 말 것.** 배포 패키지를 `build/distributions` 아래에 풀어 그 자리에서
+> 실행하는 관행이 있어, 그 폴더에는 빌드 산출물과 **그 인스턴스가 수집한 실제 구매 내역**이 섞인다.
+> `clean` 은 `build.gradle` 의 가드가 막지만 `rmdir /s /q build` 는 Gradle 을 거치지 않아 **가드를
+> 우회한다**(실제로 그렇게 데이터가 사라진 적이 있고 휴지통을 거치지 않아 복구하지 못했다).
+> `BuildScriptHygieneTest` 가 배치 스크립트에 그 형태가 다시 들어오는 것을 감시한다.
+> 재빌드만 원하면 clean 없이: `./gradlew bootJar createJre packageDist`
 
 ## 프로젝트 구조
 ```
