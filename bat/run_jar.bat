@@ -1,26 +1,25 @@
 @echo off
-REM -- Set UTF-8 codepage FIRST. Everything below may contain Korean text, and cmd
-REM -- parses this file line by line using the *current* codepage. If a multi-byte
-REM -- character is read as CP949 the byte pairing shifts and can swallow the line
-REM -- break, gluing the next command onto a comment. Keep this line above any
-REM -- non-ASCII character. (BuildScriptHygieneTest enforces this.)
+REM ============================================================
+REM  Jangbogo - run the packaged JAR
+REM
+REM  Runs the JAR produced by clean_build.bat or build_package.bat, to confirm
+REM  the actual artifact works. Different purpose from test_run.bat, which runs
+REM  from source.
+REM
+REM  Why a separate script: bootRun and "java -jar" are not the same. Classpath
+REM  ordering, resource loading (loose files vs JAR entries) and relative path
+REM  resolution in spring.config.import all differ, so "works from source but
+REM  not from the JAR" really happens. What ships is the JAR.
+REM
+REM  Note: this runs the development tree's JAR from the project root, so it
+REM  uses the development DB (db\jangbogo-dev.db). To reproduce a real install,
+REM  unzip the distribution OUTSIDE the repository (e.g. D:\Jangbogo) and use
+REM  its Jangbogo.bat - that one uses the bundled JRE and its own db\ folder.
+REM
+REM  ALL COMMENTS IN THIS FILE ARE ASCII ON PURPOSE - see test_run.bat header.
+REM ============================================================
 chcp 65001 >nul 2>&1
 setlocal enabledelayedexpansion
-
-REM ============================================================
-REM  Jangbogo 패키징 산출물 실행 — 만들어진 jar 을 그대로 띄운다
-REM
-REM  clean_build.bat 또는 build_package.bat 이 만든 jar 이 실제로 도는지 확인하는
-REM  자리다. 소스에서 띄우는 test_run.bat 과 역할이 다르다.
-REM
-REM  왜 따로 두는가: bootRun 과 jar 실행은 같지 않다. 클래스패스 구성 순서, 리소스
-REM  로딩 방식(파일 vs JAR 엔트리), spring.config.import 의 상대 경로 해석이 달라서
-REM  소스에서는 되는데 jar 에서 안 되는 경우가 실제로 생긴다. 배포되는 것은 jar 이다.
-REM
-REM  주의: 여기서 띄우는 것은 개발 트리의 jar 이고 작업 디렉터리도 프로젝트 루트라
-REM  개발용 DB(db\jangbogo-dev.db)를 쓴다. 배포본을 그대로 재현하려면 배포 ZIP 을
-REM  저장소 밖(예: D:\Jangbogo)에 풀고 그 폴더의 Jangbogo.bat 을 써라.
-REM ============================================================
 
 cd /d "%~dp0\.."
 
@@ -31,7 +30,7 @@ echo.
 echo 작업 디렉토리: %CD%
 echo.
 
-REM jar 을 찾는다 — 최신 것 하나. 버전을 적지 않는다(단일 출처는 build.gradle).
+REM Pick the newest JAR. Never hardcode a version - build.gradle owns it.
 set "APP_JAR="
 for /f "delims=" %%F in ('dir /b /o:-d "build\libs\jangbogo-*.jar" 2^>nul') do (
     if not defined APP_JAR set "APP_JAR=build\libs\%%F"
@@ -57,12 +56,13 @@ if errorlevel 1 (
 )
 
 REM ------------------------------------------------------------
-REM  기동 자동수집은 기본으로 끈다 (test_run.bat 과 같은 이유).
-REM  application.yml 이 true 라서 끄지 않으면 부팅 직후 실계정에 로그인한다.
+REM  Startup collection is OFF by default - same reason as test_run.bat.
+REM  application.yml has it enabled, so without this the app logs in to the
+REM  real shopping malls right after boot.
 REM
-REM  수집까지 보려면:  run_jar.bat --jangbogo.startup.collect.enabled=true
-REM  세션 기능을 켜려면 -D 가 -jar 앞에 와야 하므로 아래를 직접 실행해라:
-REM     java -Djangbogo.session-profile.enabled=true -jar <jar> --jangbogo.startup.collect.enabled=false
+REM  To include collection:  run_jar.bat --jangbogo.startup.collect.enabled=true
+REM  The session-profile killswitch needs -D BEFORE -jar, so run that directly:
+REM    java -Djangbogo.session-profile.enabled=true -jar <jar> --jangbogo.startup.collect.enabled=false
 REM ------------------------------------------------------------
 set "APP_ARGS=--jangbogo.startup.collect.enabled=false"
 if not "%~1"=="" (

@@ -5,9 +5,9 @@ REM -- pairing and swallow a line break, gluing the next command onto a comment.
 chcp 65001 >nul 2>&1
 setlocal enabledelayedexpansion
 
-REM Jangbogo 배포 패키지 빌드 스크립트
+REM Jangbogo - distribution package build script
 
-REM 프로젝트 루트 디렉토리로 이동 (bat 폴더의 상위 디렉토리)
+REM Move to the project root (parent of the bat folder).
 cd /d "%~dp0\.."
 
 echo ========================================================
@@ -15,11 +15,11 @@ echo   Jangbogo 배포 패키지 빌드
 echo ========================================================
 echo.
 
-REM 현재 디렉토리 확인
+REM Show the working directory.
 echo 작업 디렉토리: %CD%
 echo.
 
-REM Gradle 확인
+REM Make sure the Gradle wrapper is here.
 if not exist "gradlew.bat" (
     echo [오류] gradlew.bat 파일을 찾을 수 없습니다.
     echo 프로젝트 루트 디렉토리: %CD%
@@ -37,7 +37,7 @@ echo 예상 소요 시간: 1-2분
 echo ========================================================
 echo.
 
-REM 배포 패키지 빌드 (--no-daemon: 데몬 통신 오류 방지)
+REM Build the distribution package (--no-daemon avoids daemon IPC errors).
 call gradlew.bat clean bootJar createJre packageDist --no-daemon
 
 if %ERRORLEVEL% NEQ 0 (

@@ -99,6 +99,77 @@ class BuildScriptHygieneTest {
   }
 
   @Test
+  @DisplayName("배치 스크립트의 주석은 ASCII 로만 쓴다")
+  void keepsBatchCommentsAscii() throws Exception {
+    // chcp 를 맨 앞으로 옮기는 것만으로는 부족했다. 실제로 겪은 순서다.
+    //
+    //  1) chcp 65001 뒤에 한글 주석을 두었더니 실행이 이렇게 깨졌다:
+    //       '불가능한' is not recognized as an internal or external command
+    //       '수집과' is not recognized as an internal or external command
+    //     둘 다 REM 줄 안에 있던 낱말이다. 주석의 일부가 명령으로 실행된 것이다.
+    //  2) 즉 chcp 는 '출력' 을 고칠 뿐 '파싱' 을 보장하지 않는다. cmd 는 배치 파일을
+    //     한 줄씩 읽으며 실행하는데, 그 디코딩은 chcp 로 완전히 통제되지 않는다.
+    //
+    // 그래서 규칙을 좁힌다 — **주석은 ASCII 로만 쓴다.** 주석은 사용자에게 보이지 않으므로
+    // 한글일 이유가 없고, 설명이 길어야 하면 bat/README.md 로 옮기면 된다.
+    //
+    // echo 는 막지 않는다. 그 바이트는 파싱 대상이 아니라 그대로 출력되고, chcp 65001 이
+    // 켜져 있으면 콘솔이 UTF-8 로 해석해 정상 표시된다 — 실측으로 확인했다.
+    List<String> offenders = new ArrayList<>();
+
+    for (Path script : batchScripts()) {
+      List<String> lines = Files.readAllLines(script, StandardCharsets.UTF_8);
+      for (int i = 0; i < lines.size(); i++) {
+        if (isCommentLine(lines.get(i)) && hasNonAscii(lines.get(i))) {
+          offenders.add(
+              script.toString().replace('\\', '/') + ":" + (i + 1) + "  " + lines.get(i).trim());
+        }
+      }
+    }
+
+    assertTrue(
+        offenders.isEmpty(),
+        "배치 스크립트의 주석에 비-ASCII 문자가 있다. cmd 가 REM 줄을 CP949 로 읽으면서 바이트 짝이 어긋나면"
+            + " 주석 안의 낱말이 명령으로 실행된다(\"'불가능한' is not recognized...\"). chcp 65001 로도 막지 못한다."
+            + " 주석은 영문으로 쓰고, 긴 설명은 bat/README.md 로 옮겨라. echo 출력은 한글이어도 된다:\n  "
+            + String.join("\n  ", offenders));
+  }
+
+  @Test
+  @DisplayName("배치 스크립트의 줄바꿈은 CRLF 다")
+  void keepsBatchLineEndingsCrlf() throws Exception {
+    // cmd 는 배치 파일에 CRLF 를 전제한다. LF 만 있으면 줄 경계 인식이 어긋나 낱말 중간이 잘린
+    // 채 명령으로 실행된다 — 실제로 이렇게 나왔다:
+    //     'aunches' is not recognized...   ("launches" 의 뒤쪽)
+    //     'gnized..."). chcp 65001 is' is not recognized...
+    //
+    // .gitattributes 가 *.bat 을 eol=crlf 로 정해 두어 git 체크아웃은 CRLF 를 준다. 그런데
+    // 편집기나 스크립트가 파일을 직접 쓰면 그 경로를 거치지 않는다. 이 저장소는 그 실수를
+    // 두 번 겪었고, 두 번 다 "왜 갑자기 한글이 깨지지" 로 시간을 썼다(원인은 인코딩이 아니었다).
+    List<String> offenders = new ArrayList<>();
+
+    for (Path script : batchScripts()) {
+      byte[] bytes = Files.readAllBytes(script);
+      int bare = 0;
+      for (int i = 0; i < bytes.length; i++) {
+        if (bytes[i] == '\n' && (i == 0 || bytes[i - 1] != '\r')) {
+          bare++;
+        }
+      }
+      if (bare > 0) {
+        offenders.add(script.toString().replace('\\', '/') + "  (CR 없는 줄바꿈 " + bare + "개)");
+      }
+    }
+
+    assertTrue(
+        offenders.isEmpty(),
+        "배치 스크립트에 LF 만 있는 줄이 있다. cmd 는 CRLF 를 전제하므로 줄 경계가 어긋나 낱말 중간이"
+            + " 잘린 채 명령으로 실행된다(\"'aunches' is not recognized...\"). 증상이 인코딩 문제처럼 보여 원인을"
+            + " 엉뚱한 데서 찾게 된다. CRLF 로 저장해라:\n  "
+            + String.join("\n  ", offenders));
+  }
+
+  @Test
   @DisplayName("배치 스크립트는 한글이 나오기 전에 코드페이지를 UTF-8 로 바꾼다")
   void keepsCodepageSwitchAheadOfAnyNonAsciiText() throws Exception {
     // cmd 는 배치 파일을 한 줄씩 읽어 가며 실행하고, 각 줄을 그 시점의 코드페이지로 해석한다.
@@ -194,6 +265,17 @@ class BuildScriptHygieneTest {
     assertFalse(
         callsGradleClean(commandsOf("REM 예전에는 여기서 gradlew clean 을 돌렸다.\ncall gradlew.bat bootRun")),
         "주석에 적힌 설명이 명령으로 읽힌다. 그러면 근거를 지우는 것으로 가드를 통과시킬 수 있게 된다.");
+
+    // 주석 판별과 비-ASCII 판별도 두들긴다. 위 ASCII 검사는 "지금 위반이 0건" 이면 통과하므로
+    // 판별식이 죽어도 초록이 된다.
+    assertTrue(isCommentLine("REM 설명"), "REM 주석을 못 알아본다.");
+    assertTrue(isCommentLine("   rem 들여쓴 주석"), "들여쓴 REM 주석을 못 알아본다.");
+    assertTrue(isCommentLine(":: 주석"), ":: 주석을 못 알아본다.");
+    assertFalse(isCommentLine("echo 한글 출력"), "echo 를 주석으로 잘못 본다 — 출력은 한글이어도 된다.");
+    assertFalse(isCommentLine("set \"APP_ARGS=--remote\""), "remote 라는 낱말을 REM 으로 잘못 본다.");
+    assertTrue(hasNonAscii("REM 한글"), "비-ASCII 를 못 알아본다.");
+    assertTrue(hasNonAscii("REM em dash — here"), "한글이 아닌 비-ASCII(em dash)를 놓친다.");
+    assertFalse(hasNonAscii("REM plain ascii only"), "순수 ASCII 를 비-ASCII 로 잘못 본다.");
     assertTrue(
         callsGradleClean(commandsOf("REM 설명\ncall gradlew.bat clean build")),
         "주석을 걷어내면서 실제 명령까지 지워졌다. 그러면 이 가드는 아무것도 지키지 않는다.");
@@ -258,6 +340,25 @@ class BuildScriptHygieneTest {
       commands.append(line).append('\n');
     }
     return commands.toString();
+  }
+
+  /** 주석 줄인지({@code REM} 또는 {@code ::}). 판별부라 대조군이 직접 두들긴다. */
+  private static boolean isCommentLine(String rawLine) {
+    String line = rawLine.trim().toLowerCase(Locale.ROOT);
+    return line.startsWith("rem ")
+        || line.startsWith("rem\t")
+        || line.equals("rem")
+        || line.startsWith("::");
+  }
+
+  /** 문자열에 비-ASCII 문자가 있는지. */
+  private static boolean hasNonAscii(String text) {
+    for (int i = 0; i < text.length(); i++) {
+      if (text.charAt(i) > 0x7F) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /** 바이트 배열에서 ASCII 문자열이 처음 나오는 위치. 없으면 -1. */
