@@ -7,6 +7,7 @@ import com.jiniebox.jangbogo.svc.mall.SessionCollector;
 import com.jiniebox.jangbogo.svc.util.CollectBreakerPolicy;
 import com.jiniebox.jangbogo.svc.util.CollectStep;
 import com.jiniebox.jangbogo.svc.util.SessionProfilePolicy;
+import com.jiniebox.jangbogo.util.AccountIdMasker;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -205,7 +206,20 @@ public class MallOrderUpdater {
    * @throws Exception
    */
   public JSONArray collectItems(String seqMall, String mallId, String mallPw) throws Exception {
-    logger.info("구매내역 수집 시작 - seqMall: {}, mallId: {}", seqMall, mallId);
+    // 계정 아이디를 그대로 찍지 않는다. 이 값은 쇼핑몰 로그인 아이디이고, 아이디는 자격증명의 절반이라
+    // 비밀번호가 없어도 크리덴셜 스터핑·표적 피싱의 입력이 된다. logs/ 는 .gitignore 되지만
+    // SECURITY.md 가 기여자에게 "버그 리포트에는 필요한 줄만 발췌해 올리라" 고 안내하는 이상 그 줄
+    // 자체가 붙일 수 있는 상태여야 그 안내가 성립한다. 세션 쿠키·암호화 키는 이미 값을 남기지 않는데
+    // 계정 아이디만 예외였다.
+    //
+    // 그렇다고 통째로 지우면 진단이 죽는다 — 이 줄은 "이번 회차에 쓸 수 있는 자격증명이 있었는가" 를
+    // 남기는 유일한 자리이고(바로 아래 hasCredentials(mallId) 가 같은 값으로 수집기를 돌릴지
+    // 건너뛸지를 가른다), 그것이 "왜 이 수집기가 안 돌았는가" 에 답하는 단서다.
+    //
+    // 그래서 앞 한 글자와 글자 수만 남긴다(AccountIdMasker). 계정이 바뀐 것·몰마다 다른 계정을 쓰는
+    // 것은 구분되고, 원본은 복원되지 않는다. 라벨도 mallId 에서 '계정' 으로 바꿨다 — 이 값은 몰의
+    // 식별자(MallRegistry.mallId())가 아니라 사람의 로그인 아이디인데 이름이 그것을 가리고 있었다.
+    logger.info("구매내역 수집 시작 - seqMall: {}, 계정: {}", seqMall, AccountIdMasker.mask(mallId));
 
     // 수집 시작 전에 로그인 시간 갱신
     JbgMallDataAccessObject jaDao = new JbgMallDataAccessObject();

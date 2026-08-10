@@ -62,6 +62,10 @@ public class JbgCollectBreakerDataAccessObject extends CommonDataAccessObject {
   /**
    * 한 수집기의 상태를 저장한다 (없으면 삽입, 있으면 갱신).
    *
+   * <p>{@code first_success_time}(처음 성공한 시각)은 <b>인자로 받지 않는다.</b> 첫 성공이란 "값이 아직 비어 있을 때 들어온 {@code
+   * lastSuccessTime}"이므로 호출부가 알아야 할 사실이 아니다 — SQL 이 스스로 판정한다. 호출부에 맡기면 수집 경로가 하나 늘어날 때마다 그 규칙을 다시
+   * 지켜야 하고, 한 곳이라도 실수하면 기준점이 밀려 사각지대가 되살아난다.
+   *
    * @param seqMall 쇼핑몰 seq
    * @param collector 수집기 이름
    * @param state 저장할 상태
@@ -84,9 +88,9 @@ public class JbgCollectBreakerDataAccessObject extends CommonDataAccessObject {
       conn.txPstmtExecuteUpdate(
           "INSERT INTO jbg_collect_breaker"
               + " (seq_mall, collector, consecutive_failures, streak_started_time,"
-              + "  last_failure_time, last_success_time, last_nonempty_time, tripped_time,"
-              + "  last_reason)"
-              + " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+              + "  last_failure_time, last_success_time, first_success_time, last_nonempty_time,"
+              + "  tripped_time, last_reason)"
+              + " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
               + " ON CONFLICT(seq_mall, collector) DO UPDATE SET"
               + "  consecutive_failures = excluded.consecutive_failures,"
               + "  streak_started_time = excluded.streak_started_time,"
@@ -95,6 +99,13 @@ public class JbgCollectBreakerDataAccessObject extends CommonDataAccessObject {
               + "  last_success_time = CASE WHEN excluded.last_success_time > 0"
               + "                           THEN excluded.last_success_time"
               + "                           ELSE jbg_collect_breaker.last_success_time END,"
+              // 첫 성공 시각은 방향이 반대다 — 비어 있을 때만 채우고 그 뒤로는 절대 덮지 않는다.
+              // 이 값이 매 회차 따라 올라오면 "얼마나 오래 빈손인가"의 기준점이 사라져,
+              // 한 번도 데이터를 못 받은 수집기가 영원히 '정상'으로 보이던 사각지대가 되살아난다.
+              // 실패 저장은 lastSuccessTime 이 0 이라 여기서도 0 이 들어가 채워지지 않는다(의도).
+              + "  first_success_time = CASE WHEN jbg_collect_breaker.first_success_time > 0"
+              + "                            THEN jbg_collect_breaker.first_success_time"
+              + "                            ELSE excluded.first_success_time END,"
               + "  last_nonempty_time = CASE WHEN excluded.last_nonempty_time > 0"
               + "                            THEN excluded.last_nonempty_time"
               + "                            ELSE jbg_collect_breaker.last_nonempty_time END,"
@@ -105,6 +116,8 @@ public class JbgCollectBreakerDataAccessObject extends CommonDataAccessObject {
           state.consecutiveFailures,
           state.streakStartedTime,
           state.lastFailureTime,
+          lastSuccessTime,
+          // 첫 성공 후보는 이번 성공 시각 그 자체다. 실제로 첫 성공인지의 판정은 위 CASE 가 한다.
           lastSuccessTime,
           lastNonEmptyTime,
           state.trippedTime,
@@ -187,9 +200,10 @@ public class JbgCollectBreakerDataAccessObject extends CommonDataAccessObject {
    * 전체가 통째로 조용한</b> 경우이고, 그것이 실제로 두 달을 삼킨 형태다.
    *
    * @return {@code seq_mall}, {@code mall_name}, {@code collector}, {@code
-   *     collect_interval_minutes}, {@code last_success_time}, {@code last_nonempty_time}, {@code
-   *     consecutive_failures}, {@code tripped_time}, {@code last_reason} 을 담은 JSON 목록. 한 번도 돌지 않은
-   *     몰의 행은 {@code collector} 가 {@code null} 이고 시각·횟수가 모두 0 이다
+   *     collect_interval_minutes}, {@code last_success_time}, {@code first_success_time}, {@code
+   *     last_nonempty_time}, {@code consecutive_failures}, {@code tripped_time}, {@code
+   *     last_reason} 을 담은 JSON 목록. 한 번도 돌지 않은 몰의 행은 {@code collector} 가 {@code null} 이고 시각·횟수가 모두 0
+   *     이다
    */
   @SuppressWarnings("unchecked")
   public List<JSONObject> getHeartbeats() {
@@ -202,6 +216,7 @@ public class JbgCollectBreakerDataAccessObject extends CommonDataAccessObject {
               "SELECT b.seq_mall AS seq_mall, m.name AS mall_name, b.collector AS collector,"
                   + " COALESCE(m.collect_interval_minutes, 0) AS collect_interval_minutes,"
                   + " b.last_success_time AS last_success_time,"
+                  + " COALESCE(b.first_success_time, 0) AS first_success_time,"
                   + " b.last_nonempty_time AS last_nonempty_time,"
                   + " b.consecutive_failures AS consecutive_failures,"
                   + " b.tripped_time AS tripped_time, b.last_reason AS last_reason"
@@ -210,7 +225,7 @@ public class JbgCollectBreakerDataAccessObject extends CommonDataAccessObject {
                   + " UNION ALL"
                   + " SELECT m.seq AS seq_mall, m.name AS mall_name, NULL AS collector,"
                   + " COALESCE(m.collect_interval_minutes, 0) AS collect_interval_minutes,"
-                  + " 0 AS last_success_time, 0 AS last_nonempty_time,"
+                  + " 0 AS last_success_time, 0 AS first_success_time, 0 AS last_nonempty_time,"
                   + " 0 AS consecutive_failures, 0 AS tripped_time, NULL AS last_reason"
                   + " FROM jbg_mall m"
                   + " LEFT JOIN jbg_collect_breaker b ON b.seq_mall = m.seq"
@@ -225,6 +240,7 @@ public class JbgCollectBreakerDataAccessObject extends CommonDataAccessObject {
         row.put("collector", rset.getString("collector"));
         row.put("collect_interval_minutes", rset.getInt("collect_interval_minutes"));
         row.put("last_success_time", rset.getLong("last_success_time"));
+        row.put("first_success_time", rset.getLong("first_success_time"));
         row.put("last_nonempty_time", rset.getLong("last_nonempty_time"));
         row.put("consecutive_failures", rset.getInt("consecutive_failures"));
         row.put("tripped_time", rset.getLong("tripped_time"));

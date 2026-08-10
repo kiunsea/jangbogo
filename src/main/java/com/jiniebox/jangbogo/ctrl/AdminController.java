@@ -2092,11 +2092,15 @@ public class AdminController {
       for (org.json.simple.JSONObject beat : beats) {
         long lastSuccess = asLong(beat.get("last_success_time"));
         long lastNonEmpty = asLong(beat.get("last_nonempty_time"));
+        // 데이터를 한 번도 못 받은 수집기가 얼마나 오래 빈손인지 재는 기준점이다. 이걸 빼고
+        // lastSuccessTime 으로 폴백하면 그 값이 0건 수집마다 갱신돼 NO_DATA 가 영원히 안 뜬다.
+        long firstSuccess = asLong(beat.get("first_success_time"));
         long tripped = asLong(beat.get("tripped_time"));
         int interval = (int) asLong(beat.get("collect_interval_minutes"));
 
         CollectHealthPolicy.Verdict verdict =
-            CollectHealthPolicy.judge(lastSuccess, lastNonEmpty, tripped > 0, interval, now);
+            CollectHealthPolicy.judge(
+                lastSuccess, lastNonEmpty, firstSuccess, tripped > 0, interval, now);
         if (verdict.needsAttention()) {
           attention++;
         }
@@ -2109,6 +2113,7 @@ public class AdminController {
         node.put("health", verdict.health.name());
         node.put("message", verdict.message);
         node.put("lastSuccessTime", lastSuccess);
+        node.put("firstSuccessTime", firstSuccess);
         node.put("lastNonEmptyTime", lastNonEmpty);
         node.put("consecutiveFailures", (int) asLong(beat.get("consecutive_failures")));
         node.put("trippedTime", tripped);

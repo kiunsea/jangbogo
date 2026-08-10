@@ -36,6 +36,19 @@ import org.apache.logging.log4j.Logger;
  *
  * <p>{@code NO_DATA} 로 브레이커를 트립시키지 않는 것은 의도다. 장바구니를 두 달 안 쓰는 사용자를 장애로 처리하면 안 된다.
  *
+ * <h2>사각지대였던 자리 — "한 번도 받은 적 없음"을 무엇에 견주는가</h2>
+ *
+ * <p>{@code NO_DATA} 는 "마지막 데이터 이후 얼마나 지났나"로 재는데, <b>한 번도 데이터를 받은 적이 없으면 그 기준점 자체가 없다.</b> 예전에는 그때
+ * {@code lastSuccessTime} 으로 폴백했다. 그런데 그 값은 <b>0건 수집마다 갱신된다.</b> 그래서 빈손인 기간이 언제나 0 에 가깝게 계산됐고,
+ * {@code NO_DATA} 가 영원히 발화하지 않았다.
+ *
+ * <p>결과가 정확히 뒤집혀 있었다 — <b>경보가 가장 필요한 수집기(셀렉터가 처음부터 어긋나 단 한 건도 못 읽은 쪽)만 골라서 조용했다.</b> 2026-08-10
+ * 실측에서 두 수집기가 {@code lastNonEmptyTime = 0} 인 채 화면에는 '정상'으로 떠 있었다.
+ *
+ * <p>그래서 기준점을 <b>그 수집기가 처음 성공한 시각</b>({@code firstSuccessTime})으로 바꿨다. 이 값은 한 번 채워지면 갱신되지 않으므로 0건이
+ * 아무리 반복돼도 밀리지 않는다. 폴백 순서는 {@code lastNonEmpty → firstSuccess → lastSuccess} 다. 마지막 단계는 컬럼이 없던 시절의
+ * 기존 행 대비용이고, 그 행도 다음 성공 때 값이 채워지면서 자연히 해소된다.
+ *
  * @author KIUNSEA
  */
 public final class CollectHealthPolicy {
@@ -95,13 +108,20 @@ public final class CollectHealthPolicy {
    *
    * @param lastSuccessTime 마지막 성공 시각 (0건 수집 포함). {@code 0} 이면 한 번도 성공하지 않았다
    * @param lastNonEmptyTime 마지막으로 실제 데이터를 받은 시각. {@code 0} 이면 받은 적이 없다
+   * @param firstSuccessTime 처음 성공한 시각. 데이터를 한 번도 못 받은 수집기가 <b>얼마나 오래</b> 빈손인지 재는 기준점이다. {@code 0}
+   *     이면 컬럼이 없던 시절의 기존 행이라 옛 동작({@code lastSuccessTime} 기준)으로 물러선다
    * @param tripped 브레이커가 열려 있는지
    * @param intervalMinutes 몰의 수집 주기 (분)
    * @param now 현재 시각 (epoch millis)
    * @return 판정 결과
    */
   public static Verdict judge(
-      long lastSuccessTime, long lastNonEmptyTime, boolean tripped, int intervalMinutes, long now) {
+      long lastSuccessTime,
+      long lastNonEmptyTime,
+      long firstSuccessTime,
+      boolean tripped,
+      int intervalMinutes,
+      long now) {
 
     if (tripped) {
       return new Verdict(Health.TRIPPED, "연속 실패로 자동 차단됨");
@@ -120,9 +140,34 @@ public final class CollectHealthPolicy {
           Health.STALE, "마지막 성공 이후 " + toHours(sinceSuccess) + "시간 경과 (주기 " + interval + "분)");
     }
 
+    // 빈손인 기간을 어디서부터 재는가. 데이터를 받은 적이 있으면 그 시각부터가 맞다.
+    // 받은 적이 없으면 처음 성공한 시각부터 — 0건 수집마다 갱신되는 lastSuccessTime 을 기준으로
+    // 삼으면 그 값이 매 회차 따라 올라와 "빈손인 기간"이 영원히 0 에 머문다(그것이 이 사각지대였다).
+    // firstSuccessTime 이 0 인 것은 컬럼이 없던 시절의 기존 행뿐이고, 다음 성공에 채워지며 해소된다.
+    boolean everGotData = lastNonEmptyTime > 0;
+    long baseline;
+    if (everGotData) {
+      baseline = lastNonEmptyTime;
+    } else if (firstSuccessTime > 0) {
+      baseline = firstSuccessTime;
+    } else {
+      baseline = lastSuccessTime;
+    }
+
     long droughtAfter = TimeUnit.MINUTES.toMillis((long) interval * droughtMultiplier());
-    long sinceData = now - (lastNonEmptyTime > 0 ? lastNonEmptyTime : lastSuccessTime);
+    long sinceData = now - baseline;
     if (sinceData > droughtAfter) {
+      // 드라우트 창은 두 경우에 똑같이 적용한다. 한 번도 못 받았다고 즉시 경보하면 갓 연결한 몰이
+      // 첫 회차부터 빨개진다 — "장바구니를 두 달 안 쓰는 사용자를 장애로 처리하지 않는다"가 깨진다.
+      if (!everGotData) {
+        // 문구를 따로 두는 이유: "N시간째 0건"보다 "한 번도"가 훨씬 강한 신호다. 한 건도 못 읽었다는
+        // 것은 셀렉터가 처음부터 어긋났을 가능성을 가리키고, 사람이 볼 곳도 달라진다.
+        return new Verdict(
+            Health.NO_DATA,
+            "첫 수집 이후 "
+                + toHours(sinceData)
+                + "시간 동안 한 번도 데이터를 받은 적이 없음 — 그 몰에 실제 구매가 있었는지, 셀렉터가 바뀌지 않았는지 확인 필요");
+      }
       return new Verdict(
           Health.NO_DATA,
           "수집은 되지만 " + toHours(sinceData) + "시간째 0건 — 셀렉터 확인 필요 (실제로 구매가 없었을 수도 있음)");

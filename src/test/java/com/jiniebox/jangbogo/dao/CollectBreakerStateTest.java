@@ -26,6 +26,10 @@ import org.junit.jupiter.api.io.TempDir;
  * <p>하트비트 쪽은 반대 방향을 본다 — <b>없는 행이 경보를 만들지 못하는</b> 사각지대다. 옵트인만 해 두고 한 회차도 못 돈 몰은 브레이커 행 자체가 없어 건강도
  * 목록에서 통째로 빠지고, 그래서 "이상 없음"으로 보인다. 아래 세 건이 그 자리를 지킨다.
  *
+ * <p>{@code first_success_time} 묶음은 또 다른 사각지대를 지킨다 — <b>행은 있는데 한 건도 받은 적이 없는</b> 수집기다. 그 기준점이 0건
+ * 수집마다 밀려 버리면 "얼마나 오래 빈손인가"가 언제나 0 에 가깝게 계산돼, 셀렉터가 처음부터 어긋난 수집기가 영원히 '정상'으로 보인다. 그래서 <b>한 번 채워진 뒤
+ * 절대 덮이지 않는지</b>를 여기서 재는 것이다.
+ *
  * <p>테스트마다 {@code @TempDir} 의 새 SQLite 파일을 쓴다 — 기준선 DB 에 닿지 않는다.
  *
  * @author KIUNSEA
@@ -159,6 +163,50 @@ class CollectBreakerStateTest {
   }
 
   @Test
+  @DisplayName("첫 성공에 first_success_time 이 채워진다")
+  void firstSuccessTimeIsFilledOnFirstSuccess() throws Exception {
+    dao.saveState(SEQ_SSG_MALL, "SSG", CollectBreakerPolicy.onSuccess(), 1000L, 0L, "수집 0건");
+
+    assertEquals(
+        1000L,
+        longValue("SELECT first_success_time FROM jbg_collect_breaker"),
+        "데이터를 못 받은 수집기가 얼마나 오래 빈손인지 잴 기준점이 없으면 NO_DATA 가 영영 안 뜬다.");
+  }
+
+  @Test
+  @DisplayName("두 번째 성공은 first_success_time 을 덮어쓰지 않는다")
+  void firstSuccessTimeIsNeverOverwritten() throws Exception {
+    // 이 값이 매 회차 따라 올라오면 last_success_time 과 똑같아져, 고치기 전의 사각지대가
+    // 그대로 되살아난다 — 0건이 몇 달 이어져도 "빈손인 기간"은 늘 0 에 가깝게 계산된다.
+    dao.saveState(SEQ_SSG_MALL, "SSG", CollectBreakerPolicy.onSuccess(), 1000L, 0L, "수집 0건");
+    dao.saveState(SEQ_SSG_MALL, "SSG", CollectBreakerPolicy.onSuccess(), 9000L, 0L, "수집 0건");
+
+    assertEquals(
+        9000L, longValue("SELECT last_success_time FROM jbg_collect_breaker"), "성공 시각은 갱신돼야 한다.");
+    assertEquals(
+        1000L,
+        longValue("SELECT first_success_time FROM jbg_collect_breaker"),
+        "두 번째 성공이 첫 성공 시각을 밀어 버렸다.");
+  }
+
+  @Test
+  @DisplayName("실패 저장은 first_success_time 을 채우지 않는다")
+  void failureDoesNotFillFirstSuccessTime() throws Exception {
+    // '첫 성공'이 실패 시각으로 채워지면 기준점이 거짓이 된다. 실패 저장은 성공 시각으로 0 을
+    // 넘기므로 여기서도 0 이 들어가야 한다.
+    dao.saveState(
+        SEQ_SSG_MALL, "SSG", new CollectBreakerPolicy.State(1, 10L, 10L, 0L), 0L, 0L, "실패");
+    assertEquals(0L, longValue("SELECT first_success_time FROM jbg_collect_breaker"));
+
+    dao.saveState(SEQ_SSG_MALL, "SSG", CollectBreakerPolicy.onSuccess(), 7000L, 0L, "수집 0건");
+
+    assertEquals(
+        7000L,
+        longValue("SELECT first_success_time FROM jbg_collect_breaker"),
+        "실패가 먼저 있었어도 첫 성공에는 채워져야 한다.");
+  }
+
+  @Test
   @DisplayName("하트비트에 몰 이름과 주기가 함께 붙어 나온다")
   void heartbeatCarriesMallContext() throws Exception {
     // 건강도 판정이 "마지막 성공 이후 주기의 N배"라 주기 없이는 판정할 수 없다.
@@ -176,6 +224,8 @@ class CollectBreakerStateTest {
     assertEquals("SSG(신세계,이마트,트레이더스)", beats.get(0).get("mall_name"));
     assertEquals(720, ((Number) beats.get(0).get("collect_interval_minutes")).intValue());
     assertEquals(1000L, ((Number) beats.get(0).get("last_nonempty_time")).longValue());
+    // 이 값이 하트비트에 안 실리면 판정부가 옛 폴백으로 물러서고 사각지대가 되살아난다.
+    assertEquals(1000L, ((Number) beats.get(0).get("first_success_time")).longValue());
   }
 
   @Test
@@ -211,6 +261,7 @@ class CollectBreakerStateTest {
         CollectHealthPolicy.judge(
                 ((Number) beat.get("last_success_time")).longValue(),
                 ((Number) beat.get("last_nonempty_time")).longValue(),
+                ((Number) beat.get("first_success_time")).longValue(),
                 ((Number) beat.get("tripped_time")).longValue() > 0,
                 ((Number) beat.get("collect_interval_minutes")).intValue(),
                 System.currentTimeMillis())

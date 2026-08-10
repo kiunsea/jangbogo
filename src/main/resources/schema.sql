@@ -89,6 +89,13 @@ CREATE TABLE IF NOT EXISTS jbg_collect_breaker (
   streak_started_time INTEGER DEFAULT 0, -- 현재 연속 실패가 시작된 시각 (millisecond)
   last_failure_time INTEGER DEFAULT 0, -- 마지막 실패 시각 (millisecond)
   last_success_time INTEGER DEFAULT 0, -- 마지막 성공 시각 (millisecond). 0건 수집도 성공에 포함
+  -- 처음 성공한 시각 (millisecond). 한 번 채워지면 다시 쓰지 않는다.
+  -- 이 컬럼이 없던 시절, last_nonempty_time = 0 인 수집기(= 한 번도 데이터를 받은 적 없음)의
+  -- 건강도가 last_success_time 을 기준으로 계산됐다. 그런데 그 값은 0건 수집마다 갱신되므로
+  -- "빈손인 기간"이 영원히 0 에 가깝게 나왔고, NO_DATA 경보가 한 번도 발화하지 않았다.
+  -- 즉 셀렉터가 처음부터 어긋난 수집기 — 경보가 가장 필요한 쪽 — 만 정확히 조용했다.
+  -- 실측(2026-08-10): 두 수집기가 last_nonempty_time = 0 인 채로 화면에는 '정상'으로 보였다.
+  first_success_time INTEGER DEFAULT 0,
   last_nonempty_time INTEGER DEFAULT 0, -- 마지막으로 실제 데이터를 받은 시각 (millisecond)
   tripped_time INTEGER DEFAULT 0, -- 브레이커가 열린 시각 (0이면 닫힘)
   last_reason TEXT, -- 마지막 판정 사유 (사람이 읽는 용도)
