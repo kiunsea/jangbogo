@@ -99,6 +99,52 @@ class BuildScriptHygieneTest {
   }
 
   @Test
+  @DisplayName("배치 스크립트는 한글이 나오기 전에 코드페이지를 UTF-8 로 바꾼다")
+  void keepsCodepageSwitchAheadOfAnyNonAsciiText() throws Exception {
+    // cmd 는 배치 파일을 한 줄씩 읽어 가며 실행하고, 각 줄을 그 시점의 코드페이지로 해석한다.
+    // 이 저장소의 .bat 은 UTF-8 로 저장되는데(.gitattributes 는 줄바꿈만 정한다) 한국어 Windows 의
+    // 기본 코드페이지는 CP949 다. chcp 65001 앞에 한글이 있으면 그 구간이 CP949 로 읽히고,
+    // CP949 는 2바이트 문자셋이라 UTF-8 한글의 바이트 짝이 어긋나면서 **줄바꿈까지 두 번째
+    // 바이트로 삼켜** 다음 줄이 앞줄에 붙는다.
+    //
+    // 가정이 아니다. test_run.bat 을 다시 쓰면서 chcp 앞에 한글 주석 블록을 20줄 넣었더니
+    // 실행이 이렇게 깨졌다:
+    //     '쭊'은(는) 내부 또는 외부 명령... / '/d'은(는) 내부 또는 외부 명령...
+    // cd /d "%~dp0\.." 의 cd 가 앞 주석에 먹혀 /d 만 명령으로 남은 것이다.
+    //
+    // 주석은 무해해 보이지만 이 경우엔 아니다 — 주석의 바이트가 그 다음 '명령' 을 망가뜨린다.
+    List<String> offenders = new ArrayList<>();
+
+    for (Path script : batchScripts()) {
+      byte[] bytes = Files.readAllBytes(script);
+      int chcpAt = indexOfUtf8(bytes, "chcp 65001");
+      int nonAsciiAt = indexOfFirstNonAscii(bytes);
+
+      if (nonAsciiAt < 0) {
+        continue; // 전부 ASCII 면 코드페이지와 무관하다.
+      }
+      if (chcpAt < 0) {
+        offenders.add(script.toString().replace('\\', '/') + "  (한글이 있는데 chcp 65001 이 없다)");
+      } else if (nonAsciiAt < chcpAt) {
+        offenders.add(
+            script.toString().replace('\\', '/')
+                + "  (첫 비-ASCII 가 "
+                + nonAsciiAt
+                + "바이트, chcp 는 "
+                + chcpAt
+                + "바이트 — 순서가 뒤집혔다)");
+      }
+    }
+
+    assertTrue(
+        offenders.isEmpty(),
+        "배치 스크립트에서 chcp 65001 보다 앞에 한글이 있다. cmd 가 그 구간을 CP949 로 읽으면서 바이트 짝이 어긋나면"
+            + " 줄바꿈이 삼켜지고 다음 줄의 명령이 앞줄에 붙는다 — 주석이 명령을 망가뜨린다."
+            + " chcp 65001 을 @echo off 바로 다음(모든 비-ASCII 문자보다 앞)으로 옮겨라:\n  "
+            + String.join("\n  ", offenders));
+  }
+
+  @Test
   @DisplayName("판별식이 실제 위험 형태는 잡고 정상 명령은 통과시킨다")
   void theDetectionRuleItselfCatchesTheDangerousForms() {
     // 대조군이다. 위 두 검사는 "지금 위반이 0건" 이면 통과하므로, 판별식이 통째로 죽어도 초록이
@@ -212,6 +258,32 @@ class BuildScriptHygieneTest {
       commands.append(line).append('\n');
     }
     return commands.toString();
+  }
+
+  /** 바이트 배열에서 ASCII 문자열이 처음 나오는 위치. 없으면 -1. */
+  private static int indexOfUtf8(byte[] haystack, String needle) {
+    byte[] pattern = needle.getBytes(StandardCharsets.US_ASCII);
+    outer:
+    for (int i = 0; i + pattern.length <= haystack.length; i++) {
+      for (int j = 0; j < pattern.length; j++) {
+        // 대소문자 무시 — CHCP 로 적는 사람이 있다.
+        if (Character.toLowerCase(haystack[i + j]) != Character.toLowerCase(pattern[j])) {
+          continue outer;
+        }
+      }
+      return i;
+    }
+    return -1;
+  }
+
+  /** 첫 비-ASCII 바이트 위치. 전부 ASCII 면 -1. */
+  private static int indexOfFirstNonAscii(byte[] bytes) {
+    for (int i = 0; i < bytes.length; i++) {
+      if ((bytes[i] & 0xFF) > 0x7F) {
+        return i;
+      }
+    }
+    return -1;
   }
 
   /** 저장소 안의 {@code .bat} 전부. 루트가 없으면 건너뛴다(패키징 폴더가 없는 체크아웃 대비). */

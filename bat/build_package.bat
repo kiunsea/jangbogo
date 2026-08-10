@@ -1,9 +1,11 @@
 @echo off
-REM Jangbogo 배포 패키지 빌드 스크립트
+REM -- Set UTF-8 codepage FIRST, above any non-ASCII byte. cmd parses this file line
+REM -- by line in the *current* codepage; Korean text read as CP949 can shift the byte
+REM -- pairing and swallow a line break, gluing the next command onto a comment.
+chcp 65001 >nul 2>&1
 setlocal enabledelayedexpansion
 
-REM 한글 출력을 위한 코드페이지 설정 (UTF-8)
-chcp 65001 >nul 2>&1
+REM Jangbogo 배포 패키지 빌드 스크립트
 
 REM 프로젝트 루트 디렉토리로 이동 (bat 폴더의 상위 디렉토리)
 cd /d "%~dp0\.."
