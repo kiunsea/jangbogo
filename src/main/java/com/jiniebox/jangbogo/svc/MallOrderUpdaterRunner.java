@@ -2,16 +2,20 @@ package com.jiniebox.jangbogo.svc;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jiniebox.jangbogo.dao.JbgCollectBreakerDataAccessObject;
 import com.jiniebox.jangbogo.dao.JbgCollectLogDataAccessObject;
 import com.jiniebox.jangbogo.dao.JbgItemDataAccessObject;
 import com.jiniebox.jangbogo.dao.JbgMallDataAccessObject;
 import com.jiniebox.jangbogo.dao.JbgOrderDataAccessObject;
 // CollectException import (svc 패키지 동일이라 불필요하지만 명시)
+import com.jiniebox.jangbogo.svc.util.CollectPeriod;
 import com.jiniebox.jangbogo.svc.util.ErrorSummary;
 import com.jiniebox.jangbogo.util.ExceptionUtil;
 import com.jiniebox.jangbogo.util.JSONUtil;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.simple.JSONArray;
@@ -109,11 +113,25 @@ public class MallOrderUpdaterRunner implements Runnable {
       int existingOrderCount = 0; // 이미 등록된 주문 개수
       int skippedOrders = 0;
 
+      // 이번 회차에 <b>저장을 확인하지 못한</b> 주문의 구매일 — 수집기별로 가장 이른 것.
+      //
+      // 아래 루프는 주문 하나가 깨지면 그것만 롤백하고 계속 간다. 그 격리 자체는 옳지만,
+      // 같은 회차의 더 늦은 주문이 커밋되면 jbg_order 의 MAX(date_time) 이 실패한 날짜를
+      // 지나가고, 다음 회차의 조회 시작일이 그 뒤가 되어 그 구간은 영영 조회되지 않는다.
+      // CollectPeriod 가 약속한 자기교정이 정확히 이 지점에서 깨진다.
+      //
+      // 그래서 실패한 날짜를 여기 모아 두었다가 회차 끝에서 재조회 바닥으로 적는다.
+      Map<String, String> unsavedByCollector = new LinkedHashMap<>();
+
       try {
         if (root != null && root.isArray()) {
           logger.info("JSON 파싱 완료, 처리할 주문 개수: {}", root.size());
 
           for (JsonNode order : root) {
+            // 아래 try 밖에 둔다 — 저장에 실패한 주문의 구매일을 catch 에서도 적어야 하는데,
+            // 안에 두면 그 자리에서 보이지 않는다. 못 적은 실패는 다음 회차에 조회되지 않는다.
+            String collector = null;
+            String orderYmd = null;
             try {
               // 주문 정보 추출
               String serial = order.has("serial") ? order.get("serial").asText().trim() : "";
@@ -124,7 +142,7 @@ public class MallOrderUpdaterRunner implements Runnable {
               // 어느 수집기가 가져온 주문인지. MallOrderUpdater.recordItems 가 새겨 준다.
               // 이 값이 jbg_order.collector 가 되고, 다음 회차의 조회 시작일이 여기서 유도된다
               // (CollectPeriod). 비어 있으면 그 수집기는 매 회차 기본 범위를 통째로 다시 훑는다.
-              String collector =
+              collector =
                   order.has(MallOrderUpdater.COLLECTOR_KEY)
                       ? order.get(MallOrderUpdater.COLLECTOR_KEY).asText().trim()
                       : null;
@@ -167,6 +185,8 @@ public class MallOrderUpdaterRunner implements Runnable {
                 if (dateTimeStr.length() >= 8) {
                   // 최소 8자리 (YYYYMMDD)만 사용
                   dateTimeInt = Integer.parseInt(dateTimeStr.substring(0, 8));
+                  // 저장에 실패하면 이 날짜부터 다시 조회해야 한다. 저장 시도 전에 잡아 둔다.
+                  orderYmd = String.valueOf(dateTimeInt);
                 } else {
                   throw new NumberFormatException("날짜 형식이 너무 짧습니다: " + datetime);
                 }
@@ -261,6 +281,9 @@ public class MallOrderUpdaterRunner implements Runnable {
                 // 롤백 후 예외를 다시 던져서 다음 주문으로 진행
                 logger.error("주문 저장 중 트랜잭션 오류 발생: {}", ExceptionUtil.getExceptionInfo(txEx));
                 skippedOrders++;
+                // 롤백된 날짜를 적어 둔다. 이것을 빠뜨리면 같은 회차의 더 늦은 주문이 커밋될 때
+                // 조회 기준일이 이 날짜를 지나가고, 이 구간은 영영 다시 조회되지 않는다.
+                noteUnsaved(unsavedByCollector, collector, orderYmd);
                 // newOrderSeqs에서 제거 (롤백되었으므로)
                 if (seqOrder > 0 && newOrderSeqs.contains(seqOrder)) {
                   newOrderSeqs.remove(Integer.valueOf(seqOrder));
@@ -277,6 +300,9 @@ public class MallOrderUpdaterRunner implements Runnable {
               }
             } catch (Exception orderEx) {
               logger.warn("주문 저장 중 오류 발생: {}", ExceptionUtil.getExceptionInfo(orderEx));
+              // 중복 조회 등 트랜잭션 밖에서 깨진 경우다. 저장을 확인하지 못한 것은 같으므로
+              // 같은 규칙으로 적는다 — 구매일을 아직 못 읽었으면 적을 것이 없다.
+              noteUnsaved(unsavedByCollector, collector, orderYmd);
             }
           }
         }
@@ -287,6 +313,10 @@ public class MallOrderUpdaterRunner implements Runnable {
         logger.info("기존 주문(중복): {}개, 스킵된 주문: {}개", existingOrderCount, skippedOrders);
         logger.info("신규 주문 seq 목록: {}", newOrderSeqs);
         logger.info("===========================================================================");
+
+        // 다음 회차가 어디부터 다시 봐야 하는지를 적는다. 수집 로그보다 앞에 둔다 —
+        // 로그 저장이 한 번 흔들리는 것만으로 이번 회차의 구멍이 통째로 사라지면 안 된다.
+        recordRetryFloors(outcomes, unsavedByCollector);
 
         // 수집 결과 로그 저장
         String logStatus = decideStatus(orderCount, existingOrderCount, skippedOrders);
@@ -396,6 +426,105 @@ public class MallOrderUpdaterRunner implements Runnable {
       }
     }
     return null;
+  }
+
+  /**
+   * 저장을 확인하지 못한 주문의 구매일을 수집기별로 모은다. <b>가장 이른 것만 남긴다.</b>
+   *
+   * <p>가장 이른 것이 기준인 이유는, 다음 회차가 <b>모든</b> 구멍을 덮어야 하기 때문이다. 늦은 쪽을 남기면 그보다 이른 구멍은 그대로 봉인된다.
+   *
+   * <p>수집기 이름이나 구매일이 없으면 적지 않는다. 수집기를 모르면 어느 조회 시작일을 되돌려야 할지 정할 수 없고, 구매일을 못 읽은 주문은 애초에 저장할 키가 없어
+   * 다시 가져와도 같은 자리에서 걸린다.
+   *
+   * @param unsavedByCollector 수집기별 가장 이른 미저장 구매일 (제자리에서 갱신된다)
+   * @param collector 수집기 이름
+   * @param ymd 저장하지 못한 주문의 구매일 {@code yyyyMMdd}
+   */
+  static void noteUnsaved(Map<String, String> unsavedByCollector, String collector, String ymd) {
+    if (unsavedByCollector == null || collector == null || collector.isBlank() || ymd == null) {
+      return;
+    }
+    unsavedByCollector.merge(collector, ymd, CollectPeriod::earlier);
+  }
+
+  /**
+   * 이번 회차가 각 수집기에 남길 <b>재조회 바닥</b>을 정한다. 순수 함수다 — DB·브라우저를 건드리지 않는다.
+   *
+   * <h2>완주한 수집기만 손댄다</h2>
+   *
+   * <p>실패하거나 건너뛴 수집기는 자기 조회 구간을 <b>한 번도 훑지 못했다.</b> 그 자리의 바닥을 지우면 이전 회차가 남긴 구멍이 사라지고, 새로 적으면 훑지도 않은
+   * 구간을 근거로 적는 것이 된다. 아무것도 하지 않는 것이 유일하게 옳다.
+   *
+   * <h2>0건({@code EMPTY}) 으로는 바닥을 지우지 않는다</h2>
+   *
+   * <p>0건은 <b>두 가지를 뜻한다</b> — 정말 그 기간에 산 것이 없거나, 셀렉터가 어긋나 아무것도 못 읽었거나. 한 회차로는 구분할 수 없다({@code
+   * MallOrderUpdater.CollectOutcome.EMPTY} javadoc). 앞쪽이면 지워도 되지만 뒤쪽이면 지우는 순간 구멍이 봉인된다 — 그리고 그것은 이
+   * 수정이 막으려는 바로 그 실패다.
+   *
+   * <p>그래서 <b>실제로 주문을 받아 온 회차({@code SUCCESS})</b>에서만 지운다. 대가는 0건이 이어지는 동안 그 수집기가 매 회차 조금 더 이른 날짜부터
+   * 조회하는 것뿐이고, 겹쳐 가져온 것은 중복 판정이 걸러 낸다.
+   *
+   * @param outcomes 수집기별 이번 회차 결과
+   * @param unsavedByCollector 수집기별 가장 이른 미저장 구매일
+   * @return 수집기 이름 → 적을 바닥. 값이 {@code null} 이면 <b>지우라는 뜻</b>이다. 손대지 않을 수집기는 아예 담기지 않는다
+   */
+  static Map<String, String> retryFloors(
+      List<MallOrderUpdater.CollectOutcome> outcomes, Map<String, String> unsavedByCollector) {
+
+    Map<String, String> floors = new LinkedHashMap<>();
+    if (outcomes == null) {
+      return floors;
+    }
+    Map<String, String> unsaved =
+        unsavedByCollector == null ? Map.of() : new LinkedHashMap<>(unsavedByCollector);
+
+    for (MallOrderUpdater.CollectOutcome outcome : outcomes) {
+      if (outcome == null || outcome.collector() == null || outcome.collector().isBlank()) {
+        continue;
+      }
+      String unsavedYmd = unsaved.get(outcome.collector());
+      if (unsavedYmd != null) {
+        // 훑은 구간에 구멍이 났다. 성공이든 0건이든 상관없이 그 자리를 적는다.
+        floors.put(outcome.collector(), unsavedYmd);
+      } else if (outcome.isSuccess()) {
+        // 주문을 받아 와서 전부 저장했다. 이전 회차가 남긴 구멍도 이 회차가 덮었다.
+        floors.put(outcome.collector(), null);
+      }
+    }
+    return floors;
+  }
+
+  /** {@link #retryFloors} 가 정한 바닥을 브레이커 테이블에 적는다. 실패해도 수집 결과 기록을 막지 않는다. */
+  private void recordRetryFloors(
+      List<MallOrderUpdater.CollectOutcome> outcomes, Map<String, String> unsavedByCollector) {
+
+    int seqMallInt;
+    try {
+      seqMallInt = Integer.parseInt(this.seqMall);
+    } catch (NumberFormatException notANumber) {
+      return;
+    }
+    if (seqMallInt <= 0) {
+      return;
+    }
+
+    Map<String, String> floors = retryFloors(outcomes, unsavedByCollector);
+    if (floors.isEmpty()) {
+      return;
+    }
+
+    JbgCollectBreakerDataAccessObject breakerDao = new JbgCollectBreakerDataAccessObject();
+    for (Map.Entry<String, String> floor : floors.entrySet()) {
+      if (floor.getValue() != null) {
+        logger.warn(
+            "수집기 {} 의 주문 일부를 저장하지 못했다 — 다음 회차는 {} 부터 다시 조회한다", floor.getKey(), floor.getValue());
+      }
+      try {
+        breakerDao.saveRetryFrom(seqMallInt, floor.getKey(), floor.getValue());
+      } catch (Exception e) {
+        logger.warn("재조회 기준일 저장 중 오류 (수집기: {}): {}", floor.getKey(), e.getMessage());
+      }
+    }
   }
 
   /**

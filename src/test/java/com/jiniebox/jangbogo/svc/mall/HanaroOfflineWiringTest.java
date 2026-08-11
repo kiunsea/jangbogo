@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.jiniebox.jangbogo.svc.util.SessionExpiryDetector;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -118,10 +119,72 @@ class HanaroOfflineWiringTest {
   @Test
   @DisplayName("실측하지 않은 자리는 비어 있다 — 추측해 채우면 만료를 정상으로 읽는다")
   void doesNotGuessUnmeasuredCapabilities() {
-    // 로그인/로그아웃 상태의 쿠키 '이름' 이 같다는 것이 실측으로 확인됐다. 이름만으로는 인증 여부를
-    // 가릴 수 없으므로 하나라도 넣으면 미인증 스냅샷이 그대로 통과한다.
-    assertTrue(MallRegistry.HANARO.authCookieNames().isEmpty(), "미실측 몰에 인증 쿠키 이름을 추측해 넣었다.");
     assertTrue(MallRegistry.HANARO.sessionCollectors().isEmpty(), "미실측 몰에 세션 주입 경로를 넣었다.");
+  }
+
+  @Test
+  @DisplayName("인증 쿠키 이름은 비어 있어야 한다 — 아는 이름을 적으면 이 검사가 무력화된다")
+  void authCookieNamesStayEmptyBecauseNamesCannotTellAuthApart() {
+    // 여기 비어 있는 것은 '아직 모른다' 가 아니라 <b>측정 결과</b>다 (2026-08-11).
+    // 로그인 상태와 로그아웃 상태의 쿠키 이름이 같았다 — SCOUTER / NSESSIONID / NAHH_SSID.
+    // 셋 다 로그인 전에도 발급되므로 하나라도 적으면 첫 화면만 열어도 판정이 통과하고,
+    // 사람이 로그인을 건너뛴 미인증 스냅샷이 그대로 저장된다. 이 검사가 막으려는 상황이
+    // 정확히 그것이라, 아는 이름을 적는 쪽이 오히려 검사를 죽인다.
+    assertTrue(
+        MallRegistry.HANARO.authCookieNames().isEmpty(),
+        "로그인·로그아웃에 같이 나오는 이름을 인증 판정에 넣었다 — 미인증 스냅샷이 통과한다.");
+
+    for (String observed : List.of("SCOUTER", "NSESSIONID", "NAHH_SSID")) {
+      assertFalse(
+          MallRegistry.HANARO.authCookieNames().contains(observed),
+          observed + " 는 로그아웃 상태에서도 발급되는 것이 실측으로 확인됐다.");
+    }
+  }
+
+  @Test
+  @DisplayName("만료 판정 신호는 실측값으로 채워져 있다 (2026-08-11)")
+  void loginSignalsArePinnedToWhatWasMeasured() {
+    // 실측 근거: 로그인 화면의 CMS 페이지 코드(nahh_70021)와 <b>보이는</b> 비밀번호 칸.
+    // 여기를 손대는 것은 판정 기준을 바꾸는 일이므로 실사이트에서 다시 확인한 뒤에만 한다.
+    SessionExpiryDetector.LoginSignals signals = MallRegistry.HANARO.loginSignals();
+
+    assertTrue(signals.isDeclared(), "실측했는데 판정이 꺼져 있다 — 만료가 셀렉터 실패로 둔갑한다.");
+    assertEquals(List.of("nahh_70021"), signals.urlMarkers());
+    assertEquals(List.of("input[type=password]"), signals.selectors());
+  }
+
+  @Test
+  @DisplayName("만료 셀렉터는 숨은 폼의 id 를 잡지 않는다")
+  void loginSignalsDoNotTargetTheHiddenForm() {
+    // 이 사이트는 사람이 치는 칸과 따로 숨은 폼(userId/userPw)을 둔다. 관측은 isDisplayed()
+    // 로만 세므로 숨은 칸을 잡으면 만료를 영영 못 읽는다 — 선언은 돼 있는데 판정은 죽은 상태다.
+    List<String> selectors = MallRegistry.HANARO.loginSignals().selectors();
+
+    assertFalse(selectors.contains("#userId"), "숨은 폼의 id 를 잡았다 — 보이지 않아 판정이 죽는다.");
+    assertFalse(selectors.contains("#userPw"), "숨은 폼의 id 를 잡았다 — 보이지 않아 판정이 죽는다.");
+  }
+
+  @Test
+  @DisplayName("주소 마커가 로그인 페이지 선언과 어긋나지 않는다")
+  void theUrlMarkerMatchesTheDeclaredLoginPage() {
+    // 마커와 LOGIN_URL 이 갈리면 한쪽만 고쳐도 컴파일은 통과하고, 그때 만료 판정만 조용히 죽는다.
+    for (String marker : MallRegistry.HANARO.loginSignals().urlMarkers()) {
+      assertTrue(
+          HanaroOffline.LOGIN_URL.contains(marker),
+          "로그인 화면 주소에 없는 마커다 — 세션이 죽어도 판정되지 않는다: " + marker);
+    }
+  }
+
+  @Test
+  @DisplayName("만료 셀렉터가 거래내역 화면 주소에는 걸리지 않는다")
+  void theMarkerDoesNotMatchTheMemberPage() {
+    // 마커가 회원 페이지 주소에도 들어 있으면 정상 수집이 매 회차 만료로 멈춘다 —
+    // 만료를 놓치는 것보다 나쁜 방향이다.
+    for (String marker : MallRegistry.HANARO.loginSignals().urlMarkers()) {
+      assertFalse(
+          HanaroOffline.TRANSACTION_URL.contains(marker),
+          "거래내역 주소에도 걸리는 마커다 — 멀쩡한 수집이 만료로 멈춘다: " + marker);
+    }
   }
 
   // ── 대조군 — 판별식이 살아 있는가 ────────────────────────────────────────

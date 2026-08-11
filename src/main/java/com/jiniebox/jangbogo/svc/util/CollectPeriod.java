@@ -24,6 +24,20 @@ import java.util.List;
  * <p>그 최대값은 반드시 <b>수집기별</b>로 구해야 한다. 한 몰에 수집기가 둘인데 몰 단위로 구하면, 온라인 주문이 최근이라는 이유로 오프라인 조회 시작점이 밀려
  * <b>그 사이의 오프라인 거래를 영구히 놓친다.</b>
  *
+ * <h2>유도만으로는 부족한 자리 — 부분 저장 실패</h2>
+ *
+ * <p>위 자기교정에는 <b>조건이 하나 숨어 있다</b>: 실패한 주문이 그 회차에서 <b>가장 늦은 날짜</b>여야 한다는 것. {@code
+ * MallOrderUpdaterRunner} 는 주문 하나가 깨지면 그것만 롤백하고 루프를 계속하므로, <b>같은 회차의 더 늦은 주문이 커밋되면</b> {@code
+ * MAX(date_time)} 이 실패한 날짜를 지나간다. 그러면 다음 회차의 시작일이 그 뒤가 되어 실패한 구간은 <b>영영 조회되지 않는다</b> — 유도가 막으려던 바로
+ * 그 실패가 유도 안에서 일어난다.
+ *
+ * <p>그래서 유도값 하나로 끝내지 않고, <b>저장을 확인하지 못한 가장 이른 구매일</b>({@code jbg_collect_breaker.retry_from_date})을
+ * 함께 읽어 <b>둘 중 이른 쪽</b>을 시작일로 쓴다({@link #resolve(String, String, LocalDate)}).
+ *
+ * <p><b>이것은 "기준일을 저장하는 것" 이 아니다.</b> 저장하는 값은 앞으로 나아가는 기준일이 아니라 <b>뒤로 당기는 바닥</b>이다. 방향이 반대라 실패 모양도
+ * 반대다 — 이 값이 틀리거나 낡으면 겹쳐 가져올 뿐이고, 위 문단이 경계하는 "앞서 나가서 구간을 봉인하는" 손해는 구조적으로 생기지 않는다. 이 클래스가 일관되게 고르는
+ * 방향 그대로다.
+ *
  * <h2>경계를 포함하는 이유</h2>
  *
  * <p>시작일은 마지막 저장일을 <b>포함</b>한다. 같은 날 나중에 산 것이 있으면 제외 경계에서는 놓치기 때문이다. 겹치는 구간은 중복 판정이 걸러 내므로 손해가 없다 —
@@ -80,6 +94,69 @@ public final class CollectPeriod {
    */
   public static Window resolve(String lastStoredYmd, LocalDate today) {
     return resolve(lastStoredYmd, today, DEFAULT_LOOKBACK_YEARS);
+  }
+
+  /**
+   * 마지막 저장일과 <b>재조회 바닥</b> 중 이른 쪽부터 오늘까지의 구간을 정한다.
+   *
+   * <p>부분 저장 실패가 남긴 구멍을 다시 조회하기 위한 형태다 (클래스 javadoc 참조). 바닥이 없으면 {@link #resolve(String,
+   * LocalDate)} 와 완전히 같다.
+   *
+   * @param lastStoredYmd 그 수집기의 최대 구매일({@code yyyyMMdd}). 없으면 null 또는 빈 값
+   * @param retryFromYmd 저장을 확인하지 못한 가장 이른 구매일({@code yyyyMMdd}). 없으면 null 또는 빈 값
+   * @param today 오늘
+   * @return 조회 구간
+   */
+  public static Window resolve(String lastStoredYmd, String retryFromYmd, LocalDate today) {
+    return resolve(lastStoredYmd, retryFromYmd, today, DEFAULT_LOOKBACK_YEARS);
+  }
+
+  /**
+   * 마지막 저장일과 재조회 바닥 중 이른 쪽부터 오늘까지의 구간을 정한다.
+   *
+   * <p><b>바닥이 있으면 저장된 것이 없어도 기본 범위로 되돌아가지 않는다.</b> 바닥은 "여기부터는 다시 봐야 한다"는 관측 사실이므로, 그것만으로 시작일이 정해진다.
+   * 다만 기본 범위(2년)가 바닥보다 더 이르면 그쪽을 쓴다 — <b>언제나 이른 쪽</b>이라는 규칙 하나로 통일한다.
+   *
+   * @param lastStoredYmd 그 수집기의 최대 구매일({@code yyyyMMdd}). 없으면 null 또는 빈 값
+   * @param retryFromYmd 저장을 확인하지 못한 가장 이른 구매일({@code yyyyMMdd}). 없으면 null 또는 빈 값
+   * @param today 오늘
+   * @param lookbackYears 저장된 것이 없을 때 거슬러 올라갈 햇수
+   * @return 조회 구간
+   */
+  public static Window resolve(
+      String lastStoredYmd, String retryFromYmd, LocalDate today, int lookbackYears) {
+
+    Window derived = resolve(lastStoredYmd, today, lookbackYears);
+    LocalDate floor = parseOrNull(retryFromYmd);
+
+    if (floor == null || !floor.isBefore(derived.start())) {
+      return derived;
+    }
+    // 바닥이 미래면 구간이 뒤집힌다. 유도값과 같은 규칙으로 오늘까지 당긴다.
+    return new Window(floor.isAfter(today) ? today : floor, derived.end());
+  }
+
+  /**
+   * 두 구매일 중 이른 쪽. 재조회 바닥을 회차 안에서 누적할 때 쓴다.
+   *
+   * <p><b>읽을 수 없는 값은 없는 것으로 본다.</b> 형식이 깨진 값을 바닥으로 삼으면 {@link #resolve} 가 그것을 무시해 결국 같은 결과가 되지만, 그
+   * 판단을 두 곳에서 하면 한쪽만 고쳐질 수 있다.
+   *
+   * @param a 구매일 {@code yyyyMMdd}. 없거나 읽을 수 없으면 null·빈 값
+   * @param b 구매일 {@code yyyyMMdd}. 없거나 읽을 수 없으면 null·빈 값
+   * @return 이른 쪽. 둘 다 읽을 수 없으면 null
+   */
+  public static String earlier(String a, String b) {
+    LocalDate left = parseOrNull(a);
+    LocalDate right = parseOrNull(b);
+
+    if (left == null) {
+      return right == null ? null : right.format(YMD);
+    }
+    if (right == null) {
+      return left.format(YMD);
+    }
+    return (left.isBefore(right) ? left : right).format(YMD);
   }
 
   /**

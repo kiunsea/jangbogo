@@ -102,7 +102,8 @@ public enum MallRegistry {
    * <p>하나로마트가 서비스를 개편해 <b>오프라인 거래내역을 별도 사이트로 분리</b>했다. 기존 수집기는 구 주소만 탐색하므로 오프라인을 영영 못 가져온다 — 셀렉터가
    * 깨진 것이 아니라 대상이 옮겨 간 것이다. {@code SSG_GROUP} 과 같은 모양으로 한 몰에 수집기 둘을 둔다.
    *
-   * <p><b>순서를 바꾸지 말 것.</b> 선언 순서대로 실행되고, {@code MallRegistryTest} 가 첫 자리를 {@code Hanaro} 로 고정한다.
+   * <p>지금 도는 수집기는 오프라인 하나뿐이다. 온라인몰을 다시 넣게 되면 <b>선언 순서가 곧 실행 순서</b>라는 점을 기억할 것 — {@code
+   * HanaroOfflineWiringTest} 가 첫 자리를 {@link HanaroOffline} 로 고정한다.
    */
   HANARO(
       3,
@@ -127,10 +128,30 @@ public enum MallRegistry {
       // 여기도 따라간다 — 구 주소로 착지시키면 그 사이트에 로그인하게 되고, 그 세션은 이 몰의
       // 수집에 쓰이지 않는다.
       HanaroOffline.LOGIN_URL,
-      // 인증 쿠키 이름 미확정. OASIS 와 같은 이유로 비워 둔다.
+      // 인증 쿠키 이름은 <b>비워 두는 것이 실측 결과다</b> — 모르는 것이 아니라, 쓸 수 없다는 것을 알아냈다.
+      //
+      // 2026-08-11 실측에서 로그인 상태와 로그아웃 상태의 쿠키 <b>이름이 같았다</b>
+      // (SCOUTER / NSESSIONID / NAHH_SSID). 셋 다 로그인 전에도 발급되므로, 하나라도 여기 적으면
+      // 첫 화면만 열어도 판정이 통과한다 — 사람이 로그인을 건너뛴 채 [로그인을 마쳤습니다] 를 눌러도
+      // 미인증 스냅샷이 저장되고, 그 실패는 나중에 주입 수집이 로그인 화면으로 밀릴 때에야 드러난다.
+      // 이 검사가 막으려는 상황이 정확히 그것이므로, 아는 이름을 적는 쪽이 오히려 검사를 무력화한다.
+      // (SSG 가 JSESSIONID·FSID 를 뺀 것과 같은 판단이고, 하나로는 그 조건이 전부에 걸린 경우다.)
+      //
+      // 이름이 아니라 값으로 갈라야 하는데 값 기반 판정은 이 프로젝트에 아직 없다. 생기기 전까지는
+      // 비운다 — 통과시키는 손해가 정상 로그인을 막는 손해보다 작다(authCookieNames() javadoc).
       List.of(),
-      // 만료 판정 신호 미선언. OASIS 와 같은 이유다.
-      SessionExpiryDetector.LoginSignals.UNDECLARED);
+      // 만료 판정 신호는 실측했다 (2026-08-11).
+      //
+      // 주소 마커 nahh_70021 은 로그인 화면의 CMS 페이지 코드다(LOGIN_URL 이 같은 값을 쓴다).
+      // 세션이 죽으면 이 사이트는 그 주소로 되민다.
+      //
+      // 셀렉터가 input[type=password] 하나인 것은 이 사이트의 폼 구성 때문이다. 로그인 화면에는
+      // 사람이 치는 칸과 <b>따로</b> 숨은 폼(userId/userPw)이 있고, 그 숨은 칸을 셀렉터로 잡으면
+      // 판정이 통째로 죽는다 — 관측이 isDisplayed() 로만 세기 때문이다(SessionExpiryDetector).
+      // 그래서 id 가 아니라 <b>보이는</b> 비밀번호 칸을 잡는다. 거래내역 화면에는 비밀번호 칸이
+      // 없으므로 정상 회원 페이지를 만료로 오판하지 않는다.
+      new SessionExpiryDetector.LoginSignals(
+          List.of("nahh_70021"), List.of("input[type=password]")));
 
   /** {@code mall_id} 를 못 찾았을 때 내보내기가 쓰는 값. */
   public static final String UNKNOWN_EXPORT_ID = "unknown";

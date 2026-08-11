@@ -107,6 +107,16 @@ CREATE TABLE IF NOT EXISTS jbg_collect_breaker (
   -- 실측(2026-08-10): 두 수집기가 last_nonempty_time = 0 인 채로 화면에는 '정상'으로 보였다.
   first_success_time INTEGER DEFAULT 0,
   last_nonempty_time INTEGER DEFAULT 0, -- 마지막으로 실제 데이터를 받은 시각 (millisecond)
+  -- 다시 조회해야 할 가장 이른 구매일 (YYYYMMDD). 0이면 없음.
+  --
+  -- 기간 조회형 수집기의 시작일은 jbg_order 의 MAX(date_time) 에서 유도한다(CollectPeriod).
+  -- 그 유도는 "저장이 실패하면 기준일도 뒤에 남는다"는 자기교정을 전제하는데, 그것은 실패가
+  -- 가장 늦은 날짜에서 났을 때만 성립한다. 같은 회차의 더 늦은 주문이 커밋되면 MAX 가 실패한
+  -- 날짜를 지나가고, 다음 회차의 시작일이 그 뒤가 되어 그 구간은 영영 조회되지 않는다.
+  --
+  -- 그래서 "저장을 확인하지 못한 가장 이른 구매일"만 여기 적어 시작일을 되돌린다. 앞서 나가는
+  -- 기준일이 아니라 뒤로 당기는 바닥이므로, 값이 틀리거나 낡아도 손해는 겹쳐 가져오는 쪽이다.
+  retry_from_date INTEGER DEFAULT 0,
   tripped_time INTEGER DEFAULT 0, -- 브레이커가 열린 시각 (0이면 닫힘)
   last_reason TEXT, -- 마지막 판정 사유 (사람이 읽는 용도)
   PRIMARY KEY (seq_mall, collector)

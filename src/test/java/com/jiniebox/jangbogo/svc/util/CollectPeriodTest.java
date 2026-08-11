@@ -2,6 +2,7 @@ package com.jiniebox.jangbogo.svc.util;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.LocalDate;
@@ -134,6 +135,70 @@ class CollectPeriodTest {
     assertEquals(whole.end(), parts.get(parts.size() - 1).end());
     long total = parts.stream().mapToLong(CollectPeriod.Window::days).sum();
     assertEquals(whole.days(), total, "쪼갠 일수의 합이 원래 구간과 다르다.");
+  }
+
+  // ── 재조회 바닥 (부분 저장 실패가 남긴 구멍) ───────────────────────────
+
+  @Test
+  @DisplayName("바닥이 유도값보다 이르면 바닥부터 조회한다")
+  void anEarlierFloorPullsTheStartBack() {
+    // 이 한 줄이 결함의 핵심이다. 유도값(20990201)은 저장에 실패한 20990101 을 이미
+    // 지나가 있고, 바닥이 없으면 그 구간은 영영 조회되지 않는다.
+    CollectPeriod.Window window = CollectPeriod.resolve("20990201", "20990101", TODAY);
+
+    assertEquals("20990101", window.startYmd());
+    assertEquals("20990301", window.endYmd());
+  }
+
+  @Test
+  @DisplayName("바닥이 없으면 유도값만 쓰던 예전과 같다")
+  void withoutAFloorNothingChanges() {
+    assertEquals(
+        CollectPeriod.resolve("20990201", TODAY), CollectPeriod.resolve("20990201", null, TODAY));
+    assertEquals(CollectPeriod.resolve(null, TODAY), CollectPeriod.resolve(null, "   ", TODAY));
+  }
+
+  @Test
+  @DisplayName("바닥이 유도값보다 늦으면 무시한다 — 시작일을 앞당기지 않는다")
+  void aLaterFloorIsIgnored() {
+    // 바닥은 뒤로 당기는 값이다. 앞으로 미는 데 쓰이면 그 순간 이 값이 결함이 된다.
+    assertEquals("20990101", CollectPeriod.resolve("20990101", "20990201", TODAY).startYmd());
+  }
+
+  @Test
+  @DisplayName("읽을 수 없는 바닥은 없는 것으로 본다")
+  void anUnreadableFloorIsAbsent() {
+    assertEquals("20990201", CollectPeriod.resolve("20990201", "2099-01-01", TODAY).startYmd());
+    assertEquals("20990201", CollectPeriod.resolve("20990201", "0", TODAY).startYmd());
+    assertEquals("20990201", CollectPeriod.resolve("20990201", "달력없음", TODAY).startYmd());
+  }
+
+  @Test
+  @DisplayName("저장된 것이 없고 바닥만 있으면 기본 범위와 바닥 중 이른 쪽부터 조회한다")
+  void withNothingStoredTheEarlierOfDefaultAndFloorWins() {
+    // 기본 범위(2년)가 더 이르면 그쪽을 쓴다 — 규칙은 '언제나 이른 쪽' 하나다.
+    assertEquals("20970301", CollectPeriod.resolve(null, "20980101", TODAY).startYmd());
+    assertEquals("20960101", CollectPeriod.resolve(null, "20960101", TODAY).startYmd());
+  }
+
+  @Test
+  @DisplayName("미래 바닥은 오늘로 당긴다 — 구간이 뒤집히지 않는다")
+  void aFutureFloorIsClampedToToday() {
+    CollectPeriod.Window window = CollectPeriod.resolve("21000101", "21000601", TODAY);
+
+    assertFalse(window.start().isAfter(window.end()), "구간이 뒤집혔다.");
+    assertEquals("20990301", window.startYmd());
+  }
+
+  @Test
+  @DisplayName("두 구매일 중 이른 쪽을 고른다 — 읽을 수 없는 값은 없는 것으로 본다")
+  void picksTheEarlierOfTwoDates() {
+    assertEquals("20990101", CollectPeriod.earlier("20990201", "20990101"));
+    assertEquals("20990101", CollectPeriod.earlier("20990101", "20990201"));
+    assertEquals("20990101", CollectPeriod.earlier(null, "20990101"));
+    assertEquals("20990101", CollectPeriod.earlier("20990101", "깨진값"));
+    assertNull(CollectPeriod.earlier(null, null));
+    assertNull(CollectPeriod.earlier("", "0"));
   }
 
   @Test

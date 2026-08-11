@@ -132,6 +132,79 @@ public class JbgCollectBreakerDataAccessObject extends CommonDataAccessObject {
   }
 
   /**
+   * 그 수집기가 <b>다시 조회해야 할 가장 이른 구매일</b>을 읽는다.
+   *
+   * <p>기간 조회형 수집기의 시작일을 뒤로 당기는 바닥이다. 왜 유도값({@code MAX(date_time)}) 만으로 부족한지는 {@code CollectPeriod}
+   * javadoc 에 있다 — 요약하면, 부분 저장 실패가 <b>가장 늦은 날짜가 아닌</b> 자리에서 나면 유도값이 그 날짜를 지나가 그 구간이 봉인된다.
+   *
+   * <p><b>읽지 못해도 예외를 올리지 않는다.</b> 바닥을 못 읽었다고 수집을 멈추면 겪는 손해가 더 크다 — 바닥이 없는 셈 치면 유도값대로 조회할 뿐이고, 그것은 이
+   * 컬럼이 생기기 전의 동작과 같다.
+   *
+   * @param seqMall 쇼핑몰 seq
+   * @param collector 수집기 이름
+   * @return {@code yyyyMMdd} 문자열. 없거나 읽지 못했으면 null
+   */
+  public String getRetryFrom(int seqMall, String collector) {
+    LocalDBConnection conn = null;
+    try {
+      conn = new LocalDBConnection();
+      ResultSet rset =
+          conn.executeQuery(
+              "SELECT retry_from_date FROM jbg_collect_breaker"
+                  + " WHERE seq_mall = ? AND collector = ?",
+              seqMall,
+              collector);
+      if (rset != null && rset.next()) {
+        String value = rset.getString("retry_from_date");
+        // 컬럼 기본값 0 은 '없음' 이다. 그대로 넘기면 0 을 날짜로 읽으려다 버려질 뿐이지만,
+        // '없음' 의 표현을 두 가지로 두면 호출부가 한쪽만 방어한다.
+        if (value != null && !value.isBlank() && !"0".equals(value.trim())) {
+          return value.trim();
+        }
+      }
+    } catch (Exception e) {
+      log.warn("재조회 기준일 조회 실패 (seq={}, collector={}): {}", seqMall, collector, e.getMessage());
+    } finally {
+      close(conn);
+    }
+    return null;
+  }
+
+  /**
+   * 그 수집기의 재조회 바닥을 적는다 (없으면 삽입, 있으면 갱신).
+   *
+   * <p><b>{@link #saveState} 와 나눠 둔 이유.</b> 두 값은 시점이 다르다 — 브레이커 상태는 <b>수집</b>이 끝난 자리에서, 바닥은 그 뒤
+   * <b>저장</b>이 끝난 자리에서 정해진다. 한 메서드로 합치면 저장 결과를 알기 전에 브레이커를 적을 수 없게 되고, 수집 성공과 저장 성공이 한 칸에 섞인다.
+   *
+   * <p>{@code saveState} 는 이 컬럼을 건드리지 않는다. 매 회차 브레이커 갱신이 바닥을 지우면 다음 회차가 구멍을 다시 조회하지 못한다.
+   *
+   * @param seqMall 쇼핑몰 seq
+   * @param collector 수집기 이름
+   * @param retryFromYmd 저장을 확인하지 못한 가장 이른 구매일({@code yyyyMMdd}). {@code null} 이면 바닥을 지운다
+   */
+  public void saveRetryFrom(int seqMall, String collector, String retryFromYmd) {
+    LocalDBConnection conn = null;
+    try {
+      conn = new LocalDBConnection();
+      conn.txOpen();
+      conn.txPstmtExecuteUpdate(
+          "INSERT INTO jbg_collect_breaker (seq_mall, collector, retry_from_date)"
+              + " VALUES (?, ?, ?)"
+              + " ON CONFLICT(seq_mall, collector) DO UPDATE SET"
+              + "  retry_from_date = excluded.retry_from_date",
+          seqMall,
+          collector,
+          retryFromYmd == null || retryFromYmd.isBlank() ? "0" : retryFromYmd.trim());
+      conn.txCommit();
+    } catch (Exception e) {
+      rollback(conn);
+      log.warn("재조회 기준일 저장 실패 (seq={}, collector={}): {}", seqMall, collector, e.getMessage());
+    } finally {
+      close(conn);
+    }
+  }
+
+  /**
    * 현재 트립된 수집기 목록을 반환한다. 대시보드 경보용.
    *
    * @return {@code seq_mall}, {@code collector}, {@code consecutive_failures}, {@code

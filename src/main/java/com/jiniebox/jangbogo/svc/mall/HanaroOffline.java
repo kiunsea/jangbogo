@@ -1,5 +1,6 @@
 package com.jiniebox.jangbogo.svc.mall;
 
+import com.jiniebox.jangbogo.dao.JbgCollectBreakerDataAccessObject;
 import com.jiniebox.jangbogo.dao.JbgOrderDataAccessObject;
 import com.jiniebox.jangbogo.svc.ifc.MallSession;
 import com.jiniebox.jangbogo.svc.ifc.PurchasedCollector;
@@ -363,6 +364,10 @@ public class HanaroOffline extends MallSession implements PurchasedCollector {
    *
    * <p>기준일 조회가 실패해도 수집을 멈추지 않는다 — 기본 조회 범위로 되돌아간다. 겹쳐 가져오는 것은 중복 판정이 걸러 내지만, 이 자리에서 예외로 빠지면 그 회차는
    * 통째로 0건이 된다.
+   *
+   * <p><b>값을 둘 읽는다.</b> 저장된 최대 구매일 하나만으로는 부족하다 — 이전 회차의 <b>부분 저장 실패</b>가 가장 늦은 날짜가 아닌 자리에서 났으면 그
+   * 최대값이 실패한 날짜를 이미 지나가 있다. 그래서 {@code retry_from_date}(저장을 확인하지 못한 가장 이른 구매일)를 함께 읽어 <b>둘 중 이른
+   * 쪽</b>부터 조회한다. 자세한 이유는 {@link CollectPeriod} javadoc 에 있다.
    */
   CollectPeriod.Window resolveWindow() {
     String lastStored = null;
@@ -373,7 +378,16 @@ public class HanaroOffline extends MallSession implements PurchasedCollector {
     } catch (Exception e) {
       log.warn("마지막 수집일 조회 실패 — 기본 범위로 조회한다: {}", e.getMessage());
     }
-    return CollectPeriod.resolve(lastStored, LocalDate.now());
+
+    // 이 조회는 스스로 예외를 밖으로 내지 않는다(DAO 가 삼키고 null 을 준다). 바닥이 없으면
+    // 이 컬럼이 생기기 전과 똑같이 유도값만으로 조회한다.
+    String retryFrom =
+        new JbgCollectBreakerDataAccessObject().getRetryFrom(MallRegistry.HANARO.seq(), COLLECTOR);
+    if (retryFrom != null) {
+      log.info("이전 회차가 저장하지 못한 구간이 있다 — {} 부터 다시 조회한다", retryFrom);
+    }
+
+    return CollectPeriod.resolve(lastStored, retryFrom, LocalDate.now());
   }
 
   /**

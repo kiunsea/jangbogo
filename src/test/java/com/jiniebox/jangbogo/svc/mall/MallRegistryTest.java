@@ -219,7 +219,9 @@ class MallRegistryTest {
     // 계속 튕겨 그 몰의 캡처 자체가 불가능해진다 — 미인증 스냅샷 한 건보다 나쁜 역전이다.
     assertFalse(MallRegistry.SSG_GROUP.authCookieNames().isEmpty(), "실측된 ssg 에 이름이 없다.");
     assertTrue(MallRegistry.OASIS.authCookieNames().isEmpty(), "미실측 몰에 이름을 추측해 넣었다.");
-    assertTrue(MallRegistry.HANARO.authCookieNames().isEmpty(), "미실측 몰에 이름을 추측해 넣었다.");
+    // hanaro 가 비어 있는 것은 '아직 모른다' 가 아니라 측정 결과다 — 로그인·로그아웃 상태의
+    // 쿠키 이름이 같아서 이름만으로는 인증을 가릴 수 없다 (HanaroOfflineWiringTest 가 근거를 적는다).
+    assertTrue(MallRegistry.HANARO.authCookieNames().isEmpty(), "이름만으로 인증을 가릴 수 없는 몰에 이름을 넣었다.");
   }
 
   @Test
@@ -267,7 +269,9 @@ class MallRegistryTest {
     // 오탐으로 멈춘 몰은 사람이 알아채기 전까지 아무것도 모으지 않는다.
     assertTrue(MallRegistry.SSG_GROUP.loginSignals().isDeclared(), "실측된 ssg 에 신호가 없다.");
     assertFalse(MallRegistry.OASIS.loginSignals().isDeclared(), "미실측 몰에 신호를 추측해 넣었다.");
-    assertFalse(MallRegistry.HANARO.loginSignals().isDeclared(), "미실측 몰에 신호를 추측해 넣었다.");
+    // hanaro 는 2026-08-11 에 실측했다 — 로그인 화면의 CMS 페이지 코드와 보이는 비밀번호 칸.
+    // 값 자체는 HanaroOfflineWiringTest 가 고정한다.
+    assertTrue(MallRegistry.HANARO.loginSignals().isDeclared(), "실측된 hanaro 에 신호가 없다.");
   }
 
   @Test
