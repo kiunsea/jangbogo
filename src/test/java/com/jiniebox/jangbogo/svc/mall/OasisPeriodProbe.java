@@ -132,6 +132,7 @@ class OasisPeriodProbe {
       report.append('\n').append(describeSelects(attached));
       report.append('\n').append(describePeriodControls(attached));
       report.append('\n').append(describePaging(attached));
+      report.append('\n').append(describePagingStructure(attached));
       report.append('\n').append(describeRowCount(attached));
       report.append('\n').append(describeRangeNotice(attached));
 
@@ -319,6 +320,51 @@ class OasisPeriodProbe {
       }
       if (sb.indexOf("- ") < 0) {
         sb.append("     (없음) — 쪽 넘김 수단이 없으면 무한 스크롤일 수 있다. 스크롤 뒤 행 수 변화를 봐야 한다.\n");
+      }
+    } catch (RuntimeException e) {
+      sb.append("     측정 실패: ").append(e.getClass().getSimpleName()).append('\n');
+    }
+    return sb.toString();
+  }
+
+  /**
+   * <b>이 프로브의 본 측정 (2차).</b> 쪽 넘김 블록의 <b>속</b>을 뜬다.
+   *
+   * <p>1차에서 알아낸 것은 개수뿐이었다 — {@code [class*='paging']} 1개, {@code a[class*='next']} 1개. 그것으로는 순회를 쓸
+   * 수 없다. 무엇을 눌러야 다음 쪽이 오는지, 그것이 <b>진짜 링크인지 스크립트인지</b>, 마지막 쪽에서 어떻게 달라지는지를 모르면 결국 추측이 된다.
+   *
+   * <p><b>{@code href} 는 형태만 옮긴다.</b> 쪽 주소에 조회 조건이나 세션 토큰이 실릴 수 있다. 우리에게 필요한 것은 "쪽 번호가 주소에 실리는가"
+   * 이고, 그건 형태로 충분히 보인다.
+   */
+  private static String describePagingStructure(WebDriver driver) {
+    StringBuilder sb = new StringBuilder("P4-1. 쪽 넘김 블록의 속 (본 측정)\n");
+    try {
+      Object dump =
+          ((JavascriptExecutor) driver)
+              .executeScript(
+                  "var box = document.querySelector(\"[class*='paging']\");"
+                      + "if (!box) return ['(paging 블록을 찾지 못했다)'];"
+                      + "var out = ['컨테이너: <' + box.tagName.toLowerCase() + ' class=\"'"
+                      + "  + box.className + '\">'];"
+                      + "var kids = box.querySelectorAll('*');"
+                      + "for (var i = 0; i < kids.length && i < 30; i++) {"
+                      + "  var e = kids[i];"
+                      + "  var t = (e.textContent || '').trim();"
+                      + "  out.push('  <' + e.tagName.toLowerCase() + '>'"
+                      + "    + ' class=\"' + (e.className || '') + '\"'"
+                      + "    + ' href=' + (e.getAttribute('href') || '(없음)')"
+                      + "    + ' onclick=' + (e.getAttribute('onclick') ? '있음' : '(없음)')"
+                      + "    + ' 글자=' + (t.length > 12 ? t.substring(0, 12) + '…' : t)"
+                      + "    + (e.getAttribute('disabled') !== null ? ' disabled' : '')"
+                      + "    + (/(on|active|current|sel)/.test(e.className) ? ' <=현재쪽후보' : ''));"
+                      + "}"
+                      + "return out;");
+      List<?> lines = dump instanceof List ? (List<?>) dump : List.of();
+      for (Object line : lines) {
+        // 쪽 번호는 개인 정보가 아니지만 주소에 조건이 실릴 수 있어 숫자를 가린다.
+        sb.append("     ")
+            .append(DomShapeReport.maskLongDigitRuns(String.valueOf(line)))
+            .append('\n');
       }
     } catch (RuntimeException e) {
       sb.append("     측정 실패: ").append(e.getClass().getSimpleName()).append('\n');

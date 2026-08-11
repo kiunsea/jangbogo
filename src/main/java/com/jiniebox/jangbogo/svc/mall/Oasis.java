@@ -25,6 +25,25 @@ public class Oasis extends MallSession implements PurchasedCollector {
   private String mallName = "오아시스마켓";
 
   /**
+   * 쪽 넘김 블록 (2026-08-12 실측).
+   *
+   * <p>실측 시점의 속은 이랬다 — 쪽이 하나뿐이고 <b>이동할 링크가 없다.</b>
+   *
+   * <pre>
+   * &lt;div class="paging-wrap"&gt;&lt;ul&gt;&lt;li&gt;&lt;b&gt;1&lt;/b&gt;&lt;/li&gt;&lt;/ul&gt;&lt;/div&gt;
+   * </pre>
+   */
+  static final By PAGING_BLOCK = By.cssSelector("div.paging-wrap");
+
+  /**
+   * 다른 쪽으로 가는 링크.
+   *
+   * <p>실측에서 <b>0개</b>였다(쪽이 하나뿐이라 현재 쪽을 {@code <b>} 로만 표시한다). 그래서 이 수가 0보다 크면 <b>쪽이 늘어났다</b>는 뜻이고,
+   * 지금 코드는 그중 첫 쪽만 읽고 있다는 뜻이다.
+   */
+  static final By PAGING_LINK = By.cssSelector("div.paging-wrap a");
+
+  /**
    * @param id
    * @param pass
    */
@@ -173,7 +192,53 @@ public class Oasis extends MallSession implements PurchasedCollector {
       this.delayTime(1500);
     }
 
+    warnIfMorePagesExist(driver, resJsonArr.size());
+
     return resJsonArr;
+  }
+
+  /**
+   * 목록이 <b>여러 쪽인데 첫 쪽만 읽었는지</b>를 알아채고 경고한다.
+   *
+   * <h2>왜 순회하지 않고 경고만 하는가</h2>
+   *
+   * <p>이 수집기는 주문목록의 <b>첫 쪽만</b> 읽는다. 쪽을 넘기지 않으므로 목록이 여러 쪽이면 뒤쪽은 들어오지 않고, 못 가져온 주문은 다음 회차에 워터마크가
+   * 전진하면서 <b>영구히 봉인된다.</b>
+   *
+   * <p>그런데 <b>순회를 쓸 근거가 없다.</b> 2026-08-12 실측에서 이 계정의 목록은 1쪽 6건이 전부였고, 쪽 넘김 블록 안에 이동할 링크가 <b>하나도
+   * 없었다</b>({@code <ul><li><b>1</b></li></ul>}). 즉 <b>2쪽이 어떻게 생겼는지 볼 기회가 없었다</b> — 링크인지 스크립트인지, 현재
+   * 쪽을 무엇으로 표시하는지, 마지막 쪽에서 어떻게 달라지는지 전부 미측정이다.
+   *
+   * <p>여기서 순회를 짜면 그것은 <b>추측</b>이고, 틀렸을 때의 실패 모양이 최악이다 — 셀렉터가 어긋나면 조용히 첫 쪽만 읽고 <b>성공으로 기록된다.</b> 지금과
+   * 똑같이 동작하면서 "쪽을 넘긴다" 는 거짓 인상만 남는다. 이 저장소가 반복해서 대가를 치른 형태다.
+   *
+   * <p>그래서 <b>고치는 대신 드러낸다.</b> 쪽이 늘어나는 날 이 경고가 뜨고, 그때가 2쪽을 실측할 수 있는 첫 순간이다. 조용한 손실을 보이는 신호로 바꾸는 것이
+   * 지금 정직하게 할 수 있는 전부다.
+   *
+   * <p><b>판정 근거.</b> 실측 시점의 링크 수가 0이었다. 0보다 크면 쪽이 늘어난 것이다 — 정상 상태에서 오탐이 나지 않는다는 뜻이고, 그래야 이 경고가
+   * 무시당하지 않는다.
+   *
+   * @param driver 주문목록이 떠 있는 드라이버
+   * @param collected 이번에 읽어 낸 주문 수
+   */
+  void warnIfMorePagesExist(WebDriver driver, int collected) {
+    try {
+      int links = driver.findElements(PAGING_LINK).size();
+      if (links > 0) {
+        log.warn(
+            "오아시스 주문목록이 여러 쪽이다 (쪽 이동 링크 {}개) — 이 수집기는 첫 쪽 {}건만 읽는다."
+                + " 뒤쪽 주문은 들어오지 않고, 다음 회차에는 조회 시작일이 지나가 다시 오지 않는다."
+                + " 쪽 넘김 구현이 필요하다 (OasisPeriodProbe 로 2쪽 구조를 실측할 것).",
+            links,
+            collected);
+      } else if (driver.findElements(PAGING_BLOCK).isEmpty()) {
+        // 블록 자체가 사라졌다면 화면이 개편된 것이다. 이 감시는 그 순간부터 아무것도 보지 못한다.
+        log.warn("오아시스 쪽 넘김 블록을 찾지 못했다 — 화면이 바뀌었을 수 있다. 여러 쪽 여부를 더 이상 감시하지 못한다.");
+      }
+    } catch (RuntimeException e) {
+      // 감시가 수집을 깨뜨리지 않는다. 못 본 것과 없는 것은 로그에서 갈린다.
+      log.warn("오아시스 쪽 수 확인 실패 — 여러 쪽 여부를 알 수 없다: {}", e.getMessage());
+    }
   }
 
   // ---------------------------------------------------------------------------------------------
