@@ -1,10 +1,14 @@
 package com.jiniebox.jangbogo.svc.mall;
 
+import com.jiniebox.jangbogo.dao.JbgCollectBreakerDataAccessObject;
+import com.jiniebox.jangbogo.dao.JbgOrderDataAccessObject;
 import com.jiniebox.jangbogo.svc.ifc.MallSession;
 import com.jiniebox.jangbogo.svc.ifc.PurchasedCollector;
 import com.jiniebox.jangbogo.svc.util.ClickUtil;
+import com.jiniebox.jangbogo.svc.util.CollectPeriod;
 import com.jiniebox.jangbogo.svc.util.CollectStep;
 import com.jiniebox.jangbogo.svc.util.WebDriverManager;
+import java.time.LocalDate;
 import java.util.Iterator;
 import java.util.List;
 import org.apache.logging.log4j.LogManager;
@@ -31,6 +35,41 @@ import org.openqa.selenium.WindowType;
 public class Ssg extends MallSession implements PurchasedCollector {
 
   private Logger log = LogManager.getLogger(Ssg.class);
+
+  /**
+   * 수집기 이름. {@code MallRegistry} 와 {@code jbg_order.collector} 가 이 값을 쓴다.
+   *
+   * <p><b>상수로 두는 이유.</b> 이 문자열은 조회 시작일을 유도할 때 {@code WHERE collector=?} 로 쓰인다. 레지스트리와 여기에 문자열을 따로
+   * 적으면 한쪽만 고쳐져도 컴파일은 통과하고, 그때 기준일이 늘 비어 매 회차 기본 범위를 통째로 훑는다 — 조용히. ({@code
+   * HanaroOffline.COLLECTOR} 가 같은 이유로 같은 형태다)
+   */
+  public static final String COLLECTOR = "SSG";
+
+  /** 구매내역 조회 화면. */
+  static final String PURCHASE_LIST_URL =
+      "https://www.ssg.com/myssg/productMng/purchaseList.ssg?menu=purchaseList";
+
+  /**
+   * 조회 시작·종료일 입력칸 (2026-08-11 실측).
+   *
+   * <p>프로브가 잰 값 그대로다 — {@code type=text}, {@code maxlength=10}, {@code readonly=false}, 화면에 보임. 값의
+   * 형태는 {@code NNNN-NN-NN} 이었고 그것이 곧 {@link #SEARCH_DATE_FORMAT} 이다.
+   */
+  static final By SEARCH_START_DATE = By.id("_d_sch_start_dt");
+
+  static final By SEARCH_END_DATE = By.id("_d_sch_end_dt");
+
+  /** 조회 버튼. {@code onclick} 속성이 비어 있어(실측) 스크립트가 이벤트를 붙인다 — 그래서 JS 클릭으로 누른다. */
+  static final By SEARCH_BUTTON = By.id("_d_sch_button");
+
+  /**
+   * 이 화면이 요구하는 날짜 표기 (2026-08-11 실측).
+   *
+   * <p><b>추측이 아니다.</b> 프로브가 두 칸의 기존 값에서 {@code NNNN-NN-NN} 형태를 읽었고 {@code maxlength} 가 10 이다. 형식이
+   * 틀리면 이 사이트는 예외가 아니라 <b>빈 목록</b>을 주므로, 틀린 표기는 '정상인 0건' 으로 굳는다.
+   */
+  static final java.time.format.DateTimeFormatter SEARCH_DATE_FORMAT =
+      java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd");
 
   /**
    * @param id
@@ -198,6 +237,59 @@ public class Ssg extends MallSession implements PurchasedCollector {
     alert.accept(); // 확인 버튼 클릭
   }
 
+  /**
+   * 조회 구간을 정한다.
+   *
+   * <p>기준일 조회가 실패해도 수집을 멈추지 않는다 — 기본 조회 범위로 되돌아간다. 이 자리에서 예외로 빠지면 그 회차는 통째로 0건이 된다.
+   *
+   * <p><b>값을 둘 읽는다.</b> 저장된 최대 구매일과 재조회 바닥(저장을 확인하지 못한 가장 이른 구매일) 중 <b>이른 쪽</b>부터 조회한다. 이유는 {@link
+   * CollectPeriod} javadoc 에 있다.
+   */
+  CollectPeriod.Window resolveWindow() {
+    String lastStored = null;
+    try {
+      lastStored =
+          new JbgOrderDataAccessObject()
+              .getLastCollectedDate(String.valueOf(MallRegistry.SSG_GROUP.seq()), COLLECTOR);
+    } catch (Exception e) {
+      log.warn("마지막 수집일 조회 실패 — 기본 범위로 조회한다: {}", e.getMessage());
+    }
+
+    String retryFrom =
+        new JbgCollectBreakerDataAccessObject()
+            .getRetryFrom(MallRegistry.SSG_GROUP.seq(), COLLECTOR);
+    if (retryFrom != null) {
+      log.info("이전 회차가 저장하지 못한 구간이 있다 — {} 부터 다시 조회한다", retryFrom);
+    }
+
+    return CollectPeriod.resolve(lastStored, retryFrom, LocalDate.now());
+  }
+
+  /**
+   * 구매 내역 화면으로 이동해 <b>계산한 구간</b>으로 조회한다.
+   *
+   * <h2>왜 프리셋을 누르지 않는가</h2>
+   *
+   * <p>예전에는 {@code //label[@for='sf_m3']}(실측 결과 <b>1개월</b>) 을 눌렀다. 그러면 시작점이 언제나 "오늘 기준 1개월 전" 이라
+   * <b>되돌아가지 않는다</b> — 앱이 한 달 넘게 돌지 않으면 그 사이 구매는 다음 회차에도 조회 범위 밖이고 영영 들어오지 않는다. 프리셋 이름에서 뜻을 읽을 수
+   * 없다는 것도 그때 드러났다({@code m3} 인데 1개월이다).
+   *
+   * <p>2026-08-11 실측에서 <b>시작·종료일을 직접 넣는 칸</b>이 확인됐다. 그래서 프리셋을 버리고 {@link CollectPeriod} 가 계산한 구간을
+   * 그대로 넣는다.
+   *
+   * <h2>값을 JS 로 넣는 이유</h2>
+   *
+   * <p>이 칸에는 달력 위젯이 붙어 있을 수 있고, 그 경우 {@code sendKeys} 는 위젯을 띄워 뒤이은 클릭을 가로챈다. 값을 직접 넣고 {@code
+   * change} 를 쏘면 위젯을 건드리지 않는다.
+   *
+   * <h2>넣은 값이 남았는지 확인하는 이유</h2>
+   *
+   * <p>이 사이트는 조회 조건이 틀려도 <b>예외가 아니라 빈 목록</b>을 준다. 사이트가 우리가 넣은 날짜를 되돌리면(프리셋이 이기거나, 제공 범위를 넘어 잘리면) 그
+   * 회차는 '정상인 0건' 으로 굳는다. 그래서 조회 뒤에 칸을 다시 읽어 어긋나면 <b>경고를 남긴다</b>.
+   *
+   * <p><b>어긋나도 수집을 멈추지는 않는다.</b> 사이트가 제공 범위에 맞춰 잘라 준 것일 수 있고, 그때 결과는 여전히 쓸모 있다. 멈추는 쪽으로 틀리면 사람이
+   * 알아채기 전까지 아무것도 모이지 않는다.
+   */
   @Override
   public JSONArray navigatePurchased(WebDriver driver) {
 
@@ -205,12 +297,21 @@ public class Ssg extends MallSession implements PurchasedCollector {
     JavascriptExecutor js = (JavascriptExecutor) driver;
 
     // 구매 내역
-    driver.navigate().to("https://www.ssg.com/myssg/productMng/purchaseList.ssg?menu=purchaseList");
+    driver.navigate().to(PURCHASE_LIST_URL);
 
-    ClickUtil.safeClick(driver, By.xpath("//label[@for='sf_m3']")); // 단기간 조회 (1개월전부터 지금까지)
-    WebElement aElem = driver.findElement(By.id("_d_sch_button"));
+    CollectPeriod.Window window = resolveWindow();
+    String startText = window.start().format(SEARCH_DATE_FORMAT);
+    String endText = window.end().format(SEARCH_DATE_FORMAT);
+    log.debug("SSG 조회 구간 {} ~ {}", startText, endText);
+
+    setSearchDate(driver, js, SEARCH_START_DATE, startText);
+    setSearchDate(driver, js, SEARCH_END_DATE, endText);
+
+    WebElement aElem = driver.findElement(SEARCH_BUTTON);
     js.executeScript("arguments[0].click();", aElem);
     this.delayTime(1500);
+
+    warnIfPeriodWasNotHonoured(driver, startText, endText);
 
     JSONArray resJsonArr = new JSONArray();
     JSONObject orderJson = null;
@@ -224,6 +325,63 @@ public class Ssg extends MallSession implements PurchasedCollector {
     // mainWindowHandle, js);
 
     return resJsonArr;
+  }
+
+  /**
+   * 조회 날짜 칸에 값을 넣는다. 값을 직접 설정하고 {@code change} 를 쏜다 (달력 위젯을 건드리지 않는다).
+   *
+   * @param driver WebDriver
+   * @param js 스크립트 실행기
+   * @param field 날짜 칸
+   * @param value {@code yyyy-MM-dd}
+   */
+  private void setSearchDate(WebDriver driver, JavascriptExecutor js, By field, String value) {
+    WebElement input = driver.findElement(field);
+    js.executeScript(
+        "arguments[0].value = arguments[1];"
+            + "arguments[0].dispatchEvent(new Event('input', {bubbles: true}));"
+            + "arguments[0].dispatchEvent(new Event('change', {bubbles: true}));",
+        input,
+        value);
+  }
+
+  /**
+   * 조회 뒤에도 우리가 넣은 구간이 칸에 남아 있는지 본다. 어긋나면 경고만 남기고 계속 간다.
+   *
+   * <p>숫자만 뽑아 견준다 — 사이트가 표기를 다듬는 것(점↔하이픈)까지 어긋남으로 세면 정상 회차마다 경고가 뜨고, 그러면 경고가 무시당하기 시작한다.
+   */
+  private void warnIfPeriodWasNotHonoured(
+      WebDriver driver, String expectedFrom, String expectedTo) {
+    String actualFrom = readSearchDate(driver, SEARCH_START_DATE);
+    String actualTo = readSearchDate(driver, SEARCH_END_DATE);
+
+    if (actualFrom == null || actualTo == null) {
+      log.warn("SSG 조회 기간 칸을 다시 읽지 못했다 — 구간이 반영됐는지 확인할 수 없다.");
+      return;
+    }
+    if (!digitsOf(expectedFrom).equals(digitsOf(actualFrom))
+        || !digitsOf(expectedTo).equals(digitsOf(actualTo))) {
+      log.warn(
+          "SSG 가 요청한 조회 구간을 되돌렸다 — 요청 {}~{}, 화면 {}~{}."
+              + " 사이트 제공 범위를 넘었거나 프리셋이 이겼을 수 있다. 이 회차의 0건은 '정상' 으로 읽지 말 것.",
+          expectedFrom,
+          expectedTo,
+          actualFrom,
+          actualTo);
+    }
+  }
+
+  /** 날짜 칸의 현재 값. 읽지 못하면 null — 못 읽은 것과 어긋난 것을 구분한다. */
+  private String readSearchDate(WebDriver driver, By field) {
+    try {
+      return driver.findElement(field).getAttribute("value");
+    } catch (RuntimeException e) {
+      return null;
+    }
+  }
+
+  private static String digitsOf(String value) {
+    return value == null ? "" : value.replaceAll("[^0-9]", "");
   }
 
   /**

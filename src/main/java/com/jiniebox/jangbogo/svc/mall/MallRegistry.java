@@ -56,11 +56,14 @@ public enum MallRegistry {
       1,
       "ssg",
       "emart",
-      List.of(new CollectorSpec("SSG", Ssg::new), new CollectorSpec("Emart", Emart::new)),
+      // SSG 이름을 문자열로 다시 적지 않는다 — 이 값은 jbg_order.collector 로 저장되고 다음 회차의
+      // 조회 시작일을 유도하는 키다. 두 곳에 따로 적으면 한쪽만 고쳐져도 컴파일은 통과하고,
+      // 그때 기준일이 늘 비어 매 회차 기본 범위를 통째로 훑는다. (HANARO 가 같은 이유로 같은 형태다)
+      List.of(new CollectorSpec(Ssg.COLLECTOR, Ssg::new), new CollectorSpec("Emart", Emart::new)),
       // 세션 주입 경로는 SSG 온라인몰 한 자리만 대체한다 (Phase 5-9′ 파일럿).
       // Emart(오프라인 영수증)는 eapp.emart.com 이라 도메인도 로그인 폼도 다르고, 그쪽 세션이
       // 이 스냅샷에 담겨 있다는 근거가 아직 없다. 근거 없이 대체하면 조용히 0건이 된다.
-      List.of(new SessionCollectorSpec("SsgSession", "SSG", SsgSessionCollector::new)),
+      List.of(new SessionCollectorSpec("SsgSession", Ssg.COLLECTOR, SsgSessionCollector::new)),
       "Emart",
       "https://www.ssg.com/",
       // ADR-0001 T3 이 캡처된 쿠키에서 실제로 확인한 이름들. 같은 문단이 함께 적고 있는
