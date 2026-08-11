@@ -2,6 +2,7 @@ package com.jiniebox.jangbogo.sys;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.jiniebox.jangbogo.util.AccountIdMasker;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
@@ -193,7 +194,9 @@ public class AuthInterceptor implements HandlerInterceptor {
   private void logSessionInfo(HttpSession session, String requestURI) {
     if (logger.isDebugEnabled()) {
       String username = (String) session.getAttribute(SessionConstants.SESSION_USERNAME_KEY);
-      logger.debug("인증 성공 - User: {}, URI: {}, Session: {}", username, requestURI, session.getId());
+      // 세션 ID 를 싣지 않는다 — 살아 있는 자격증명이고, "인증을 통과했다" 를 아는 데 필요하지도 않다.
+      // DEBUG 라 평소에는 안 찍히지만, debug-mode 를 켜는 때가 바로 로그를 남에게 보내는 때다.
+      logger.debug("인증 성공 - User: {}, URI: {}", AccountIdMasker.mask(username), requestURI);
     }
   }
 

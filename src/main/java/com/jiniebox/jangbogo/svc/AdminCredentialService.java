@@ -1,5 +1,6 @@
 package com.jiniebox.jangbogo.svc;
 
+import com.jiniebox.jangbogo.util.AccountIdMasker;
 import jakarta.annotation.PostConstruct;
 import java.io.File;
 import java.io.FileInputStream;
@@ -45,7 +46,7 @@ public class AdminCredentialService {
       Properties props = loadPropertiesSafely();
       currentAdminId = props.getProperty("admin.id", defaultAdminId);
       currentAdminPass = props.getProperty("admin.pass", defaultAdminPass);
-      logger.info("관리자 계정 정보 로드 완료 - id: {}", currentAdminId);
+      logger.info("관리자 계정 정보 로드 완료 - id: {}", AccountIdMasker.mask(currentAdminId));
     } catch (Exception e) {
       currentAdminId = defaultAdminId;
       currentAdminPass = defaultAdminPass;
@@ -116,7 +117,7 @@ public class AdminCredentialService {
 
       currentAdminId = trimmedId;
       currentAdminPass = passwordToSave;
-      logger.info("관리자 계정 정보가 업데이트되었습니다 - id: {}", currentAdminId);
+      logger.info("관리자 계정 정보가 업데이트되었습니다 - id: {}", AccountIdMasker.mask(currentAdminId));
     } finally {
       lock.writeLock().unlock();
     }

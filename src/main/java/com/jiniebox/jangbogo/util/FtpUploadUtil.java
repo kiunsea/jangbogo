@@ -89,7 +89,7 @@ public class FtpUploadUtil {
       // 로그인
       boolean loginSuccess = ftpClient.login(ftpUser, ftpPassword);
       if (!loginSuccess) {
-        logger.error("FTP 로그인 실패 - User: {}", ftpUser);
+        logger.error("FTP 로그인 실패 - User: {}", AccountIdMasker.mask(ftpUser));
         return false;
       }
 

@@ -9,6 +9,7 @@ import com.jiniebox.jangbogo.dao.JbgMallDataAccessObject;
 import com.jiniebox.jangbogo.dao.JbgOrderDataAccessObject;
 import com.jiniebox.jangbogo.dto.ExportData;
 import com.jiniebox.jangbogo.dto.ExportOrder;
+import com.jiniebox.jangbogo.util.LogMask;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
@@ -575,10 +576,10 @@ public class ExportService {
 
       logger.debug(
           "주문 처리: serial={}, datetime={}, mall_id={}, mallname={}",
-          serialNum,
-          dateTime,
+          LogMask.shape(serialNum),
+          LogMask.shape(dateTime),
           getMallIdFromSeq(seqMall),
-          mallName);
+          LogMask.name(mallName));
 
       List<JSONObject> items = itemDao.getItemsByOrder(String.valueOf(seqOrder));
       org.json.simple.JSONArray itemsArray = new org.json.simple.JSONArray();

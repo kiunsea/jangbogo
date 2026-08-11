@@ -6,6 +6,7 @@ import com.jiniebox.jangbogo.svc.util.ClickUtil;
 import com.jiniebox.jangbogo.svc.util.CollectStep;
 import com.jiniebox.jangbogo.svc.util.WebDriverManager;
 import com.jiniebox.jangbogo.util.JinieboxUtil;
+import com.jiniebox.jangbogo.util.LogMask;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
@@ -268,7 +269,8 @@ public class Oasis extends MallSession implements PurchasedCollector {
       serial = serial.substring(1, serial.length() - 1);
     }
     orderJson.put("serial", serial);
-    log.debug("주문 시리얼: {}", serial);
+    // 값은 싣지 않는다 — 주문번호가 그대로 남는다. 형식만으로 파싱 이상은 드러난다.
+    log.debug("주문 시리얼: {}", LogMask.shape(serial));
 
     orderJson.put("mallname", this.mallName);
     return orderJson;

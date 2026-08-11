@@ -6,6 +6,7 @@ import com.jiniebox.jangbogo.svc.ifc.PurchasedCollector;
 import com.jiniebox.jangbogo.svc.util.ClickUtil;
 import com.jiniebox.jangbogo.svc.util.CollectStep;
 import com.jiniebox.jangbogo.svc.util.WebDriverManager;
+import com.jiniebox.jangbogo.util.LogMask;
 import java.util.List;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -218,7 +219,8 @@ public class Hanaro extends MallSession implements PurchasedCollector {
 
         // 이미 수집된 영수증인지 확인
         if (isAlreadyCollected(receipt)) {
-          log.debug("이미 수집된 영수증 건너뜀 - serial: {}", receipt.get("serial"));
+          log.debug(
+              "이미 수집된 영수증 건너뜀 - serial: {}", LogMask.shape(String.valueOf(receipt.get("serial"))));
           continue;
         }
 

@@ -6,6 +6,7 @@ import com.jiniebox.jangbogo.svc.util.ClickUtil;
 import com.jiniebox.jangbogo.svc.util.CollectStep;
 import com.jiniebox.jangbogo.svc.util.ErrorSummary;
 import com.jiniebox.jangbogo.svc.util.WebDriverManager;
+import com.jiniebox.jangbogo.util.LogMask;
 import com.jiniebox.jangbogo.util.NumberUtil;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -339,7 +340,7 @@ public class Emart extends MallSession implements ReceiptCollector {
                     logger.info(
                         "구 템플릿 바코드 부재 — {} 로 복구했다. mall={}, serial 자릿수={}, 경로 대조={}",
                         source,
-                        mallName,
+                        LogMask.name(mallName),
                         receiptBarcode.length(),
                         describeRecoveryAgreement(fromNewBarcode, composed));
                   }
@@ -358,7 +359,7 @@ public class Emart extends MallSession implements ReceiptCollector {
                   logger.warn(
                       "영수증 바코드를 읽지 못했다 — serial·datetime 없이 수집되어 저장 단계에서 버려진다."
                           + " mall={}, 후보 div={}개, 구조=[읽은 시점] {} / [+1.5s] {}",
-                      mallName,
+                      LogMask.name(mallName),
                       divElements.size(),
                       structureAtRead,
                       structureAfterWait);

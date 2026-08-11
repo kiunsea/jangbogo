@@ -1,6 +1,7 @@
 package com.jiniebox.jangbogo.dao;
 
 import com.jiniebox.jangbogo.util.ExceptionUtil;
+import com.jiniebox.jangbogo.util.LogMask;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.List;
@@ -53,11 +54,12 @@ public class JbgOrderDataAccessObject extends CommonDataAccessObject {
       conn = new LocalDBConnection();
       conn.txOpen();
 
+      // 값은 싣지 않는다 — 이 파일의 다른 두 자리가 같은 이유로 이미 값을 뺐다(135·433행).
       log.info(
           "주문 등록 시도 - serial: {}, datetime: {}, mallName: {}, seqMall: {}",
-          serialNum,
-          dateTime,
-          mallName,
+          LogMask.shape(serialNum),
+          LogMask.shape(dateTime),
+          LogMask.name(mallName),
           seqMall);
 
       conn.txPstmtExecuteUpdate(query, serialNum, dateTime, mallName, seqMall);
@@ -172,16 +174,16 @@ public class JbgOrderDataAccessObject extends CommonDataAccessObject {
     log.debug(
         "{} [serialNum={}, dateTime={}, mallName={}, seqMall={}]",
         query,
-        serialNum,
-        dateTime,
-        mallName,
+        LogMask.shape(serialNum),
+        LogMask.shape(dateTime),
+        LogMask.name(mallName),
         seqMall);
 
     log.info(
         "주문 등록 시도 (트랜잭션 내) - serial: {}, datetime: {}, mallName: {}, seqMall: {}",
-        serialNum,
-        dateTime,
-        mallName,
+        LogMask.shape(serialNum),
+        LogMask.shape(dateTime),
+        LogMask.name(mallName),
         seqMall);
 
     // PreparedStatement로 실행

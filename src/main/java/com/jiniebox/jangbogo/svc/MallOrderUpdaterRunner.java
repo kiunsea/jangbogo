@@ -12,6 +12,7 @@ import com.jiniebox.jangbogo.svc.util.CollectPeriod;
 import com.jiniebox.jangbogo.svc.util.ErrorSummary;
 import com.jiniebox.jangbogo.util.ExceptionUtil;
 import com.jiniebox.jangbogo.util.JSONUtil;
+import com.jiniebox.jangbogo.util.LogMask;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -147,15 +148,17 @@ public class MallOrderUpdaterRunner implements Runnable {
                       ? order.get(MallOrderUpdater.COLLECTOR_KEY).asText().trim()
                       : null;
 
+              // 값을 싣지 않는다 — 주문번호·구매일자·매장명이 그대로 로그에 남는다.
+              // 형식만 남겨도 이 줄이 답해야 할 질문("형식이 깨졌는가")에는 답할 수 있다.
               logger.debug(
                   "주문 처리 중 - serial: {}, datetime: {}, mallname: {}",
-                  serial,
-                  datetime,
-                  orderMallName);
+                  LogMask.shape(serial),
+                  LogMask.shape(datetime),
+                  LogMask.name(orderMallName));
 
               // datetime이 없으면 스킵
               if (datetime == null || datetime.isEmpty()) {
-                logger.warn("주문 datetime이 없어 스킵합니다. serial: {}", serial);
+                logger.warn("주문 datetime이 없어 스킵합니다. serial: {}", LogMask.shape(serial));
                 skippedOrders++;
                 continue;
               }
@@ -171,8 +174,8 @@ public class MallOrderUpdaterRunner implements Runnable {
                 logger.debug(
                     "기존 주문 발견, 아이템 저장 건너뜀 - seq_order: {}, serial: {}, datetime: {}",
                     seqOrder,
-                    serial,
-                    datetime);
+                    LogMask.shape(serial),
+                    LogMask.shape(datetime));
                 continue; // 다음 주문으로
               }
 
@@ -191,8 +194,12 @@ public class MallOrderUpdaterRunner implements Runnable {
                   throw new NumberFormatException("날짜 형식이 너무 짧습니다: " + datetime);
                 }
               } catch (NumberFormatException e) {
+                // 형식 오류를 알리는 줄이라 형식은 반드시 남아야 한다 — shape 가 정확히 그것만 남긴다.
                 logger.warn(
-                    "datetime 형식 오류: {}, serial: {}, 오류: {}", datetime, serial, e.getMessage());
+                    "datetime 형식 오류: {}, serial: {}, 오류: {}",
+                    LogMask.shape(datetime),
+                    LogMask.shape(serial),
+                    e.getMessage());
                 skippedOrders++;
                 continue;
               }
@@ -220,9 +227,9 @@ public class MallOrderUpdaterRunner implements Runnable {
                 logger.info(
                     "새 주문 등록 완료 (트랜잭션 내), seq_order: {}, serial: {}, datetime: {}, mallname: {}",
                     seqOrder,
-                    serial,
-                    datetime,
-                    orderMallName);
+                    LogMask.shape(serial),
+                    LogMask.shape(datetime),
+                    LogMask.name(orderMallName));
 
                 // 새 주문일 때만 아이템 목록 처리
                 JsonNode items = order.get("items");
@@ -248,11 +255,14 @@ public class MallOrderUpdaterRunner implements Runnable {
                         if (qty != null && !qty.isEmpty()) {
                           logger.debug(
                               "아이템 저장 완료 (트랜잭션 내): {}, qty: {}, seq_order: {}",
-                              itemName,
+                              LogMask.name(itemName),
                               qty,
                               seqOrder);
                         } else {
-                          logger.debug("아이템 저장 완료 (트랜잭션 내): {}, seq_order: {}", itemName, seqOrder);
+                          logger.debug(
+                              "아이템 저장 완료 (트랜잭션 내): {}, seq_order: {}",
+                              LogMask.name(itemName),
+                              seqOrder);
                         }
                       }
                     } catch (Exception itemEx) {
@@ -273,7 +283,9 @@ public class MallOrderUpdaterRunner implements Runnable {
                   try {
                     conn.txRollBack();
                     logger.warn(
-                        "주문 및 아이템 저장 트랜잭션 롤백 - serial: {}, 오류: {}", serial, txEx.getMessage());
+                        "주문 및 아이템 저장 트랜잭션 롤백 - serial: {}, 오류: {}",
+                        LogMask.shape(serial),
+                        txEx.getMessage());
                   } catch (Exception rollbackEx) {
                     logger.error("트랜잭션 롤백 실패", rollbackEx);
                   }

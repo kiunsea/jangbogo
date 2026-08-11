@@ -38,16 +38,21 @@ import org.junit.jupiter.api.Test;
  *
  * <h2>이 스캔이 못 잡는 것 — 알고 남긴다</h2>
  *
- * <p>감시 대상은 <b>이름 목록</b>({@link #RAW_ACCOUNT_VALUE})이고, 목록에 없는 이름은 잡지 못한다. 지금 저장소에 남아 있는 같은 형태를 아래에
- * 적어 둔다. 전부 이 작업의 배정 범위 밖이라 손대지 않았고, 고쳐지는 대로 이름과 스캔 경로를 함께 넓혀야 한다. <b>"통과했으니 로그에 계정이 없다" 로 읽지
- * 마라</b> — 그 오해가 이 가드를 가드가 없는 것보다 나쁘게 만든다.
+ * <p>감시 대상은 <b>이름 목록</b>({@link #RAW_ACCOUNT_VALUE})이고, 목록에 없는 이름은 잡지 못한다. <b>"통과했으니 로그에 계정이 없다" 로
+ * 읽지 마라</b> — 그 오해가 이 가드를 가드가 없는 것보다 나쁘게 만든다.
  *
- * <ul>
- *   <li>{@code svc/AdminCredentialService} — 관리자 아이디를 INFO 로 그대로 찍는다(2 곳).
- *   <li>{@code ctrl/AdminController} — 로그인 성공·로그아웃·몰 연결 로그의 관리자 아이디, 세션 ID, FTP 아이디.
- *   <li>{@code util/FtpUploadUtil} — 로그인 실패 로그의 FTP 사용자명.
- *   <li>{@code sys/AuthInterceptor} — DEBUG 인증 로그의 사용자명과 세션 ID.
- * </ul>
+ * <h2>스캔 경로를 운영 소스 전체로 넓혔다 (2026-08-12)</h2>
+ *
+ * <p>이 가드는 원래 {@code svc} 아래만 봤고, 그 한계를 여기에 "고쳐지는 대로 넓혀야 한다" 고 적어 두었다. <b>그 사이에 실제로 새고 있었다</b> —
+ * 2026-08-12 실계정 수집을 지켜보다 {@code ctrl/AdminController} 가 관리자 아이디와 <b>살아 있는 세션 ID</b> 를 한 줄에 INFO 로
+ * 찍는 것을 봤다. 목록에 적어 둔 자리가 목록에 적혀 있다는 이유로 계속 새고 있었던 것이다.
+ *
+ * <p>그래서 적어 두었던 자리를 전부 고치고({@code AdminCredentialService}·{@code AdminController}·{@code
+ * FtpUploadUtil}·{@code AuthInterceptor}) 스캔 경로를 {@code src/main/java} 전체로 넓혔다. <b>목록은 비웠다</b> — 남겨
+ * 두면 다음 사람이 "여기는 원래 예외" 로 읽는다.
+ *
+ * <p>세션 ID 와 구매 데이터(주문번호·구매일자·매장명·상품명)는 {@code PurchaseDataLogMaskingTest} 가 따로 본다. 가려야 할 이유와 가리는
+ * 방식이 달라 판정을 한 파일에 섞지 않았다.
  *
  * <p>브라우저·네트워크·DB 를 쓰지 않는다. 소스 <b>형태</b>만 본다.
  *
@@ -55,8 +60,15 @@ import org.junit.jupiter.api.Test;
  */
 class AccountIdLogMaskingTest {
 
-  /** 수집 파이프라인 전체. 자격증명이 실제로 흐르는 구간이라 여기부터 못 박는다. */
-  private static final Path SVC_DIR = Path.of("src/main/java/com/jiniebox/jangbogo/svc");
+  /**
+   * 운영 소스 전체.
+   *
+   * <p>원래 {@code svc} 아래만 봤다. 그 바깥에서 실제로 샜다(클래스 javadoc 참조) — 경로를 좁히는 것이 곧 사각지대를 만드는 것이었다.
+   */
+  private static final Path SCAN_ROOT = Path.of("src/main/java");
+
+  /** 수집 파이프라인. 자격증명이 실제로 흐르는 구간이라 개별 검사가 여기를 따로 못 박는다. */
+  private static final Path SVC_DIR = SCAN_ROOT.resolve("com/jiniebox/jangbogo/svc");
 
   /** 실제로 새던 자리. */
   private static final Path UPDATER = SVC_DIR.resolve("MallOrderUpdater.java");
@@ -85,7 +97,11 @@ class AccountIdLogMaskingTest {
    */
   private static final Pattern RAW_ACCOUNT_VALUE =
       Pattern.compile(
-          "(?<![\\w.])(?:mallId|mallPw|usrid|usrpw|usrpass|USER_ID|USER_PASS)(?![\\w])");
+          "(?<![\\w.])(?:mallId|mallPw|usrid|usrpw|usrpass|USER_ID|USER_PASS"
+              // 2026-08-12 추가. 이 이름들이 목록에 없어서, 경로를 넓힌 뒤에도 세 자리가
+              // 초록인 채로 새고 있었다 — 관리자 아이디 2곳과 FTP 사용자명 1곳.
+              // 목록 기반 감시의 한계가 그대로 드러난 자리라 여기 적어 둔다.
+              + "|adminId|currentAdminId|ftpUser|ftpId)(?![\\w])");
 
   /**
    * 스캔에 들어가기 전 소스를 정규화한다. 클래스 javadoc 의 세 항목을 그대로 수행한다.
@@ -126,13 +142,13 @@ class AccountIdLogMaskingTest {
    * 빠져나갔고, 그 파일에는 실제 위반이 여섯 곳 있었다. 목록을 만드는 순간 목록에 없는 것이 사각지대가 된다.
    */
   private static List<Path> svcSources() throws Exception {
-    try (Stream<Path> files = Files.walk(SVC_DIR)) {
+    try (Stream<Path> files = Files.walk(SCAN_ROOT)) {
       return files.filter(Files::isRegularFile).toList();
     }
   }
 
   private static String reportName(Path path) {
-    return SVC_DIR.relativize(path).toString().replace('\\', '/');
+    return SCAN_ROOT.relativize(path).toString().replace('\\', '/');
   }
 
   // ---------------------------------------------------------------
@@ -157,7 +173,7 @@ class AccountIdLogMaskingTest {
   }
 
   @Test
-  @DisplayName("svc 아래 어떤 로그도 계정 아이디·비밀번호를 그대로 싣지 않는다")
+  @DisplayName("운영 소스 어디에서도 계정 아이디·비밀번호를 로그에 그대로 싣지 않는다")
   void noLogCallInServiceLayerCarriesRawAccountValues() throws Exception {
     List<String> offenders = new ArrayList<>();
     for (Path path : svcSources()) {
@@ -249,18 +265,25 @@ class AccountIdLogMaskingTest {
   }
 
   @Test
-  @DisplayName("대조군: svc 전수 스캔이 실제로 파일을 훑고 로그 호출을 찾아낸다")
+  @DisplayName("대조군: 전수 스캔이 실제로 파일을 훑고 로그 호출을 찾아낸다")
   void theServiceScanActuallyVisitsFilesAndFindsLogCalls() throws Exception {
     // svcSources() 가 빈 목록을, LOG_CALL 이 0건을 돌려주면 전수 스캔은 offender 0건으로 초록이
     // 된다. "위반이 없다" 와 "아무것도 보지 않았다" 는 같은 모양이라 구분되지 않는다.
     List<String> scanned = svcSources().stream().map(AccountIdLogMaskingTest::reportName).toList();
 
-    assertFalse(scanned.isEmpty(), "svc 전수 스캔이 파일을 하나도 찾지 못했다 — 작업 디렉터리가 프로젝트 루트가 아니거나 경로가 바뀌었다.");
+    assertFalse(scanned.isEmpty(), "전수 스캔이 파일을 하나도 찾지 못했다 — 작업 디렉터리가 프로젝트 루트가 아니거나 경로가 바뀌었다.");
+    // svc 안팎을 모두 넣는다. 경로를 넓힌 것이 실제로 반영됐는지는 svc 바깥 파일이 잡히는지로만
+    // 확인된다 — svc 것만 확인하면 예전 범위로 되돌아가도 이 대조군은 초록이다.
     for (String required :
         new String[] {
-          "MallOrderUpdater.java", "MallSchedulerService.java", "mall/SsgSessionCollector.java"
+          "com/jiniebox/jangbogo/svc/MallOrderUpdater.java",
+          "com/jiniebox/jangbogo/svc/MallSchedulerService.java",
+          "com/jiniebox/jangbogo/svc/mall/SsgSessionCollector.java",
+          "com/jiniebox/jangbogo/ctrl/AdminController.java",
+          "com/jiniebox/jangbogo/sys/AuthInterceptor.java",
+          "com/jiniebox/jangbogo/util/FtpUploadUtil.java"
         }) {
-      assertTrue(scanned.contains(required), "svc 스캔이 " + required + " 를 건너뛴다: " + scanned);
+      assertTrue(scanned.contains(required), "전수 스캔이 " + required + " 를 건너뛴다: " + scanned);
     }
 
     int calls = 0;
