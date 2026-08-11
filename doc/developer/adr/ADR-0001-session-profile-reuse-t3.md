@@ -149,21 +149,21 @@ Chrome 설정으로 우회되는지 별도로 확인했다(`SessionCookieSurviva
 
 ```
 # 프로필 재사용 판정 (사람 로그인 1회)
-./gradlew test -PincludeProbe --tests '*SessionProfileReuseProbe.step1a*' -Djangbogo.probe.mall=ssg
+./gradlew test -PincludeProbe --tests "*SessionProfileReuseProbe.step1a*" -Djangbogo.probe.mall=ssg
   → 로그인 후 창을 닫는다
-./gradlew test -PincludeProbe --tests '*SessionProfileReuseProbe.step1b*' -Djangbogo.probe.mall=ssg
-./gradlew test -PincludeProbe --tests '*SessionProfileReuseProbe.step2*'  -Djangbogo.probe.mall=ssg
-./gradlew test -PincludeProbe --tests '*SessionProfileReuseProbe.step3*'  -Djangbogo.probe.mall=ssg
+./gradlew test -PincludeProbe --tests "*SessionProfileReuseProbe.step1b*" -Djangbogo.probe.mall=ssg
+./gradlew test -PincludeProbe --tests "*SessionProfileReuseProbe.step2*"  -Djangbogo.probe.mall=ssg
+./gradlew test -PincludeProbe --tests "*SessionProfileReuseProbe.step3*"  -Djangbogo.probe.mall=ssg
 
 # 세션 이관 (Selenium 단독)
-./gradlew test -PincludeProbe --tests '*SeleniumSessionTransferProbe*' -Djangbogo.probe.mall=ssg
+./gradlew test -PincludeProbe --tests "*SeleniumSessionTransferProbe*" -Djangbogo.probe.mall=ssg
 
 # 자동화 표식 (실계정 불필요)
-./gradlew test -PincludeProbe --tests '*ChromeFingerprintProbe*'
-./gradlew test -PincludeProbe --tests '*SessionCookieSurvivalProbe*'
+./gradlew test -PincludeProbe --tests "*ChromeFingerprintProbe*"
+./gradlew test -PincludeProbe --tests "*SessionCookieSurvivalProbe*"
 
 # 세션 캡처 경로 판정 (실계정 불필요 — ADR-0002)
-./gradlew test -PincludeProbe --tests '*SessionCaptureProbe*'
+./gradlew test -PincludeProbe --tests "*SessionCaptureProbe*"
 ```
 
 대상 몰은 **기본값이 없다.** 지정하지 않으면 멈춘다 — 조용히 엉뚱한 몰로 도는 것을 한 번 겪었기 때문이다.

@@ -31,7 +31,7 @@ import org.openqa.selenium.chrome.ChromeOptions;
  *
  * <p><b>실제 브라우저를 띄운다.</b> 그래서 {@code @Tag("probe")} 로 일반 테스트 묶음에서 빠져 있다. 실행:
  *
- * <pre>./gradlew test -PincludeProbe --tests '*ChromeFingerprintProbe*'</pre>
+ * <pre>./gradlew test -PincludeProbe --tests "*ChromeFingerprintProbe*"</pre>
  *
  * <p>외부 사이트에 접속하지 않는다 — 측정 페이지는 이 프로세스가 띄우는 127.0.0.1 서버가 낸다. 실계정도 쓰지 않는다.
  *

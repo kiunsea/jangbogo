@@ -54,8 +54,8 @@ import org.openqa.selenium.WebElement;
  * <h2>실행</h2>
  *
  * <pre>
- * ./gradlew test -PincludeProbe --tests '*HanaroSiteProbe.offline*'
- * ./gradlew test -PincludeProbe --tests '*HanaroSiteProbe.online*'
+ * ./gradlew test -PincludeProbe --tests "*HanaroSiteProbe.offline*"
+ * ./gradlew test -PincludeProbe --tests "*HanaroSiteProbe.online*"
  * </pre>
  *
  * <p>순정 Chrome 이 뜬다. 로그인하고 <b>조회 버튼까지 눌러 목록이 화면에 보이는 상태로 둔다</b>(창을 닫지 않는다).
@@ -202,7 +202,7 @@ class HanaroSiteProbe {
    * <p>로그인 화면은 공개 페이지라 <b>로그인하지 않고</b> 뜰 수 있다. 사람이 할 일이 없으므로 그냥 돌리면 된다.
    *
    * <pre>
-   * ./gradlew test -PincludeProbe --tests '*HanaroSiteProbe.offlineLogin*'
+   * ./gradlew test -PincludeProbe --tests "*HanaroSiteProbe.offlineLogin*"
    * </pre>
    */
   @Test

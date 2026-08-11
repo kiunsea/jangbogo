@@ -202,6 +202,80 @@ class RepositoryHygieneTest {
     }
   }
 
+  /** 문서·주석에 적힌 실행 명령의 {@code --tests} 필터. */
+  private static final String BASH_ONLY_TESTS_FILTER = "--tests '";
+
+  @Test
+  @DisplayName("적어 둔 실행 명령이 이 프로젝트의 셸에서 실제로 돈다")
+  void documentedCommandsWorkInTheShellThisProjectActuallyUses() throws IOException {
+    // 이 저장소는 Windows 우선이다 — 배포도 개발도 cmd 로 돈다(bat/ 스크립트, CLAUDE.md).
+    // 그런데 cmd 에서 작은따옴표는 인용부호가 아니라 <b>문자 그대로</b> 전달된다. 그래서
+    //
+    //     gradlew test -PincludeProbe --tests '*SsgPeriodProbe*'
+    //
+    // 는 따옴표까지 포함한 이름을 찾다가 "No tests found" 로 죽는다. 실제로 사용자가
+    // 이 형태로 막혔고, 그때 저장소에는 같은 형태가 19곳 퍼져 있었다 — 문서에 적힌 모든
+    // 프로브 실행 명령이 정작 이 프로젝트의 셸에서 하나도 돌지 않는 상태였다.
+    //
+    // 큰따옴표는 cmd·PowerShell·bash 셋 다에서 동작한다. 그래서 그쪽으로만 적는다.
+    //
+    // 이 검사가 잡는 것은 "명령이 틀렸다" 가 아니라 <b>"적어 둔 대로 하면 안 된다"</b> 는
+    // 상태다. 그것은 사람이 직접 밟기 전까지 아무 테스트도 실패시키지 않는다.
+    List<String> offenders = new ArrayList<>();
+
+    for (Path file : documentedCommandFiles()) {
+      // 이 규칙을 선언하는 파일 자신은 세지 않는다 — 위 주석이 <b>반례</b>로 그 형태를 그대로
+      // 담고 있어서, 넣어 두면 규칙이 자기 설명 때문에 영원히 빨갛다. (SessionExpiryWiringTest 의
+      // 호출자 세기가 같은 이유로 선언 파일을 제외한다)
+      if (file.getFileName().toString().equals("RepositoryHygieneTest.java")) {
+        continue;
+      }
+      if (Files.readString(file, StandardCharsets.UTF_8).contains(BASH_ONLY_TESTS_FILTER)) {
+        offenders.add(file.toString().replace('\\', '/'));
+      }
+    }
+
+    assertTrue(offenders.isEmpty(), "cmd 에서 돌지 않는 --tests 필터를 적어 뒀다 (작은따옴표 → 큰따옴표): " + offenders);
+  }
+
+  @Test
+  @DisplayName("대조군 — 실행 명령을 담은 파일을 실제로 훑는다")
+  void theCommandScanActuallyReadsFiles() throws IOException {
+    // 수집기가 빈 목록을 주면 위 검사는 빈 반복으로 통과한다. 명령이 전부 깨져 있어도
+    // 초록인 상태라, 훑은 파일 수와 '실행 명령이 적혀 있다' 는 사실을 함께 고정한다.
+    List<Path> scanned = documentedCommandFiles();
+
+    assertFalse(scanned.isEmpty(), "실행 명령을 담을 파일을 한 개도 찾지 못했다 — 위 검사가 무의미하다.");
+
+    boolean anyDocumentsAProbeRun = false;
+    for (Path file : scanned) {
+      if (Files.readString(file, StandardCharsets.UTF_8).contains("-PincludeProbe")) {
+        anyDocumentsAProbeRun = true;
+        break;
+      }
+    }
+    assertTrue(anyDocumentsAProbeRun, "프로브 실행 명령이 어디에도 없다 — 스캔 대상이 어긋났다.");
+  }
+
+  /** 실행 명령이 적히는 자리 — 소스 주석, 빌드 스크립트, 문서. */
+  private static List<Path> documentedCommandFiles() throws IOException {
+    List<Path> found = new ArrayList<>();
+    for (Path root : List.of(SRC_ROOT, Path.of("doc"))) {
+      for (Path file : regularFilesUnder(root)) {
+        String name = file.getFileName().toString();
+        if (name.endsWith(".java") || name.endsWith(".md")) {
+          found.add(file);
+        }
+      }
+    }
+    for (Path single : List.of(Path.of("build.gradle"), Path.of("CHANGELOG.md"))) {
+      if (Files.isRegularFile(single)) {
+        found.add(single);
+      }
+    }
+    return found;
+  }
+
   @Test
   @DisplayName("백업 파일 판별식이 백업본은 잡고 정상 소스는 통과시킨다")
   void theBackupDetectionRuleItselfStillCatchesBackups() {

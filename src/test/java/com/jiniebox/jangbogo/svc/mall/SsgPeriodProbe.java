@@ -71,7 +71,7 @@ import org.openqa.selenium.WebElement;
  * <h2>실행</h2>
  *
  * <pre>
- * ./gradlew test -PincludeProbe --tests '*SsgPeriodProbe*'
+ * ./gradlew test -PincludeProbe --tests "*SsgPeriodProbe*"
  * </pre>
  *
  * <p>순정 Chrome 이 뜬다. <b>로그인하고 구매내역 화면까지 들어간 뒤 창을 그대로 둔다.</b> 조회 버튼은 누르지 않아도 된다 — 이 프로브가 보는 것은 폼이지

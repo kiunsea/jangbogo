@@ -470,7 +470,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **마스킹 방식을 정정했습니다.** 흔한 레시피는 `navigator.webdriver` 를 `undefined` 로 지우지만, 그것은 이 속성이 자동화일 때만 존재하던 옛 Chrome 기준입니다. 지금 Chrome 은 **평소에도 이 값이 있고 `false`** 입니다(T2 실측). `undefined` 로 지우면 순정과 **달라져** 오히려 눈에 띕니다. 프로토타입이 아니라 인스턴스에 정의하는 것도 `getOwnPropertyDescriptor` 로 구분되므로 함께 고쳤습니다.
-- `test` 태스크가 `probe` 태그를 기본 제외합니다. 프로브는 실제 브라우저를 띄우고 사람의 조작을 기다리므로 일반 묶음에 섞이면 안 됩니다. 실행: `./gradlew test -PincludeProbe --tests '*Probe*'`
+- `test` 태스크가 `probe` 태그를 기본 제외합니다. 프로브는 실제 브라우저를 띄우고 사람의 조작을 기다리므로 일반 묶음에 섞이면 안 됩니다. 실행: `./gradlew test -PincludeProbe --tests "*Probe*"`
 - 프로브 대상 지정(`jangbogo.probe.mall`)을 **테스트 JVM 까지 전달**합니다. gradle 명령줄의 `-D` 는 gradle JVM 에만 붙고 포크된 테스트 JVM 은 상속하지 않습니다 — 넘기지 않으면 프로브가 그 값을 못 보고 **조용히 다른 몰로 돕니다**(oasis 를 지정했는데 ssg 가 뜨고 기록까지 덮어쓴 적이 있습니다).
 
 ### Removed

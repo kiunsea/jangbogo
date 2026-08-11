@@ -104,7 +104,7 @@ dependencies {
 tasks.named('test') {
 	// 프로브(@Tag("probe"))는 실제 브라우저를 띄우고 사람의 조작을 기다린다.
 	// 일반 테스트 묶음은 브라우저·네트워크·DB 없이 돌아야 하므로 기본적으로 제외한다.
-	// 실행하려면: ./gradlew test -PincludeProbe --tests '*Probe*'
+	// 실행하려면: ./gradlew test -PincludeProbe --tests "*Probe*"
 	useJUnitPlatform {
 		if (!project.hasProperty('includeProbe')) {
 			excludeTags 'probe'

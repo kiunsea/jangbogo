@@ -30,7 +30,7 @@ ADR-0001 이 전략을 "프로필 재사용"에서 "세션 이관"으로 바꾸�
 실계정을 쓰지 않는다. 로컬 페이지가 세션 쿠키(만료 없음 — 우리가 옮기려는 것과 같은 종류)와 영속 쿠키를 심고,
 자기 시점의 `navigator.webdriver` 를 보고한다. 대조군과 양성 대조군을 **같은 실행**에 둔다.
 
-재현: `./gradlew test -PincludeProbe --tests '*SessionCaptureProbe*'` (실계정 불필요)
+재현: `./gradlew test -PincludeProbe --tests "*SessionCaptureProbe*"` (실계정 불필요)
 
 | 팔 | `navigator.webdriver` |
 |---|---|

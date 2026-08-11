@@ -51,10 +51,10 @@ import org.openqa.selenium.WebDriver;
  * <p>가운데에 <b>사람이 로그인하는 절차</b>가 있어 한 번에 돌 수 없다. 대상 몰은 {@code -Djangbogo.probe.mall} 로 고른다(기본 ssg).
  *
  * <pre>
- * 1) ./gradlew test -PincludeProbe --tests '*SessionProfileReuseProbe.step1*' -Djangbogo.probe.mall=ssg
+ * 1) ./gradlew test -PincludeProbe --tests "*SessionProfileReuseProbe.step1*" -Djangbogo.probe.mall=ssg
  *    → 순정 Chrome 이 뜬다. 로그인하고 <b>마이페이지까지 직접 들어가 본 뒤</b> 창을 닫는다.
- * 2) ./gradlew test -PincludeProbe --tests '*SessionProfileReuseProbe.step2*'   (순정 대조군)
- * 3) ./gradlew test -PincludeProbe --tests '*SessionProfileReuseProbe.step3*'   (Selenium 판정)
+ * 2) ./gradlew test -PincludeProbe --tests "*SessionProfileReuseProbe.step2*"   (순정 대조군)
+ * 3) ./gradlew test -PincludeProbe --tests "*SessionProfileReuseProbe.step3*"   (Selenium 판정)
  * </pre>
  *
  * <p><b>산출물에 개인정보가 담긴다.</b> 로그인된 화면의 스크린샷·DOM 에는 구매 내역이 들어 있다. 전부 {@code build/} 아래에만 쓰고, 이 저장소는
