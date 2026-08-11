@@ -702,10 +702,86 @@ class HanaroSiteProbe {
     out.append("  프레임 : ").append(frameCount(driver));
     out.append("  (0 이 아니면 아래 표·폼·링크는 최상위 문서만의 것이다)\n");
 
+    out.append('\n').append(describeRepeatedGroups(driver));
     out.append('\n').append(describeTables(driver));
     out.append('\n').append(describeForms(driver));
     out.append('\n').append(describeLinks(driver));
     return out.toString();
+  }
+
+  /** 반복 구조로 인정할 최소 형제 수. 이보다 적으면 목록이 아니라 우연한 중복으로 본다. */
+  private static final int REPEAT_MIN = 3;
+
+  /** 요약에 실을 반복 구조 종류의 상한. */
+  private static final int REPEAT_LIMIT = 12;
+
+  /**
+   * <b>표가 아닌 목록</b>을 찾는다 — 같은 {@code 태그+class} 가 여러 번 반복되는 자리.
+   *
+   * <h2>왜 필요한가</h2>
+   *
+   * <p>오프라인 사이트는 목록이 {@code table} 이라 표만 훑어도 됐다. 그런데 온라인몰 실측에서는 표가 10개 잡혔는데 <b>셀이 전부 비어 있었다</b> —
+   * 전부 레이아웃·탭 템플릿이었고 주문 목록은 그 안에 없었다. 요즘 사이트는 목록을 {@code div}·{@code ul} 로 그린다.
+   *
+   * <p>표만 보는 프로브는 그런 화면에서 "목록이 없다" 고 보고한다 — 실제로는 못 찾은 것인데. 그래서 <b>구조가 반복되는 자리</b>를 따로 센다. 주문 목록은 같은
+   * 모양이 주문 수만큼 반복되므로, 반복 횟수가 가장 많은 무리가 목록일 가능성이 크다.
+   *
+   * <p>내용은 담지 않는다 — 태그·class·반복 횟수와 <b>첫 무리의 형태</b>만 싣는다.
+   */
+  private static String describeRepeatedGroups(WebDriver driver) {
+    java.util.Map<String, List<WebElement>> groups = new java.util.LinkedHashMap<>();
+
+    for (WebElement el : findAll(driver, By.cssSelector("li, div[class], article, tr[class]"))) {
+      String tag = safely(el::getTagName);
+      String cls = attr(el, "class");
+      if ("(없음)".equals(cls) || "(읽기 실패)".equals(cls)) {
+        continue;
+      }
+      // class 는 그대로 쓰되 숫자만 가린다 — 반복 렌더링되는 행 class 를 한 종으로 묶는다.
+      groups
+          .computeIfAbsent(tag + "." + DomShapeReport.maskDigits(clip(cls)), k -> new ArrayList<>())
+          .add(el);
+    }
+
+    List<java.util.Map.Entry<String, List<WebElement>>> repeated = new ArrayList<>();
+    for (var e : groups.entrySet()) {
+      if (e.getValue().size() >= REPEAT_MIN) {
+        repeated.add(e);
+      }
+    }
+    repeated.sort((a, b) -> Integer.compare(b.getValue().size(), a.getValue().size()));
+
+    StringBuilder out = new StringBuilder();
+    out.append("  [반복 구조] ").append(repeated.size()).append("종 (표가 아닌 목록의 후보)\n");
+
+    int shown = 0;
+    for (var e : repeated) {
+      if (shown++ >= REPEAT_LIMIT) {
+        out.append("   … 이하 생략\n");
+        break;
+      }
+      WebElement first = e.getValue().get(0);
+      String visible = safely(first::getText);
+      String dom = attr(first, "textContent");
+
+      out.append("   ").append(e.getKey()).append("  ×").append(e.getValue().size()).append('\n');
+      out.append("      보이는글자=").append(DomShapeReport.shape(clipText(visible))).append('\n');
+      if (dom != null && !"(없음)".equals(dom) && !dom.trim().equals(visible.trim())) {
+        out.append("      숨은글자  =").append(DomShapeReport.shape(clipText(dom))).append('\n');
+      }
+    }
+    if (repeated.isEmpty()) {
+      out.append("   (반복 구조 없음 — 목록이 아직 안 그려졌거나 조회 전이다)\n");
+    }
+    return out.toString();
+  }
+
+  /** 형태를 뜨기 전에 길이를 자른다. 한 무리가 화면 전체를 담고 있을 수 있다. */
+  private static String clipText(String value) {
+    if (value == null) {
+      return "";
+    }
+    return value.length() <= 300 ? value : value.substring(0, 300);
   }
 
   /** 표를 훑는다 — 새 파서가 어느 표의 몇 번째 열을 읽을지가 여기서 정해진다. */
@@ -970,7 +1046,38 @@ class HanaroSiteProbe {
 
   private static boolean hasDataRow(WebDriver driver, Target target) {
     WebElement list = findListTable(driver, target);
-    return list != null && filledRowCount(list) > 0;
+    if (list != null && filledRowCount(list) > 0) {
+      return true;
+    }
+    // 머리글을 아직 모르는 대상(온라인)은 목록이 표가 아닐 수 있다. 표만 보고 기다리면
+    // 실제로는 목록이 그려졌는데도 시간이 다 갈 때까지 못 알아챈다.
+    return target.listHeaders.isEmpty() && hasFilledRepeatedGroup(driver);
+  }
+
+  /** 같은 모양이 여러 번 반복되고 그 안에 글자가 든 무리가 있는가 — 표가 아닌 목록의 신호. */
+  private static boolean hasFilledRepeatedGroup(WebDriver driver) {
+    java.util.Map<String, Integer> counts = new java.util.HashMap<>();
+    java.util.Map<String, Boolean> filled = new java.util.HashMap<>();
+
+    for (WebElement el : findAll(driver, By.cssSelector("li[class], div[class], article"))) {
+      String cls = attr(el, "class");
+      if ("(없음)".equals(cls) || "(읽기 실패)".equals(cls)) {
+        continue;
+      }
+      String key = safely(el::getTagName) + "." + DomShapeReport.maskDigits(clip(cls));
+      counts.merge(key, 1, Integer::sum);
+      if (Boolean.FALSE.equals(filled.get(key))) {
+        continue;
+      }
+      String text = safely(el::getText);
+      filled.put(key, !text.isBlank() && text.length() > 10);
+    }
+    for (var e : counts.entrySet()) {
+      if (e.getValue() >= REPEAT_MIN && Boolean.TRUE.equals(filled.get(e.getKey()))) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**

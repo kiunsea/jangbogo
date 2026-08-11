@@ -71,8 +71,11 @@ class MallRegistryTest {
         MallRegistry.SSG_GROUP.collectors().get(1).create(CREDENTIAL_ID, CREDENTIAL_PW));
     assertInstanceOf(
         Oasis.class, MallRegistry.OASIS.collectors().get(0).create(CREDENTIAL_ID, CREDENTIAL_PW));
+    // hanaro 는 오프라인 하나뿐이다. 온라인몰은 사용자가 이용하지 않아 등록에서 뺐고,
+    // Hanaro 클래스는 지우지 않고 @Deprecated 로 남겼다 (그 javadoc 에 경위가 있다).
     assertInstanceOf(
-        Hanaro.class, MallRegistry.HANARO.collectors().get(0).create(CREDENTIAL_ID, CREDENTIAL_PW));
+        HanaroOffline.class,
+        MallRegistry.HANARO.collectors().get(0).create(CREDENTIAL_ID, CREDENTIAL_PW));
   }
 
   @Test
@@ -202,8 +205,10 @@ class MallRegistryTest {
   void loginUrlsArePinned() {
     assertEquals("https://www.ssg.com/", MallRegistry.bySeq(1).orElseThrow().loginUrl());
     assertEquals("https://www.oasis.co.kr/login", MallRegistry.bySeq(2).orElseThrow().loginUrl());
+    // 수집 대상이 오프라인 사이트로 옮겨 갔으므로 착지 지점도 따라간다. 구 주소로 착지시키면
+    // 그 사이트에 로그인하게 되고, 거기서 만든 세션은 이 몰의 수집에 쓰이지 않는다.
     assertEquals(
-        "https://www.nonghyupmall.com/BC41000R/loginViewPage.nh",
+        "https://www.nhhanaro.co.kr/nahh_70021.do?id=nahh001_060100000000",
         MallRegistry.bySeq(3).orElseThrow().loginUrl());
   }
 

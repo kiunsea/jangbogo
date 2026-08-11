@@ -16,11 +16,31 @@ import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.WebElement;
 
 /**
- * https://www.nonghyupmall.com 을 조회하는 클래스이다. (하나로마트 오프라인 매장 구매 내역) 사이트 메뉴 : 마이페이지 > 하나로마트 > 마트구매영수증
- * 보기
+ * {@code nonghyupmall.com} 의 전자영수증 목록을 조회하던 클래스 — <b>더 이상 등록되지 않는다.</b>
+ *
+ * <h2>왜 돌지 않는가</h2>
+ *
+ * <p>하나로마트가 서비스를 개편해 <b>오프라인 거래내역을 {@code nhhanaro.co.kr} 로 분리</b>했다. 이 클래스가 보던 {@code
+ * eltRctwList.nh} 에는 그 뒤로 아무것도 남지 않아 매 회차 0건이었다 — 셀렉터가 깨진 것이 아니라 대상이 옮겨 간 것이다. 지금 그 데이터는 {@link
+ * HanaroOffline} 이 가져온다.
+ *
+ * <p>남은 것은 같은 사이트의 <b>온라인몰</b> 구매내역인데, <b>사용자가 그 서비스를 이용하지 않으며 앞으로도 이용하지 않는다고 확인했다</b>(2026-08-11).
+ * 그래서 {@code MallRegistry.HANARO} 에서 뺐다.
+ *
+ * <h2>왜 지우지 않는가</h2>
+ *
+ * <p>이 사이트를 다시 수집해야 할 날이 오면 로그인 흐름과 영수증 파싱 규칙이 출발점이 된다. 특히 {@code parseDetailPage} 의 변환 규칙(하이픈 제거,
+ * 금액 숫자화, 헤더행 skip, {@code td} 개수 가드)은 실사이트로 검증된 것이고 {@code HanaroParserTest} 가 그것을 고정하고 있다.
+ *
+ * <p><b>다시 등록하려면</b> {@code MallRegistry.HANARO.collectors()} 에 넣으면 된다. 다만 그 전에 이 클래스가 보는 주소에 실제로
+ * 데이터가 있는지부터 확인할 것 — 없으면 0건이 다시 '정상' 으로 굳는다.
+ *
+ * <p>구 사이트 메뉴: 마이페이지 &gt; 하나로마트 &gt; 마트구매영수증 보기
  *
  * @author KIUNSEA
+ * @deprecated 대상 데이터가 {@code nhhanaro.co.kr} 로 이전됐고 온라인몰은 사용하지 않는다. {@link HanaroOffline} 을 쓴다.
  */
+@Deprecated
 public class Hanaro extends MallSession implements PurchasedCollector {
 
   private static final Logger log = LogManager.getLogger(Hanaro.class);

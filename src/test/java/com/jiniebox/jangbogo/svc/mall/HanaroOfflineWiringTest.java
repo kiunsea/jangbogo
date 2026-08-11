@@ -32,22 +32,39 @@ class HanaroOfflineWiringTest {
   private static final String CREDENTIAL_PW = "test-pass";
 
   @Test
-  @DisplayName("HANARO 에 수집기가 둘이고, 기존 Hanaro 가 첫 자리를 지킨다")
-  void hanaroHasTwoCollectorsInOrder() {
+  @DisplayName("HANARO 는 오프라인 수집기 하나만 돌린다")
+  void hanaroRunsOnlyTheOfflineCollector() {
+    // 온라인몰은 사용자가 이용하지 않는다(2026-08-11 확인). 등록해 두면 매 회차 안 쓰는
+    // 사이트에 실계정 로그인을 한 번 더 하고, 늘 0건이라 '정상인 0건' 과 '깨진 셀렉터' 를
+    // 가릴 수 없게 만든다.
     List<MallRegistry.CollectorSpec> collectors = MallRegistry.HANARO.collectors();
 
-    assertEquals(2, collectors.size(), "오프라인 수집기가 등록되지 않았거나 중복 등록됐다.");
-    assertEquals("Hanaro", collectors.get(0).name(), "기존 수집기의 자리가 바뀌었다 — 실행 순서와 기존 상태가 흔들린다.");
-    assertEquals(HanaroOffline.COLLECTOR, collectors.get(1).name());
+    assertEquals(1, collectors.size(), "쓰지 않는 수집기가 등록돼 있다 — 매 회차 로그인을 헛쓴다.");
+    assertEquals(HanaroOffline.COLLECTOR, collectors.get(0).name());
   }
 
   @Test
   @DisplayName("공장이 실제로 그 클래스를 만든다 — 등록만 하고 딴 것을 만들면 조용히 어긋난다")
   void factoryProducesTheOfflineCollector() {
-    MallRegistry.CollectorSpec offline = MallRegistry.HANARO.collectors().get(1);
+    MallRegistry.CollectorSpec offline = MallRegistry.HANARO.collectors().get(0);
 
     assertInstanceOf(
         HanaroOffline.class, offline.create(CREDENTIAL_ID, CREDENTIAL_PW), "공장이 다른 수집기를 만든다.");
+  }
+
+  @Test
+  @DisplayName("계정 검증과 세션 착지가 오프라인 사이트를 향한다")
+  void verificationAndLoginPointAtTheOfflineSite() {
+    // 검증 수집기가 예전 이름으로 남아 있으면 폴백이 첫 수집기를 집어 <b>우연히</b> 맞는다 —
+    // 선언과 실제가 어긋난 채 조용히 굴러가는 상태다. 이름으로 실제로 찾히는지 본다.
+    assertEquals(
+        HanaroOffline.COLLECTOR,
+        MallRegistry.HANARO.verificationCollector().name(),
+        "계정 연결이 쓰지 않는 사이트로 로그인한다.");
+    assertEquals(
+        HanaroOffline.LOGIN_URL,
+        MallRegistry.HANARO.loginUrl(),
+        "세션 캡처가 구 사이트로 착지한다 — 거기서 만든 세션은 이 몰의 수집에 쓰이지 않는다.");
   }
 
   @Test

@@ -111,13 +111,22 @@ public enum MallRegistry {
       // 이름을 문자열로 다시 적지 않는다 — 이 값은 jbg_order.collector 로 저장되고 다음 회차의
       // 조회 시작일을 유도하는 키다. 두 곳에 따로 적으면 한쪽만 고쳐져도 컴파일은 통과하고,
       // 그때 기준일이 늘 비어 매 회차 기본 범위를 통째로 훑는다.
-      List.of(
-          new CollectorSpec("Hanaro", Hanaro::new),
-          new CollectorSpec(HanaroOffline.COLLECTOR, HanaroOffline::new)),
+      //
+      // 오프라인 하나뿐이다. 온라인몰(nonghyupmall.com)은 사용자가 이용하지 않으며 앞으로도
+      // 이용하지 않는다고 확인했다(2026-08-11). 등록해 두면 매 회차 <b>안 쓰는 사이트에 실계정
+      // 로그인을 한 번 더</b> 하고, 늘 0건이라 건강도 신호까지 흐린다 — 0건이 '정상' 인지 '셀렉터가
+      // 깨진 것' 인지 가릴 수 없게 된다. {@link Hanaro} 클래스는 지우지 않고 남겨 둔다.
+      List.of(new CollectorSpec(HanaroOffline.COLLECTOR, HanaroOffline::new)),
       // 세션 주입 경로 미착수. OASIS 와 같은 이유다.
       List.of(),
-      "Hanaro",
-      "https://www.nonghyupmall.com/BC41000R/loginViewPage.nh",
+      // 계정 연결 시 자격증명을 검증할 수집기. 등록된 것이 하나뿐이라 그것으로 검증한다 —
+      // 예전 값("Hanaro")을 남겨 두면 폴백이 첫 수집기를 집어 우연히 맞는 상태가 되는데,
+      // 그때는 선언이 실제와 어긋난 채로 조용히 굴러간다.
+      HanaroOffline.COLLECTOR,
+      // 세션 캡처 시 사람을 착지시킬 로그인 페이지. 수집 대상이 오프라인 사이트로 옮겨 갔으므로
+      // 여기도 따라간다 — 구 주소로 착지시키면 그 사이트에 로그인하게 되고, 그 세션은 이 몰의
+      // 수집에 쓰이지 않는다.
+      HanaroOffline.LOGIN_URL,
       // 인증 쿠키 이름 미확정. OASIS 와 같은 이유로 비워 둔다.
       List.of(),
       // 만료 판정 신호 미선언. OASIS 와 같은 이유다.
