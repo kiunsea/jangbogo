@@ -10,10 +10,12 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -36,7 +38,13 @@ import org.junit.jupiter.api.Test;
  */
 class MallSiteLinkTest {
 
-  private static final Path INDEX = Path.of("src/main/resources/templates/index.html");
+  /**
+   * 화면 전체를 본다 — {@code index.html} 한 장이 아니다.
+   *
+   * <p>2026-08-11 전수 확인에서 몰 주소를 안내하는 곳은 {@code index.html} 뿐이었다. 그런데 <b>그 사실을 검사에 박아 두면 다음에 생기는 화면은
+   * 감시 밖</b>이고, 이 클래스가 막으려는 실패가 그 화면에서 그대로 재현된다. 지금 한 장뿐인 것과 앞으로도 한 장인 것은 다른 이야기다.
+   */
+  private static final Path TEMPLATES = Path.of("src/main/resources/templates");
 
   /** {@code URL : <a ... href="...">} — 줄바꿈 위치가 카드마다 달라 태그 경계로 찾는다. */
   private static final Pattern URL_ROW =
@@ -57,7 +65,6 @@ class MallSiteLinkTest {
   void theScreenDoesNotLinkToAbandonedSites() throws IOException {
     // v0.19.0 이 하나로 수집을 옮긴 뒤 이 자리가 구 주소로 남아 있었다. 위 검사와 결론은 같지만
     // 실패 메시지가 다르다 — 어느 방향으로 어긋났는지가 바로 읽혀야 고치는 사람이 헤매지 않는다.
-    String source = Files.readString(INDEX, StandardCharsets.UTF_8);
     Set<String> registered = registeredHosts();
 
     for (String host : displayedHosts()) {
@@ -65,7 +72,11 @@ class MallSiteLinkTest {
           registered.contains(host),
           "등록된 수집기가 쓰지 않는 사이트를 화면이 안내한다: " + host + " (등록된 것: " + registered + ")");
     }
-    assertFalse(source.contains("nonghyupmall.com"), "온라인몰은 등록에서 뺐는데 화면이 아직 그리로 보낸다.");
+    for (Path screen : screens()) {
+      assertFalse(
+          Files.readString(screen, StandardCharsets.UTF_8).contains("nonghyupmall.com"),
+          "온라인몰은 등록에서 뺐는데 화면이 아직 그리로 보낸다: " + screen);
+    }
   }
 
   // ── 대조군 — 판별식이 살아 있는가 ────────────────────────────────────────
@@ -81,16 +92,28 @@ class MallSiteLinkTest {
         "쇼핑몰 카드의 주소 행을 등록된 몰 수만큼 찾지 못했다 — 검사가 죽었거나 카드가 빠졌다.");
   }
 
-  /** 화면의 쇼핑몰 카드가 안내하는 호스트들. */
+  /** 화면들이 안내하는 쇼핑몰 호스트 전부. */
   private static Set<String> displayedHosts() throws IOException {
-    assertTrue(Files.exists(INDEX), "화면 파일을 찾지 못했다(경로가 바뀌었나): " + INDEX.toAbsolutePath());
-
     Set<String> hosts = new TreeSet<>();
-    Matcher matcher = URL_ROW.matcher(Files.readString(INDEX, StandardCharsets.UTF_8));
-    while (matcher.find()) {
-      hosts.add(hostOf(matcher.group(1)));
+    for (Path screen : screens()) {
+      Matcher matcher = URL_ROW.matcher(Files.readString(screen, StandardCharsets.UTF_8));
+      while (matcher.find()) {
+        hosts.add(hostOf(matcher.group(1)));
+      }
     }
     return hosts;
+  }
+
+  /** 사용자에게 보이는 화면 파일 전부. */
+  private static List<Path> screens() throws IOException {
+    assertTrue(
+        Files.isDirectory(TEMPLATES), "화면 폴더를 찾지 못했다(경로가 바뀌었나): " + TEMPLATES.toAbsolutePath());
+
+    try (Stream<Path> files = Files.walk(TEMPLATES)) {
+      List<Path> found = files.filter(p -> p.toString().endsWith(".html")).sorted().toList();
+      assertFalse(found.isEmpty(), "화면 파일을 한 장도 찾지 못했다 — 아래 검사가 전부 무의미해진다.");
+      return found;
+    }
   }
 
   /** 등록된 몰들이 실제로 로그인하는 호스트들. */
