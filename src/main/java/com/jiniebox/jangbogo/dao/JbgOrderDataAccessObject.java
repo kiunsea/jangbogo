@@ -107,15 +107,65 @@ public class JbgOrderDataAccessObject extends CommonDataAccessObject {
    * @return 생성된 주문 시퀀스
    * @throws Exception
    */
+  /**
+   * 그 수집기가 <b>실제로 저장한</b> 가장 최근 구매일을 돌려준다 (기간 조회형 수집기의 조회 시작점).
+   *
+   * <p><b>따로 저장한 기준일이 아니라 데이터에서 유도한다.</b> 기준일을 별도로 적어 두면 저장이 실패한 회차에도 앞서 나갈 수 있고, 그러면 그 구간은 다음 회차의
+   * 시작점이 더 뒤라서 <b>영영 조회되지 않는다.</b> 여기처럼 유도하면 저장이 실패한 만큼 기준일도 자동으로 뒤에 남아 다시 가져온다.
+   *
+   * <p><b>{@code collector} 로 반드시 좁힌다.</b> 한 몰에 수집기가 둘일 수 있다(하나로 = 온라인 + 오프라인). 몰 단위로 최대값을 구하면 온라인
+   * 주문이 최근이라는 이유로 오프라인 조회 시작점이 밀려 그 사이의 오프라인 거래를 영구히 놓친다.
+   *
+   * <p>기존 행은 {@code collector} 가 NULL 이라 어느 수집기로도 잡히지 않는다 — 그 수집기는 처음 한 번 기본 조회 범위로 되돌아간다. 겹쳐 가져올 뿐
+   * 잃지 않으므로 의도된 동작이다.
+   *
+   * @param seqMall 쇼핑몰 seq
+   * @param collector 수집기 이름 ({@code MallRegistry.CollectorSpec.name})
+   * @return {@code yyyyMMdd} 문자열. 그 수집기가 저장한 것이 하나도 없으면 null
+   * @throws Exception 조회 실패
+   */
+  public String getLastCollectedDate(String seqMall, String collector) throws Exception {
+    LocalDBConnection conn = null;
+    try {
+      conn = new LocalDBConnection();
+      String query =
+          "SELECT MAX(date_time) AS last_date FROM jbg_order WHERE seq_mall=? AND collector=?";
+      log.debug(
+          "LOCALDB-QUERY------------------------------------------------------------------------------");
+      // 값은 로그에 싣지 않는다 — 구매일이 그대로 남는다.
+      log.debug(query);
+
+      ResultSet rset = conn.executeQuery(query, seqMall, collector);
+      if (rset != null && rset.next()) {
+        String last = rset.getString("last_date");
+        // MAX 는 행이 없으면 NULL 을 준다. 0 은 date_time 기본값이라 '없음' 과 같이 다룬다.
+        if (last != null && !last.isBlank() && !"0".equals(last.trim())) {
+          return last.trim();
+        }
+      }
+      return null;
+    } finally {
+      if (conn != null) {
+        conn.close();
+      }
+    }
+  }
+
   public int addWithConnection(
-      LocalDBConnection conn, String serialNum, String dateTime, String mallName, String seqMall)
+      LocalDBConnection conn,
+      String serialNum,
+      String dateTime,
+      String mallName,
+      String seqMall,
+      String collector)
       throws Exception {
 
     int seqOrder = -1;
 
     // PreparedStatement 사용으로 SQL Injection 방지
     String query =
-        "INSERT INTO jbg_order (serial_num, date_time, mall_name, seq_mall) VALUES (?, ?, ?, ?)";
+        "INSERT INTO jbg_order (serial_num, date_time, mall_name, seq_mall, collector)"
+            + " VALUES (?, ?, ?, ?, ?)";
 
     log.debug(
         "LOCALDB-QUERY------------------------------------------------------------------------------");
@@ -135,7 +185,7 @@ public class JbgOrderDataAccessObject extends CommonDataAccessObject {
         seqMall);
 
     // PreparedStatement로 실행
-    conn.txPstmtExecuteUpdate(query, serialNum, dateTime, mallName, seqMall);
+    conn.txPstmtExecuteUpdate(query, serialNum, dateTime, mallName, seqMall, collector);
 
     // SQLite에서는 last_insert_rowid() 사용
     ResultSet rset = conn.executeQuery("SELECT last_insert_rowid() id");

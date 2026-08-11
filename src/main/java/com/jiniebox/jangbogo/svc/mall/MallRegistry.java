@@ -96,12 +96,24 @@ public enum MallRegistry {
       // 없는 몰이라 지금은 쓰이지도 않는다 — 추측해 채우면 쓰이기 시작하는 날 오탐으로 멈춘다.
       SessionExpiryDetector.LoginSignals.UNDECLARED),
 
-  /** 하나로마트. */
+  /**
+   * 하나로마트 — 온라인몰(nonghyupmall.com)과 오프라인 거래내역(nhhanaro.co.kr)이 서로 독립적인 데이터원이다.
+   *
+   * <p>하나로마트가 서비스를 개편해 <b>오프라인 거래내역을 별도 사이트로 분리</b>했다. 기존 수집기는 구 주소만 탐색하므로 오프라인을 영영 못 가져온다 — 셀렉터가
+   * 깨진 것이 아니라 대상이 옮겨 간 것이다. {@code SSG_GROUP} 과 같은 모양으로 한 몰에 수집기 둘을 둔다.
+   *
+   * <p><b>순서를 바꾸지 말 것.</b> 선언 순서대로 실행되고, {@code MallRegistryTest} 가 첫 자리를 {@code Hanaro} 로 고정한다.
+   */
   HANARO(
       3,
       "hanaro",
       "hanaro",
-      List.of(new CollectorSpec("Hanaro", Hanaro::new)),
+      // 이름을 문자열로 다시 적지 않는다 — 이 값은 jbg_order.collector 로 저장되고 다음 회차의
+      // 조회 시작일을 유도하는 키다. 두 곳에 따로 적으면 한쪽만 고쳐져도 컴파일은 통과하고,
+      // 그때 기준일이 늘 비어 매 회차 기본 범위를 통째로 훑는다.
+      List.of(
+          new CollectorSpec("Hanaro", Hanaro::new),
+          new CollectorSpec(HanaroOffline.COLLECTOR, HanaroOffline::new)),
       // 세션 주입 경로 미착수. OASIS 와 같은 이유다.
       List.of(),
       "Hanaro",

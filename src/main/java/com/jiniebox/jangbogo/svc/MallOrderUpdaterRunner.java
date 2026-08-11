@@ -121,6 +121,14 @@ public class MallOrderUpdaterRunner implements Runnable {
               String orderMallName =
                   order.has("mallname") ? order.get("mallname").asText().trim() : null;
 
+              // 어느 수집기가 가져온 주문인지. MallOrderUpdater.recordItems 가 새겨 준다.
+              // 이 값이 jbg_order.collector 가 되고, 다음 회차의 조회 시작일이 여기서 유도된다
+              // (CollectPeriod). 비어 있으면 그 수집기는 매 회차 기본 범위를 통째로 다시 훑는다.
+              String collector =
+                  order.has(MallOrderUpdater.COLLECTOR_KEY)
+                      ? order.get(MallOrderUpdater.COLLECTOR_KEY).asText().trim()
+                      : null;
+
               logger.debug(
                   "주문 처리 중 - serial: {}, datetime: {}, mallname: {}",
                   serial,
@@ -178,7 +186,12 @@ public class MallOrderUpdaterRunner implements Runnable {
                 // 주문 저장 (PreparedStatement 사용, SQL Injection 방지)
                 seqOrder =
                     joDao.addWithConnection(
-                        conn, serial, String.valueOf(dateTimeInt), orderMallName, this.seqMall);
+                        conn,
+                        serial,
+                        String.valueOf(dateTimeInt),
+                        orderMallName,
+                        this.seqMall,
+                        collector);
                 orderCount++;
 
                 // 신규 추가된 주문 seq 저장

@@ -22,6 +22,14 @@ public class MallOrderUpdater {
   private static final Logger logger = LogManager.getLogger(MallOrderUpdater.class);
 
   /**
+   * 수집 결과 각 주문에 출처 수집기를 새길 때 쓰는 키.
+   *
+   * <p>저장부가 같은 이름을 다시 적지 않도록 상수로 둔다 — 두 곳에 문자열을 따로 적으면 한쪽만 고쳐져도 컴파일은 통과하고, 그때 {@code
+   * jbg_order.collector} 가 조용히 비어 다음 회차 조회 범위가 통째로 넓어진다.
+   */
+  public static final String COLLECTOR_KEY = "collector";
+
+  /**
    * 한 쇼핑몰(seq)에 수집기가 여러 개 붙는 경우(seq=1 은 SSG + Emart), 일부만 실패한 사실.
    *
    * @param collector 수집기 이름 (SSG / Emart 등)
@@ -577,6 +585,29 @@ public class MallOrderUpdater {
     logger.info("{} 수집 완료 - {} 건", name, count);
     outcomes.add(new CollectOutcome(name, CollectOutcome.SUCCESS, null, null));
     recordBreaker(seqMall, name, CollectOutcome.SUCCESS, null);
+    return stampCollector(name, items);
+  }
+
+  /**
+   * 각 주문에 <b>어느 수집기가 가져왔는지</b>를 새긴다.
+   *
+   * <p><b>여기가 유일한 자리다.</b> 수집기 이름과 그 결과가 만나는 지점은 이 메서드뿐이고, 바로 다음 단계에서 모든 수집기의 결과가 배열 하나로 합쳐지면서 출처가
+   * 사라진다. 저장부({@code MallOrderUpdaterRunner})는 합쳐진 배열만 보므로 거기서는 더 이상 알 수 없다.
+   *
+   * <p>이 값이 {@code jbg_order.collector} 가 되고, 다음 회차의 조회 시작일이 그것으로 유도된다. 새기지 않으면 최대 구매일 조회가 늘 비어 매
+   * 회차 기본 범위를 통째로 다시 훑는다 — 동작은 하므로 조용히 넘어간다.
+   *
+   * @param name 수집기 이름
+   * @param items 그 수집기가 가져온 주문들
+   * @return 같은 배열 (제자리에서 새긴다)
+   */
+  @SuppressWarnings("unchecked")
+  private JSONArray stampCollector(String name, JSONArray items) {
+    for (Object item : items) {
+      if (item instanceof JSONObject order) {
+        order.put(COLLECTOR_KEY, name);
+      }
+    }
     return items;
   }
 

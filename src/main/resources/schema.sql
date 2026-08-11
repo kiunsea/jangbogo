@@ -51,6 +51,16 @@ CREATE TABLE IF NOT EXISTS jbg_order (
   date_time INTEGER NOT NULL DEFAULT 0, -- 구매일자(YYYYMMDD)
   mall_name TEXT, -- 매장명
   seq_mall INTEGER NOT NULL,
+  -- 이 주문을 가져온 수집기 이름 (MallRegistry.CollectorSpec.name).
+  --
+  -- 한 몰에 수집기가 둘일 수 있어서(하나로 = 온라인 + 오프라인) seq_mall 만으로는 어느 쪽이
+  -- 넣은 행인지 알 수 없다. 그런데 기간 조회형 수집기는 "이 수집기가 마지막으로 저장한 구매일"
+  -- 부터 다시 조회해야 하므로 그 구분이 없으면, 온라인 주문이 최근이라는 이유로 오프라인 조회
+  -- 시작점이 밀려 그 사이 오프라인 거래를 영구히 놓친다 (CollectPeriod javadoc 참조).
+  --
+  -- 기존 행은 NULL 이다. 그 수집기는 처음 한 번 기본 조회 범위로 되돌아간다 — 겹쳐 가져올 뿐
+  -- 잃지 않는다.
+  collector TEXT,
   insert_time INTEGER -- 등록시간(millisecond)
 );
 
