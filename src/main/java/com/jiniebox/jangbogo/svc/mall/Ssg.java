@@ -337,13 +337,37 @@ public class Ssg extends MallSession implements PurchasedCollector {
    */
   private void setSearchDate(WebDriver driver, JavascriptExecutor js, By field, String value) {
     WebElement input = driver.findElement(field);
-    js.executeScript(
-        "arguments[0].value = arguments[1];"
-            + "arguments[0].dispatchEvent(new Event('input', {bubbles: true}));"
-            + "arguments[0].dispatchEvent(new Event('change', {bubbles: true}));",
-        input,
-        value);
+    js.executeScript(SET_DATE_SCRIPT, input, value);
   }
+
+  /**
+   * 날짜 칸에 값을 넣고 변경을 알리는 스크립트.
+   *
+   * <h2>{@code new Event(...)} 를 쓰지 않는 이유 — 실사이트에서 터졌다</h2>
+   *
+   * <p>처음에는 표준 생성자를 썼고, 2026-08-12 실계정 실행이 이렇게 죽었다.
+   *
+   * <pre>
+   * JavascriptException: javascript error: Event is not a constructor (chrome=151.0.7922.76)
+   * </pre>
+   *
+   * <p>브라우저가 낡아서가 아니다 — <b>이 페이지가 전역 {@code Event} 를 자기 것으로 덮어썼다.</b> 옛 스크립트에 흔한 형태이고, 그 순간 표준 생성자는
+   * 이 문서 안에서 존재하지 않는 것이 된다. 즉 문법은 옳은데 <b>이 사이트에서만</b> 죽는다.
+   *
+   * <p>그래서 전역에 기대지 않는 {@code document.createEvent} 로만 만든다. 폐기 예정 API 지만 모든 브라우저가 아직 지원하고, <b>페이지가
+   * 무엇을 덮어쓰든 영향을 받지 않는다</b>는 점이 여기서는 결정적이다.
+   *
+   * <p>{@code input} 과 {@code change} 를 둘 다 쏜다 — 이 화면의 조회가 어느 쪽을 듣는지는 실측하지 못했고, 둘 다 쏘는 쪽이 안전하다.
+   */
+  private static final String SET_DATE_SCRIPT =
+      "var el = arguments[0];"
+          + "el.value = arguments[1];"
+          + "var types = ['input', 'change'];"
+          + "for (var i = 0; i < types.length; i++) {"
+          + "  var ev = document.createEvent('HTMLEvents');"
+          + "  ev.initEvent(types[i], true, false);"
+          + "  el.dispatchEvent(ev);"
+          + "}";
 
   /**
    * 조회 뒤에도 우리가 넣은 구간이 칸에 남아 있는지 본다. 어긋나면 경고만 남기고 계속 간다.

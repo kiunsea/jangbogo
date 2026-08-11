@@ -156,6 +156,21 @@ class SsgPeriodWiringTest {
   }
 
   @Test
+  @DisplayName("변경 이벤트를 전역 Event 생성자로 만들지 않는다")
+  void itDoesNotDependOnTheGlobalEventConstructor() throws IOException {
+    // 2026-08-12 실계정 실행이 여기서 죽었다:
+    //   JavascriptException: javascript error: Event is not a constructor
+    //
+    // 브라우저가 낡아서가 아니라 이 페이지가 전역 Event 를 자기 것으로 덮어썼기 때문이다.
+    // 문법은 옳은데 이 사이트에서만 죽는 형태라, 단위테스트로는 원리상 드러나지 않는다.
+    // 그래서 '무엇을 쓰지 않는가' 를 소스에 고정한다.
+    String source = sourceWithoutComments();
+
+    assertFalse(source.contains("new Event("), "전역 Event 생성자에 기댄다 — 이 페이지에서 덮여 있어 실행 중 죽는다.");
+    assertTrue(source.contains("document.createEvent("), "전역에 기대지 않는 이벤트 생성 경로가 없다.");
+  }
+
+  @Test
   @DisplayName("조회 시작일 유도에 자기 수집기 이름을 넘긴다")
   void itDerivesTheWatermarkWithItsOwnName() throws IOException {
     // contains("COLLECTOR") 만 보면 상수 선언만으로 만족된다. 호출에 실제로 넘기는지를 본다.
