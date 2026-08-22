@@ -2,6 +2,7 @@ package com.jiniebox.jangbogo.boot;
 
 import com.jiniebox.jangbogo.dao.JbgMallDataAccessObject;
 import com.jiniebox.jangbogo.dao.SchemaMigrator;
+import com.jiniebox.jangbogo.svc.ExportPathMigrationService;
 import com.jiniebox.jangbogo.svc.MallSchedulerService;
 import com.jiniebox.jangbogo.svc.util.ExecutionContextDetector;
 import com.jiniebox.jangbogo.svc.util.ScreenshotUtil;
@@ -23,6 +24,15 @@ public class StartupTasks {
   private static final Logger logger = LogManager.getLogger(StartupTasks.class);
 
   @Autowired private MallSchedulerService mallSchedulerService;
+
+  /**
+   * 내보내기 경로 점검. 이관된 DB 를 들고 왔을 때 다른 장비의 절대경로를 되잡는다.
+   *
+   * <p>주입이 아니라 필드인 것은 아래 테스트용 생성자 때문이다. 그 생성자로 만든 인스턴스에서는 null 이므로 {@code onApplicationReady} 에서
+   * null 을 확인하고 건너뛴다.
+   */
+  @Autowired(required = false)
+  private ExportPathMigrationService exportPathMigrationService;
 
   /**
    * 몰 목록 공급자. 운영에서는 DAO 를 그대로 부른다.
@@ -100,6 +110,17 @@ public class StartupTasks {
       //    CREATE TABLE 을 자바 문자열로 복제해 두고 있었다. 복제본은 원본과 어긋나기 마련이다.
       //    이제 SchemaMigrator 가 schema.sql 을 직접 읽어 대조하므로 선언은 한 곳뿐이다. (Phase 3-10)
       SchemaMigrator.ensureMigrated();
+
+      // 0-1. 내보내기 경로가 이 장비 것인지 확인한다.
+      //
+      //      스키마와 같은 이유로 수집 가드 밖에 둔다. 수집을 꺼 두어도 사람이 관리 화면에서
+      //      직접 내보낼 수 있고, 그 자리 역시 같은 save_path 를 쓴다.
+      //
+      //      1회 수집보다 먼저 도는 것이 중요하다. ExportService 는 저장 직전에 mkdirs 를
+      //      부르므로, 수집이 한 번이라도 성공하면 잘못된 경로가 이미 만들어져 있다.
+      if (exportPathMigrationService != null) {
+        exportPathMigrationService.migrateIfNeeded();
+      }
 
       if (startupCollectEnabled) {
         // 1. 스케줄링 대상 쇼핑몰에 대해 1회 수집 실행
