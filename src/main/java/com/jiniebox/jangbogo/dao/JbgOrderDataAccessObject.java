@@ -2,6 +2,7 @@ package com.jiniebox.jangbogo.dao;
 
 import com.jiniebox.jangbogo.util.ExceptionUtil;
 import com.jiniebox.jangbogo.util.LogMask;
+import com.jiniebox.jangbogo.util.OrderSerialNormalizer;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.List;
@@ -45,6 +46,11 @@ public class JbgOrderDataAccessObject extends CommonDataAccessObject {
     // 그 자리는 그대로 SQL 주입 지점이 된다.
     String query =
         "INSERT INTO jbg_order (serial_num, date_time, mall_name, seq_mall) VALUES (?, ?, ?, ?)";
+
+    // 주문번호는 표기를 맞춰 저장한다 — 수집기가 꼬리표·괄호째 넘겨도 테이블에는 한 가지 모양만
+    // 남는다. 견주는 쪽(getOrder)도 같은 규칙이다.
+    String serialVal = OrderSerialNormalizer.normalize(serialNum);
+
     log.debug(
         "LOCALDB-QUERY------------------------------------------------------------------------------");
     log.debug(query);
@@ -57,12 +63,12 @@ public class JbgOrderDataAccessObject extends CommonDataAccessObject {
       // 값은 싣지 않는다 — 이 파일의 다른 두 자리가 같은 이유로 이미 값을 뺐다(135·433행).
       log.info(
           "주문 등록 시도 - serial: {}, datetime: {}, mallName: {}, seqMall: {}",
-          LogMask.shape(serialNum),
+          LogMask.shape(serialVal),
           LogMask.shape(dateTime),
           LogMask.name(mallName),
           seqMall);
 
-      conn.txPstmtExecuteUpdate(query, serialNum, dateTime, mallName, seqMall);
+      conn.txPstmtExecuteUpdate(query, serialVal, dateTime, mallName, seqMall);
 
       // SQLite에서는 last_insert_rowid() 사용
       ResultSet rset = conn.executeQuery("SELECT last_insert_rowid() id");
@@ -169,25 +175,28 @@ public class JbgOrderDataAccessObject extends CommonDataAccessObject {
         "INSERT INTO jbg_order (serial_num, date_time, mall_name, seq_mall, collector)"
             + " VALUES (?, ?, ?, ?, ?)";
 
+    // 주문번호는 표기를 맞춰 저장한다 — add(...) 와 같은 규칙. 두 INSERT 가 갈라지면 한쪽만 깨끗해진다.
+    String serialVal = OrderSerialNormalizer.normalize(serialNum);
+
     log.debug(
         "LOCALDB-QUERY------------------------------------------------------------------------------");
     log.debug(
         "{} [serialNum={}, dateTime={}, mallName={}, seqMall={}]",
         query,
-        LogMask.shape(serialNum),
+        LogMask.shape(serialVal),
         LogMask.shape(dateTime),
         LogMask.name(mallName),
         seqMall);
 
     log.info(
         "주문 등록 시도 (트랜잭션 내) - serial: {}, datetime: {}, mallName: {}, seqMall: {}",
-        LogMask.shape(serialNum),
+        LogMask.shape(serialVal),
         LogMask.shape(dateTime),
         LogMask.name(mallName),
         seqMall);
 
     // PreparedStatement로 실행
-    conn.txPstmtExecuteUpdate(query, serialNum, dateTime, mallName, seqMall, collector);
+    conn.txPstmtExecuteUpdate(query, serialVal, dateTime, mallName, seqMall, collector);
 
     // SQLite에서는 last_insert_rowid() 사용
     ResultSet rset = conn.executeQuery("SELECT last_insert_rowid() id");
@@ -406,12 +415,16 @@ public class JbgOrderDataAccessObject extends CommonDataAccessObject {
   }
 
   /**
-   * 구매정보를 조회
+   * 구매정보를 조회 — 같은 구매일에 같은 주문번호의 주문이 있는지.
    *
    * <p><b>수집 경로가 매 회차 부르는 살아 있는 조회다.</b> 중복 방지 판정({@code MallOrderUpdaterRunner}, {@code
    * svc.mall.Hanaro})이 여기로 들어온다. 그리고 넘어오는 {@code serialNum} 은 <b>페이지 텍스트에서 합성한 영수증 번호</b>라 숫자 필터를
-   * 거치지 않는다 — 이 자리는 "외부 입력 경로는 이미 다 막았다" 는 판단에서 빠져 있었고, 실제로는 값을 그대로 WHERE 절에 이어 붙이고 있었다. 따옴표 하나면
-   * 조회가 깨지고, 깨진 조회는 중복 판정을 무너뜨려 같은 주문을 다시 쌓는다.
+   * 거치지 않는다.
+   *
+   * <p>주문번호는 <b>양쪽 다</b> {@link OrderSerialNormalizer} 로 표기를 맞춘 뒤 견준다. 저장된 쪽도 정규화하므로, 이 수정 전에
+   * {@code 주문번호 : } 꼬리표째 저장된 행도 다음 회차의 깨끗한 값과 같은 주문으로 맞닿는다 — 파서만 고치고 여기를 두면 그 행들이 이쪽 DB 에 한 번 더
+   * 쌓이고, 그대로 수신측으로 다시 나간다. 그래서 WHERE 는 구매일자로만 좁히고 주문번호 비교는 자바에서 한다. 주문번호가 SQL 에 아예 들어가지 않으니 이어 붙일
+   * 자리도 없다. 하루치 주문은 몇 건이라 비용은 없다.
    *
    * <p>{@code dateTime} 은 문자열 그대로 바인딩한다. {@code date_time} 은 INTEGER 컬럼이라 SQLite 가 비교 시 숫자 친화도를 적용해
    * 예전 동작과 같은 결과를 낸다. 여기서 미리 파싱하지 <b>않는</b> 이유는 호출부가 정규화 전 원본 문자열을 넘기기 때문이다 — 파싱을 끼우면 중복 판정 기준이 조용히
@@ -420,33 +433,41 @@ public class JbgOrderDataAccessObject extends CommonDataAccessObject {
    * @param serialNum 필수
    * @param dateTime 필수 (YYYYMMDD 형식 문자열)
    * @param seqUser 옵션 (null 가능, 현재 schema에는 seq_user 컬럼이 없지만 호환성을 위해 유지)
-   * @return 주문 정보 (seq, seq_mall 포함)
+   * @return 같은 주문이 있으면 (seq, seq_mall), 없으면 null
    * @throws Exception
    */
   public JSONObject getOrder(String serialNum, String dateTime, String seqUser) throws Exception {
 
+    String wanted = OrderSerialNormalizer.normalize(serialNum);
+    if (wanted == null) {
+      return null;
+    }
+
     LocalDBConnection conn = null;
     try {
       conn = new LocalDBConnection();
-      // seq_user 컬럼이 schema에 없으므로 조건에서 제외
-      String query = "SELECT seq, seq_mall FROM jbg_order WHERE serial_num=? AND date_time=?";
+      // seq_user 컬럼이 schema에 없으므로 조건에서 제외. 같은 날의 주문을 가장 오래된 것부터 본다 —
+      // 같은 주문이 여러 행이면(정규화 이전에 쌓인 것) 첫 행이 기준이다.
+      String query =
+          "SELECT seq, seq_mall, serial_num FROM jbg_order WHERE date_time=? ORDER BY seq";
       log.debug(
           "LOCALDB-QUERY------------------------------------------------------------------------------");
       // 값은 로그에 싣지 않는다. 예전에는 조립된 쿼리를 찍어 영수증 번호와 구매일자가 그대로 로그에 남았다.
       log.debug(query);
-      ResultSet rset = conn.executeQuery(query, serialNum, dateTime);
+      ResultSet rset = conn.executeQuery(query, dateTime);
 
-      JSONObject jsonObj = null;
-      if (rset != null) {
-        if (rset.next()) {
-          jsonObj = new JSONObject();
-          jsonObj.put("seq", rset.getInt("seq"));
-          jsonObj.put("seq_mall", rset.getInt("seq_mall"));
-        }
-        return jsonObj;
-      } else {
+      if (rset == null) {
         return null;
       }
+      while (rset.next()) {
+        if (wanted.equals(OrderSerialNormalizer.normalize(rset.getString("serial_num")))) {
+          JSONObject jsonObj = new JSONObject();
+          jsonObj.put("seq", rset.getInt("seq"));
+          jsonObj.put("seq_mall", rset.getInt("seq_mall"));
+          return jsonObj;
+        }
+      }
+      return null;
     } catch (Exception e) {
       log.error("* 프로그램 수행중 에러 발생");
       log.error(ExceptionUtil.getExceptionInfo(e));

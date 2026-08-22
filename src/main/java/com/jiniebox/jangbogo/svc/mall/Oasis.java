@@ -7,6 +7,7 @@ import com.jiniebox.jangbogo.svc.util.CollectStep;
 import com.jiniebox.jangbogo.svc.util.WebDriverManager;
 import com.jiniebox.jangbogo.util.JinieboxUtil;
 import com.jiniebox.jangbogo.util.LogMask;
+import com.jiniebox.jangbogo.util.OrderSerialNormalizer;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
@@ -252,8 +253,9 @@ public class Oasis extends MallSession implements PurchasedCollector {
   /**
    * 주문 목록의 한 행에서 주문 식별 정보를 뽑는다.
    *
-   * <p>오아시스는 주문번호를 {@code (2026-0729-1234)} 처럼 괄호로 감싸 렌더링한다. 괄호를 벗겨 낸 값이 수신측 계약의 {@code serial} 이
-   * 된다.
+   * <p>주문번호 칸의 표기는 바뀌어 왔다 — 한때 {@code (2026-0729-1234)} 처럼 괄호로 감쌌고, 2026-08 실측에서는 {@code 주문번호 :
+   * 00-…} 처럼 꼬리표가 붙어 온다. 괄호만 벗기던 시절에는 꼬리표가 그대로 {@code serial} 이 되어 저장·전송됐고, 수신측에서 같은 주문이 두 번 저장됐다.
+   * 꼬리표와 괄호를 벗긴 주문번호만이 수신측 계약의 {@code serial} 이다 ({@link OrderSerialNormalizer}).
    *
    * @param orderDiv 주문 목록의 한 행 ({@code div.mypageOrderstatus})
    * @return {@code serial}, {@code mallname} 이 담긴 JSON
@@ -263,11 +265,7 @@ public class Oasis extends MallSession implements PurchasedCollector {
     JSONObject orderJson = new JSONObject();
 
     WebElement orderNum = orderDiv.findElement(By.cssSelector("div.orderBoxInfo > div > span"));
-    String serial = orderNum.getText();
-    if ((serial.length() > 2) && (serial.indexOf('(') > -1)) {
-      serial = serial.trim();
-      serial = serial.substring(1, serial.length() - 1);
-    }
+    String serial = OrderSerialNormalizer.normalize(orderNum.getText());
     orderJson.put("serial", serial);
     // 값은 싣지 않는다 — 주문번호가 그대로 남는다. 형식만으로 파싱 이상은 드러난다.
     log.debug("주문 시리얼: {}", LogMask.shape(serial));

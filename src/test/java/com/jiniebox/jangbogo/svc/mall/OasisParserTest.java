@@ -89,6 +89,24 @@ class OasisParserTest {
   }
 
   @Test
+  @DisplayName("'주문번호 : ' 꼬리표를 벗겨 serial 로 쓴다 — 2026-08 실측 표기")
+  void stripsLeadingLabelFromSerial() {
+    // 실측: 주문번호 칸이 "주문번호 : 00-…" 로 온다. 괄호만 벗기던 때는 이 값이 그대로 serial 이 되어
+    // SQLite 와 FTP 페이로드에 실렸고, 수신측에서 같은 주문이 두 번 저장됐다. 주문번호는 합성이다.
+    JSONObject order = oasis.parseOrderSummary(orderRow("주문번호 : 00-1234567890-12345-1234"));
+
+    assertEquals("00-1234567890-12345-1234", order.get("serial"));
+  }
+
+  @Test
+  @DisplayName("꼬리표와 괄호가 함께 있어도 주문번호만 남긴다")
+  void stripsLabelAndParenthesesTogether() {
+    JSONObject order = oasis.parseOrderSummary(orderRow("주문번호 : (2026-0729-1234)"));
+
+    assertEquals("2026-0729-1234", order.get("serial"));
+  }
+
+  @Test
   @DisplayName("괄호 없는 주문번호는 그대로 둔다")
   void keepsSerialWithoutParentheses() {
     JSONObject order = oasis.parseOrderSummary(orderRow("20260729ABCD"));

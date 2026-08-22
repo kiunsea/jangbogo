@@ -292,15 +292,23 @@ class SecurityHardeningTest {
   }
 
   @Test
-  @DisplayName("영수증 번호 중복 조회는 바인딩 파라미터로 한다")
-  void receiptLookupBindsSerialNumber() throws Exception {
+  @DisplayName("영수증 번호 중복 조회는 주문번호를 SQL 에 넣지 않고 표기를 맞춰 견준다")
+  void receiptLookupComparesNormalizedSerialOutsideSql() throws Exception {
     // getOrder 는 죽은 코드가 아니다 — MallOrderUpdaterRunner 와 svc.mall.Hanaro 가 중복 방지
     // 판정으로 매 회차 부른다. 조회가 깨지면 "이미 있는 주문"을 못 찾아 같은 주문이 다시 쌓인다.
-    // 형태를 못 박아 둔다: 조립으로 되돌아가면 여기서 걸린다.
+    //
+    // 한때는 serial_num=? 바인딩을 못 박았다. 지금은 주문번호가 SQL 에 아예 들어가지 않는다 —
+    // 구매일자만 바인딩해 좁히고, 저장된 값과 들어온 값을 OrderSerialNormalizer 로 표기를 맞춘 뒤
+    // 자바에서 견준다. 그래야 '주문번호 : ' 꼬리표째 저장된 행과도 같은 주문으로 맞닿는다.
+    // 형태를 못 박아 둔다: 조립으로 되돌아가거나 정규화를 빼면 여기서 걸린다.
     String code = codeOf(DAO_DIR.resolve("JbgOrderDataAccessObject.java"));
 
-    assertTrue(code.contains("serial_num=?"), "getOrder 가 serial_num 을 바인딩하지 않는다.");
+    assertTrue(code.contains("WHERE date_time=?"), "getOrder 가 구매일자를 바인딩하지 않는다.");
     assertFalse(code.contains("serial_num='"), "getOrder 가 영수증 번호를 WHERE 절에 이어 붙인다.");
+    assertFalse(code.contains("serial_num=?"), "getOrder 가 주문번호를 문자열 그대로 견준다 — 표기만 다른 같은 주문을 놓친다.");
+    assertTrue(
+        code.contains("OrderSerialNormalizer.normalize(rset.getString(\"serial_num\"))"),
+        "getOrder 가 저장된 주문번호를 정규화하지 않고 견준다.");
   }
 
   @Test
