@@ -16,6 +16,8 @@ import com.jiniebox.jangbogo.svc.MallCollectOutcome;
 import com.jiniebox.jangbogo.svc.MallCredentials;
 import com.jiniebox.jangbogo.svc.util.CollectHealthPolicy;
 import com.jiniebox.jangbogo.svc.util.CollectTrigger;
+import com.jiniebox.jangbogo.svc.util.FtpEncryptionGate;
+import com.jiniebox.jangbogo.svc.util.FtpPendingQueue;
 import com.jiniebox.jangbogo.svc.util.SessionProfilePolicy;
 import com.jiniebox.jangbogo.sys.EnvSYS;
 import com.jiniebox.jangbogo.sys.SessionConstants;
@@ -1332,54 +1334,89 @@ public class AdminController {
                 if (!ftpAddress.isEmpty() && !ftpId.isEmpty() && !ftpPass.isEmpty()) {
                   String fileToUpload = ftpReadyFile;
                   boolean fileEncrypted = false;
+                  boolean uploadSuccess = false;
+                  // 상태 파일은 "신규 없음" 하트비트라 뒤늦게 보내면 수신측 시각을 오도한다. 큐에 넣지 않는다.
+                  boolean hasNewOrders = !allNewOrderSeqs.isEmpty();
+
+                  // 무엇이 실제로 회선에 실리는지는 관문이 정한다. 스케줄 수집 경로와 같은 규칙이다.
+                  final String gateFtpAddress = ftpAddress;
+                  final String gateFtpId = ftpId;
+                  final String gateFtpPass = ftpPass;
+                  FtpEncryptionGate gate = new FtpEncryptionGate(ftpEncryptEnabled, publicKey);
+                  FtpPendingQueue pendingQueue = new FtpPendingQueue(savePath);
+
+                  // 지난 회차에 보류된 것부터 재전송한다. 이 경로에도 큐를 물려 둔 것은,
+                  // 스케줄러를 꺼 두고 수동 자동수집만 쓰는 설정에서 보류분이 영영 나가지 못하기 때문이다.
+                  pendingQueue.drain(
+                      file -> {
+                        FtpEncryptionGate.Prepared pendingPrepared =
+                            gate.prepare(file.getAbsolutePath());
+                        if (pendingPrepared.isRefused()) {
+                          logger.warn("보류분 재전송 중단 - {}", pendingPrepared.getReason());
+                          return false;
+                        }
+                        String resendPath = pendingPrepared.getFileToUpload();
+                        try {
+                          boolean resent =
+                              com.jiniebox.jangbogo.util.FtpUploadUtil.uploadFile(
+                                  gateFtpAddress, gateFtpId, gateFtpPass, resendPath);
+                          if (resent) {
+                            exportService.recordFtpUpload();
+                          }
+                          return resent;
+                        } finally {
+                          if (!file.getAbsolutePath().equals(resendPath)) {
+                            deleteTempFileSafely(resendPath, "보류분 암호화 임시 파일", 3);
+                          }
+                        }
+                      });
 
                   try {
-                    if (ftpEncryptEnabled) {
-                      if (!publicKey.isEmpty()) {
-                        String encryptedFilePath = ftpReadyFile + ".encrypted";
-                        logger.info("자동 FTP 업로드를 위한 파일 암호화 시작");
+                    FtpEncryptionGate.Prepared prepared = gate.prepare(ftpReadyFile);
 
-                        boolean encryptSuccess =
-                            com.jiniebox.jangbogo.util.security.RsaFileEncryption.encryptFile(
-                                ftpReadyFile, encryptedFilePath, publicKey);
-
-                        if (encryptSuccess) {
-                          fileToUpload = encryptedFilePath;
-                          fileEncrypted = true;
-                          logger.info("자동 FTP 업로드용 암호화 완료: {}", encryptedFilePath);
-                        } else {
-                          logger.warn("자동 FTP 업로드용 파일 암호화 실패 - 평문 업로드 진행");
-                        }
-                      } else {
-                        logger.warn("FTP 암호화가 활성화되어 있으나 Public Key가 없습니다. 평문으로 업로드합니다.");
-                      }
-                    } else {
-                      logger.info("자동 FTP 업로드: 암호화 비활성화 상태(평문 업로드)");
-                    }
-
-                    boolean uploadSuccess =
-                        com.jiniebox.jangbogo.util.FtpUploadUtil.uploadFile(
-                            ftpAddress, ftpId, ftpPass, fileToUpload);
-
-                    if (uploadSuccess) {
-                      response.put("autoFtpUploaded", true);
-                      response.put("autoFtpEncrypted", fileEncrypted);
-                      logger.info("자동 FTP 업로드 완료 - 서버: {}, 암호화: {}", ftpAddress, fileEncrypted);
-                      exportService.recordFtpUpload();
-                    } else {
+                    if (prepared.isRefused()) {
+                      // 평문으로 강등해 보내지 않는다. 예전에는 여기서 경고만 남기고 그대로 보냈고,
+                      // 응답은 autoFtpUploaded=true / autoFtpEncrypted=false 로 성공이라 보고했다.
                       response.put("autoFtpUploaded", false);
-                      response.put("autoFtpError", "FTP 업로드에 실패했습니다.");
-                      logger.warn("자동 FTP 업로드 실패 - 서버: {}", ftpAddress);
-                    }
+                      response.put("autoFtpEncrypted", false);
+                      response.put("autoFtpError", prepared.getReason());
+                      logger.error("자동 FTP 업로드를 중단했습니다 - {}", prepared.getReason());
+                    } else {
+                      fileToUpload = prepared.getFileToUpload();
+                      fileEncrypted = prepared.isEncrypted();
+                      if (fileEncrypted) {
+                        logger.info("자동 FTP 업로드용 암호화 완료: {}", fileToUpload);
+                      }
 
+                      uploadSuccess =
+                          com.jiniebox.jangbogo.util.FtpUploadUtil.uploadFile(
+                              gateFtpAddress, gateFtpId, gateFtpPass, fileToUpload);
+
+                      if (uploadSuccess) {
+                        response.put("autoFtpUploaded", true);
+                        response.put("autoFtpEncrypted", fileEncrypted);
+                        logger.info("자동 FTP 업로드 완료 - 서버: {}, 암호화: {}", ftpAddress, fileEncrypted);
+                        exportService.recordFtpUpload();
+                      } else {
+                        response.put("autoFtpUploaded", false);
+                        response.put("autoFtpEncrypted", fileEncrypted);
+                        response.put("autoFtpError", "FTP 업로드에 실패했습니다.");
+                        logger.warn("자동 FTP 업로드 실패 - 서버: {}", ftpAddress);
+                      }
+                    }
                   } catch (Exception ftpUploadEx) {
                     response.put("autoFtpUploaded", false);
                     response.put("autoFtpError", ftpUploadEx.getMessage());
                     logger.warn("자동 FTP 업로드 중 오류 발생: {}", ftpUploadEx.getMessage(), ftpUploadEx);
                   } finally {
-                    // 임시 파일 삭제 (재시도 로직 포함)
-                    if (fileEncrypted) {
-                      deleteTempFileSafely(fileToUpload, "암호화 임시 파일", 3);
+                    // 신규 주문분이 전송되지 못했으면 지우지 않고 보류 큐에 넣는다. 내보내기가 증분이라
+                    // 여기서 지우면 그 주문들은 수신측에 영원히 도달하지 못한다. 관문이 거절한 경우도
+                    // 같다 — 그때 큐에 들어가는 것은 평문 원본이고, 다음 회차에 관문을 다시 통과한다.
+                    if (!uploadSuccess && hasNewOrders) {
+                      pendingQueue.enqueue(new java.io.File(fileToUpload));
+                    } else if (fileEncrypted || !uploadSuccess) {
+                      deleteTempFileSafely(
+                          fileToUpload, fileEncrypted ? "암호화 임시 파일" : "FTP 업로드용 임시 파일", 3);
                     }
                     if (ftpReadyFileGenerated
                         && ftpReadyFile != null
@@ -1875,70 +1912,64 @@ public class AdminController {
             // FTP 정보 검증
             if (!ftpAddress.isEmpty() && !ftpId.isEmpty() && !ftpPass.isEmpty()) {
 
-              String fileToUpload = filePath;
-              boolean fileEncrypted = false;
+              // 무엇이 실제로 회선에 실리는지는 관문이 정한다. 자동수집·스케줄 수집 경로와 같은 규칙이다.
+              FtpEncryptionGate gate = new FtpEncryptionGate(ftpEncryptEnabled, publicKey);
+              FtpEncryptionGate.Prepared prepared = gate.prepare(filePath);
 
-              if (ftpEncryptEnabled) {
-                // Public Key가 있으면 파일 암호화
-                if (!publicKey.isEmpty()) {
-                  try {
-                    String encryptedFilePath = filePath + ".encrypted";
-                    logger.info("파일 암호화 시작 - Public Key 사용");
-
-                    boolean encryptSuccess =
-                        com.jiniebox.jangbogo.util.security.RsaFileEncryption.encryptFile(
-                            filePath, encryptedFilePath, publicKey);
-
-                    if (encryptSuccess) {
-                      fileToUpload = encryptedFilePath;
-                      fileEncrypted = true;
-                      logger.info("파일 암호화 완료: {}", encryptedFilePath);
-                    } else {
-                      logger.warn("파일 암호화 실패 - 원본 파일 업로드");
-                    }
-                  } catch (Exception encEx) {
-                    logger.warn("파일 암호화 중 오류 - 원본 파일 업로드: {}", encEx.getMessage());
-                  }
-                } else {
-                  logger.warn("FTP 암호화가 활성화되어 있으나 Public Key가 없습니다. 평문으로 업로드합니다.");
-                }
-              } else {
-                logger.info("FTP 암호화 옵션이 비활성화되어 평문 파일을 업로드합니다.");
-              }
-
-              logger.info("FTP 업로드 시작 - 서버: {}, 파일: {}", ftpAddress, fileToUpload);
-
-              boolean uploadSuccess =
-                  com.jiniebox.jangbogo.util.FtpUploadUtil.uploadFile(
-                      ftpAddress, ftpId, ftpPass, fileToUpload);
-
-              if (uploadSuccess) {
-                String ftpMessage = "파일 저장 및 FTP 업로드가 완료되었습니다.";
-                if (fileEncrypted) {
-                  ftpMessage += " (암호화됨)";
-                }
-                response.put("message", ftpMessage);
-                response.put("ftpUploaded", true);
-                response.put("encrypted", fileEncrypted);
-                logger.info("FTP 업로드 완료 - 서버: {}, 암호화: {}", ftpAddress, fileEncrypted);
-                exportService.recordFtpUpload();
-              } else {
-                String ftpWarning = "파일은 저장되었으나 FTP 업로드에 실패했습니다.";
-                response.put("message", ftpWarning);
+              if (prepared.isRefused()) {
+                // 평문으로 강등해 보내지 않는다. 예전에는 경고만 남기고 원본을 그대로 올렸고,
+                // 응답은 ftpUploaded=true / encrypted=false 로 성공이라 보고했다.
+                //
+                // 이 경로의 산출물은 사용자가 방금 저장을 요청해 받은 파일이라 보류 큐로 옮기지 않는다.
+                // 옮기면 응답이 알려준 filePath 가 그 자리에서 사라지고, 증분이 아닌 전체 내보내기가
+                // 다음 회차에 통째로 재전송된다. 파일은 저장 경로에 그대로 남으므로 유실도 없다.
+                response.put("message", "파일은 저장되었으나 " + prepared.getReason());
                 response.put("ftpUploaded", false);
-                logger.warn("FTP 업로드 실패 - 서버: {}", ftpAddress);
-              }
+                response.put("encrypted", false);
+                response.put("ftpError", prepared.getReason());
+                logger.error("FTP 업로드를 중단했습니다 - {} (저장된 파일: {})", prepared.getReason(), filePath);
+              } else {
+                String fileToUpload = prepared.getFileToUpload();
+                boolean fileEncrypted = prepared.isEncrypted();
+                if (fileEncrypted) {
+                  logger.info("파일 암호화 완료: {}", fileToUpload);
+                }
 
-              // 암호화된 임시 파일 삭제
-              if (fileEncrypted) {
-                try {
-                  java.io.File encFile = new java.io.File(fileToUpload);
-                  if (encFile.exists()) {
-                    encFile.delete();
-                    logger.debug("암호화된 임시 파일 삭제: {}", fileToUpload);
+                logger.info("FTP 업로드 시작 - 서버: {}, 파일: {}", ftpAddress, fileToUpload);
+
+                boolean uploadSuccess =
+                    com.jiniebox.jangbogo.util.FtpUploadUtil.uploadFile(
+                        ftpAddress, ftpId, ftpPass, fileToUpload);
+
+                if (uploadSuccess) {
+                  String ftpMessage = "파일 저장 및 FTP 업로드가 완료되었습니다.";
+                  if (fileEncrypted) {
+                    ftpMessage += " (암호화됨)";
                   }
-                } catch (Exception delEx) {
-                  logger.warn("암호화된 임시 파일 삭제 실패: {}", delEx.getMessage());
+                  response.put("message", ftpMessage);
+                  response.put("ftpUploaded", true);
+                  response.put("encrypted", fileEncrypted);
+                  logger.info("FTP 업로드 완료 - 서버: {}, 암호화: {}", ftpAddress, fileEncrypted);
+                  exportService.recordFtpUpload();
+                } else {
+                  String ftpWarning = "파일은 저장되었으나 FTP 업로드에 실패했습니다.";
+                  response.put("message", ftpWarning);
+                  response.put("ftpUploaded", false);
+                  response.put("encrypted", fileEncrypted);
+                  logger.warn("FTP 업로드 실패 - 서버: {}", ftpAddress);
+                }
+
+                // 암호화된 임시 파일 삭제
+                if (fileEncrypted) {
+                  try {
+                    java.io.File encFile = new java.io.File(fileToUpload);
+                    if (encFile.exists()) {
+                      encFile.delete();
+                      logger.debug("암호화된 임시 파일 삭제: {}", fileToUpload);
+                    }
+                  } catch (Exception delEx) {
+                    logger.warn("암호화된 임시 파일 삭제 실패: {}", delEx.getMessage());
+                  }
                 }
               }
             } else {
