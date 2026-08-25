@@ -28,9 +28,21 @@ jobs:
       
     - name: Build with Gradle
       run: .\gradlew clean build --no-daemon
-      
+
     - name: Run tests
       run: .\gradlew test --no-daemon
+
+    # 배포 패키지까지 여기서 만들어 본다.
+    #
+    # 왜 필요한가: createJre·packageDist 는 release.yml 에서만 돌았다. 그래서 그 경로가
+    # 깨져도 태그를 밀기 전까지 아무도 모른다 — 실제로 그렇게 됐다. 래퍼를 8.14.3 → 9.6.1
+    # 로 올린 커밋(ac46e85)이 createJre 의 exec { } 를 죽였는데(Gradle 9 에서 Project.exec()
+    # 제거), 두 판이 지나도록 CI 는 계속 초록이었고 v0.22.0 태그를 밀고 나서야 터졌다.
+    #
+    # 태그를 미는 순간은 되돌리기가 가장 비싼 시점이다(태그 삭제·재생성). 그 전에
+    # 매 푸시에서 같은 명령을 밟아 둔다.
+    - name: Build distribution package (release path)
+      run: .\gradlew bootJar createJre packageDist --no-daemon
       
     # upload-artifact 는 v4 부터 한 워크플로 실행 안에서 같은 name 으로 두 번 올리면
     # 덮어쓰기가 아니라 그대로 실패한다(아티팩트가 불변이 됐다). 아래 두 스텝의 name 이
