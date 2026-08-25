@@ -38,7 +38,7 @@ repositories {
 }
 
 dependencies {
-    implementation 'nz.net.ultraq.thymeleaf:thymeleaf-layout-dialect:3.2.1'
+    implementation 'nz.net.ultraq.thymeleaf:thymeleaf-layout-dialect:4.0.1'
 
 	// Spring Boot Starters - Logback 제외하고 Log4j2 사용
 	implementation('org.springframework.boot:spring-boot-starter-thymeleaf') {
