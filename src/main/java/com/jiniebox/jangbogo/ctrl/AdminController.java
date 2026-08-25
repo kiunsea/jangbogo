@@ -1923,7 +1923,9 @@ public class AdminController {
                 // 이 경로의 산출물은 사용자가 방금 저장을 요청해 받은 파일이라 보류 큐로 옮기지 않는다.
                 // 옮기면 응답이 알려준 filePath 가 그 자리에서 사라지고, 증분이 아닌 전체 내보내기가
                 // 다음 회차에 통째로 재전송된다. 파일은 저장 경로에 그대로 남으므로 유실도 없다.
-                response.put("message", "파일은 저장되었으나 " + prepared.getReason());
+                // 사유 문장이 이미 "...켜져 있으나 ...전송하지 않았습니다" 라 역접을 품고 있다.
+                // 접두사에도 역접을 쓰면 한 문장에 '으나' 가 두 번 걸려 대비가 흐려진다.
+                response.put("message", "파일은 저장했습니다. " + prepared.getReason());
                 response.put("ftpUploaded", false);
                 response.put("encrypted", false);
                 response.put("ftpError", prepared.getReason());
