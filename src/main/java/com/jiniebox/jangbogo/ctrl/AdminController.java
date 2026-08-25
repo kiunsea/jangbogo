@@ -1349,8 +1349,14 @@ public class AdminController {
                   // 스케줄러를 꺼 두고 수동 자동수집만 쓰는 설정에서 보류분이 영영 나가지 못하기 때문이다.
                   pendingQueue.drain(
                       file -> {
+                        // 암호문은 큐 밖 스테이징에 만든다. 원본 옆에 만들면 정리 전에 프로세스가
+                        // 죽었을 때 다음 회차의 목록에 짐인 척 섞여 회차를 중간에 끊는다.
+                        java.io.File staged =
+                            new java.io.File(
+                                pendingQueue.getStagingDirectory(),
+                                file.getName() + FtpEncryptionGate.ENCRYPTED_SUFFIX);
                         FtpEncryptionGate.Prepared pendingPrepared =
-                            gate.prepare(file.getAbsolutePath());
+                            gate.prepare(file.getAbsolutePath(), staged.getAbsolutePath());
                         if (pendingPrepared.isRefused()) {
                           logger.warn("보류분 재전송 중단 - {}", pendingPrepared.getReason());
                           return false;

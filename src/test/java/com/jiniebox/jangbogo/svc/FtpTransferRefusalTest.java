@@ -169,9 +169,9 @@ class FtpTransferRefusalTest {
         "큐에 남아 있던 평문이 평문 그대로 나갔다 — 관문을 재전송에도 물려야 한다.");
     assertEquals(0, queue.size(), "재전송에 성공했는데 큐가 비워지지 않았다.");
     assertEquals(
-        0,
-        queue.getDirectory().listFiles().length,
-        "재전송용 암호화 임시본이 큐에 남았다 — 다음 회차에 같은 주문이 한 번 더 나간다.");
+        0, payloadCount(queue.getDirectory()), "재전송용 암호화 임시본이 큐에 남았다 — 다음 회차에 같은 주문이 한 번 더 나간다.");
+    assertEquals(
+        0, payloadCount(queue.getStagingDirectory()), "스테이징에 임시본이 남았다 — 회차가 끝났는데 정리되지 않았다.");
   }
 
   @Test
@@ -232,7 +232,12 @@ class FtpTransferRefusalTest {
   private int drain(FtpPendingQueue queue, FtpEncryptionGate gate, RecordingUploader uploader) {
     return queue.drain(
         file -> {
-          FtpEncryptionGate.Prepared prepared = gate.prepare(file.getAbsolutePath());
+          // 암호문은 큐 밖 스테이징에 만든다 — 호출부와 같은 자리다.
+          File staged =
+              new File(
+                  queue.getStagingDirectory(), file.getName() + FtpEncryptionGate.ENCRYPTED_SUFFIX);
+          FtpEncryptionGate.Prepared prepared =
+              gate.prepare(file.getAbsolutePath(), staged.getAbsolutePath());
           if (prepared.isRefused()) {
             return false;
           }
@@ -245,6 +250,12 @@ class FtpTransferRefusalTest {
             }
           }
         });
+  }
+
+  /** 짐만 센다. 점으로 시작하는 것은 큐 자신의 살림({@code .drain.lock}, {@code .staging})이다. */
+  private static long payloadCount(File dir) {
+    File[] found = dir.listFiles(f -> f.isFile() && !f.getName().startsWith("."));
+    return (found == null) ? 0 : found.length;
   }
 
   private File writeIncrement(String name) throws IOException {

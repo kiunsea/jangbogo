@@ -1082,7 +1082,15 @@ public class MallSchedulerService {
           file -> {
             // 보류분도 같은 관문을 통과한다. 거절 사유가 그대로면 이번에도 보내지 않고 큐에 남긴다.
             // 큐에는 평문이 들어갈 수 있다 — 암호화가 안 돼서 못 보낸 회차분이 그것이다.
-            FtpEncryptionGate.Prepared prepared = gate.prepare(file.getAbsolutePath());
+            //
+            // 암호문은 큐 밖 스테이징에 만든다. 원본 옆에 만들면 정리 전에 프로세스가 죽었을 때
+            // 다음 회차의 목록에 짐인 척 섞여 회차를 중간에 끊는다.
+            java.io.File staged =
+                new java.io.File(
+                    pendingQueue.getStagingDirectory(),
+                    file.getName() + FtpEncryptionGate.ENCRYPTED_SUFFIX);
+            FtpEncryptionGate.Prepared prepared =
+                gate.prepare(file.getAbsolutePath(), staged.getAbsolutePath());
             if (prepared.isRefused()) {
               logger.warn("쇼핑몰 seq={} 보류분 재전송 중단 - {}", seq, prepared.getReason());
               return false;
