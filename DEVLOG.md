@@ -10,6 +10,48 @@
 
 ## 주요 변경사항
 
+### [2026-08-25 18:35] 태그를 밀고 나서야 릴리스가 깨져 있는 걸 알았다
+
+**작업 개요**
+
+`createJre` 가 Gradle 9 에서 죽던 것을 고치고, 그 경로를 CI 가 매 푸시에 밟도록 `build.yml` 에 넣었다. 버전은 v0.22.0 그대로다(릴리스가 발행되기 전에 실패했으므로 태그만 다시 만든다).
+
+**발단 — v0.22.0 태그를 밀었더니 릴리스 워크플로가 실패했다**
+
+```
+> Task :createJre FAILED
+Execution failed for task ':createJre'.
+> Could not find method exec() for arguments [...] on task ':createJre' of type org.gradle.api.DefaultTask.
+```
+
+Gradle 9 에서 `Project.exec()` 가 제거됐다. 태스크 액션(`doLast`) 안의 `exec { }` 가 그것이다. 대체재는 주입받는 `ExecOperations` 이고, Groovy 빌드 스크립트에서는 인터페이스 하나를 두고 `objects.newInstance` 로 받아 온다.
+
+**언제부터 깨져 있었나 — 두 판 내내**
+
+래퍼를 8.14.3 → 9.6.1 로 올린 것은 `ac46e85`(dependabot PR #4)다. 그 뒤로 v0.21.0 · v0.21.1 · v0.22.0 세 판을 밀었고 **CI 는 매번 초록이었다.**
+
+`build.yml` 과 `ci.yml` 은 `clean build` 만 돈다. `createJre` 와 `packageDist` 는 `release.yml` 에서만 돈다. 그래서 배포 경로가 깨져도 **태그를 밀기 전까지 아무도 모른다.**
+
+이 저장소가 반복해서 겪은 형태 그대로다 — "가드는 살아 있는데 돌지 않아서 초록". 다만 이번엔 가드가 아니라 배포 경로 자체가 안 돌고 있었다.
+
+**왜 CI 에 넣었나**
+
+고치는 것만으로는 다음 범프에서 같은 일이 반복된다. dependabot 은 앞으로도 래퍼를 올릴 것이고, 그 PR 의 CI 는 여전히 초록일 것이다.
+
+**태그를 미는 순간은 되돌리기가 가장 비싼 시점이다.** 원격 태그를 지우고 다시 만들어야 하고, 그 사이 누군가 그 태그를 받아 갔으면 더 번거로워진다. 그 전에 매 푸시가 같은 명령(`bootJar createJre packageDist`)을 밟도록 `build.yml` 에 넣었다. 이번 판의 CI 가 그 스텝을 실제로 통과하는 것으로 검증된다.
+
+**로컬에서 먼저 확인했다**
+
+`./gradlew createJre` 단독으로 통과했고, 이어서 릴리스 워크플로와 같은 순서(`bootJar createJre packageDist`)를 돌려 ZIP 까지 만들어졌다 — 산출물 검사도 통과했다(엔트리 297개, 개인 데이터 없음).
+
+`clean` 은 붙이지 않았다. 로컬 `build/` 아래에는 배포본 인스턴스와 그 DB 가 섞여 있을 수 있고, 그것이 `build.gradle` 의 clean 가드가 있는 이유다. CI 는 매번 빈 작업공간이라 `clean` 을 그대로 둔다.
+
+**남은 것**
+
+`jlink` 가 `--compress=2` 를 두고 "deprecated" 경고를 낸다. 지금은 동작하므로 건드리지 않았다. 그리고 이 빌드 전체가 `Deprecated Gradle features were used ... incompatible with Gradle 10` 을 낸다 — `buildDir` 등이 남아 있다. Gradle 10 으로 올라갈 때 한 번에 볼 일이고, 그때는 이제 CI 가 배포 경로까지 밟으므로 태그 전에 드러난다.
+
+---
+
 ### [2026-08-25 16:40] 경고는 떴는데 그 경고를 따를 방법이 없었다 (v0.22.0)
 
 **작업 개요**

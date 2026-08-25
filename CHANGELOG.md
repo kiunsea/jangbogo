@@ -33,6 +33,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`JbgExportConfigDataAccessObject.updateEncryptedFtpPassword`** 를 새로 뒀습니다. 이전에 `updateConfig` 를 쓰지 않는 이유는 그것이 **전체 필드를 덮어쓰기** 때문입니다. 특히 `publicKey` 는 null 이면 빈 값으로 덮여 FTP 암호화가 통째로 깨집니다(v0.20.0 에서 겪었습니다). 키 이전은 이 한 칸만 건드려야 합니다.
 - `packaging/distribution/고급가이드.txt` 에 키 파일 절을 추가했습니다 — 지우면 안 되는 이유, 백업·장비 이전 시 함께 옮길 것, 직접 지정하는 방법, 그리고 이 키가 막는 것과 못 막는 것.
 
+### Fixed (빌드)
+
+- **릴리스 파이프라인이 Gradle 9 에서 깨져 있었습니다.** `createJre` 가 태스크 액션 안에서 `exec { }` 를 부르는데, Gradle 9 에서 `Project.exec()` 가 제거돼 `Could not find method exec()` 로 죽습니다. 주입받는 `ExecOperations` 로 바꿨습니다.
+  - 래퍼를 8.14.3 → 9.6.1 로 올린 커밋(`ac46e85`)에서 들어왔는데 **두 판이 지나도록 드러나지 않았습니다.** CI(`build.yml`·`ci.yml`)는 `clean build` 만 돌고 `createJre`·`packageDist` 는 릴리스 워크플로에서만 돌기 때문입니다. v0.22.0 태그를 밀고 나서야 처음 터졌습니다.
+  - **`build.yml` 에 배포 패키지 빌드를 넣어 그 사각지대를 없앴습니다.** 태그를 미는 순간은 되돌리기가 가장 비싼 시점(태그 삭제·재생성)이라, 그 전에 매 푸시가 같은 명령을 밟습니다.
+
 ### Added (테스트)
 
 - `CryptoKeyProvisioningTest`(9건) — 발급되는가, 발급된 키가 기본값을 이기는가, 있는 키를 덮어쓰지 않는가, 설치본마다 다른가, 기존 암호문이 **잃지 않고** 옮겨지는가, 이전이 끊겨도 되읽히는가.
