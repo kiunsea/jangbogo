@@ -52,6 +52,10 @@ src/test/resources/test_mall_account.yml
 ### Mall Account Files ###
 # 쇼핑몰 계정 정보 파일 (민감 정보 포함)
 config/mall_account.yml
+
+# 이 설치본 전용 암호화 키. 저장된 FTP 비밀번호가 이 값으로 잠겨 있다.
+# 커밋되면 공개 저장소에 키가 올라가 — 이 파일이 막으려던 바로 그 상태가 된다.
+config/jangbogo-crypto.key
 # 백업 폴더는 통째로 막는다. 파일명 패턴만 막으면 손으로 붙인 다른 이름(mall_account.bak.yml,
 # account-20251221.yml 등)이 그대로 빠져나가고, 여기 들어오는 것은 전부 자격증명 사본이다.
 config/backup/

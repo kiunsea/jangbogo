@@ -7,7 +7,7 @@ plugins {
 }
 
 group = 'com.jiniebox'
-version = '0.21.1'
+version = '0.22.0'
 description = '사용자 온라인/오프라인 구매 내역 수집기'
 
 java {
@@ -136,6 +136,13 @@ tasks.named('test') {
 	def screenshotDir = layout.buildDirectory.dir('test-screenshots').get().asFile
 	doFirst { screenshotDir.mkdirs() }
 	systemProperty 'jangbogo.screenshot.dir', screenshotDir.absolutePath.replace('\\', '/')
+
+	// 기동 태스크가 이 설치본 전용 암호화 키를 발급한다. @SpringBootTest 가 컨텍스트를 띄우면
+	// 그 경로를 그대로 밟으므로, 격리하지 않으면 개발 트리의 config/ 에 키 파일이 생긴다.
+	// (그 파일은 .gitignore 에 있지만, 테스트가 작업 트리를 건드리는 것 자체가 문제다.)
+	def cryptoKeyFile = new File(layout.buildDirectory.dir('test-crypto').get().asFile, 'jangbogo-crypto.key')
+	doFirst { cryptoKeyFile.parentFile.mkdirs() }
+	systemProperty 'jangbogo.crypto.key-file', cryptoKeyFile.absolutePath.replace('\\', '/')
 
 	// 소스 트리의 배치 스크립트와 빌드 스크립트를 test 의 입력으로 선언한다.
 	//
