@@ -1119,10 +1119,26 @@
 
                                         // 메시지 표시 (자동수집 완료 메시지만)
                                         let msg = resJson.message || '';
+
+                                        // jiniebox 전송 결과를 같은 알림에 붙인다. 알림을 따로 띄우지
+                                        // 않는 것은 수집 요약과 두 번 뜨면 한쪽을 닫고 지나치기 때문이다.
+                                        //
+                                        // 예전에는 이 응답의 autoFtp* 를 화면 어디서도 읽지 않았다.
+                                        // 전송이 거절되면 구매 이력이 수신측에 가지 않은 것인데,
+                                        // 사용자는 '자동수집 완료' 만 보고 서버 로그를 직접 열어야만
+                                        // 그 사실을 알 수 있었다.
+                                        if (resJson.autoFtpError) {
+                                            msg += (msg ? '\n\n' : '')
+                                                 + '⚠ jiniebox 전송 안 됨\n' + resJson.autoFtpError;
+                                        } else if (resJson.autoFtpUploaded === true) {
+                                            console.log('jiniebox 전송 완료 (암호화: '
+                                                + (resJson.autoFtpEncrypted === true) + ')');
+                                        }
+
                                         if (msg) {
                                             alert(msg);
                                         }
-                                        
+
                                         // 파일 자동저장 결과는 서버 로그로만 기록 (alert 안 함)
                                         if (resJson.autoSaved && resJson.exportedFile) {
                                             console.log('파일 자동저장 완료:', resJson.exportedFile);
@@ -1830,6 +1846,13 @@
                                         }
                                     } else if (values.saveToFTP === false) {
                                         msg += '\n\n📁 로컬 저장만 완료 (FTP 업로드 비활성화)';
+                                    } else {
+                                        // FTP 를 켜 뒀는데 안 올라간 경우. 예전에는 두 분기 모두 안 타서
+                                        // 저장 성공 메시지만 뜨고 전송이 왜 안 됐는지 알 길이 없었다.
+                                        // 암호화를 요구했는데 거절된 경우가 여기로 들어온다 —
+                                        // 그때 구매 이력은 수신측에 가지 않았고, 그 사실이 화면에 떠야 한다.
+                                        msg += '\n\n⚠ FTP 업로드 안 됨\n'
+                                             + (resJson.ftpError || 'FTP 업로드에 실패했습니다.');
                                     }
                                     
                                     alert(msg);
@@ -1910,7 +1933,13 @@
                                             message += '\n🔒 파일이 암호화되어 전송되었습니다.';
                                         }
                                     } else if (resJson.ftpUploaded === false) {
-                                        message += '\n\n⚠ FTP 업로드 실패 (파일은 로컬에 저장됨)';
+                                        message += '\n\n⚠ FTP 업로드 안 됨 (파일은 로컬에 저장됨)';
+                                        // 사유를 붙인다. '실패' 한 줄만으로는 서버가 죽은 것과
+                                        // 암호화가 거절된 것이 구별되지 않는데, 후자는 설정을
+                                        // 고쳐야 풀리므로 사람이 알아야 조치할 수 있다.
+                                        if (resJson.ftpError) {
+                                            message += '\n' + resJson.ftpError;
+                                        }
                                     }
                                     
                                     alert(message);

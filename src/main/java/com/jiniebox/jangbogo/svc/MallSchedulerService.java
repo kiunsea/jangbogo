@@ -7,6 +7,7 @@ import com.jiniebox.jangbogo.svc.mall.MallRegistry;
 import com.jiniebox.jangbogo.svc.util.CollectIntervalPolicy;
 import com.jiniebox.jangbogo.svc.util.CollectTrigger;
 import com.jiniebox.jangbogo.svc.util.ErrorSummary;
+import com.jiniebox.jangbogo.svc.util.FtpEncryptionGate;
 import com.jiniebox.jangbogo.svc.util.FtpPendingQueue;
 import com.jiniebox.jangbogo.svc.util.SessionProfileGate;
 import com.jiniebox.jangbogo.util.ExceptionUtil;
@@ -1072,19 +1073,38 @@ public class MallSchedulerService {
       String publicKey =
           exportConfig.get("public_key") != null ? exportConfig.get("public_key").toString() : "";
 
+      // 무엇이 실제로 회선에 실리는지는 관문이 정한다. 암호화를 켰는데 못 하면 보내지 않는다.
+      final FtpEncryptionGate gate = new FtpEncryptionGate(ftpEncryptEnabled, publicKey);
+
       // 1. 지난 회차에 실패해 보류된 것부터 재전송한다. 신규분보다 먼저 보내 순서를 지킨다.
       FtpPendingQueue pendingQueue = new FtpPendingQueue(savePath);
       pendingQueue.drain(
           file -> {
-            boolean resent =
-                com.jiniebox.jangbogo.util.FtpUploadUtil.uploadFile(
-                    ftpAddress, ftpId, ftpPass, file.getAbsolutePath());
-            if (resent) {
-              // 보류분 재전송도 실제 도달이다. 이걸 빼면 "밀린 것만 나가는" 기간 동안
-              // 마지막 전송 시각이 멈춰 보인다. (판단 대기 10)
-              exportService.recordFtpUpload();
+            // 보류분도 같은 관문을 통과한다. 거절 사유가 그대로면 이번에도 보내지 않고 큐에 남긴다.
+            // 큐에는 평문이 들어갈 수 있다 — 암호화가 안 돼서 못 보낸 회차분이 그것이다.
+            FtpEncryptionGate.Prepared prepared = gate.prepare(file.getAbsolutePath());
+            if (prepared.isRefused()) {
+              logger.warn("쇼핑몰 seq={} 보류분 재전송 중단 - {}", seq, prepared.getReason());
+              return false;
             }
-            return resent;
+
+            String resendPath = prepared.getFileToUpload();
+            try {
+              boolean resent =
+                  com.jiniebox.jangbogo.util.FtpUploadUtil.uploadFile(
+                      ftpAddress, ftpId, ftpPass, resendPath);
+              if (resent) {
+                // 보류분 재전송도 실제 도달이다. 이걸 빼면 "밀린 것만 나가는" 기간 동안
+                // 마지막 전송 시각이 멈춰 보인다. (판단 대기 10)
+                exportService.recordFtpUpload();
+              }
+              return resent;
+            } finally {
+              // 관문이 새로 만든 암호문은 임시본이다. 큐에는 원본이 남아 있어야 재시도가 이어진다.
+              if (!file.getAbsolutePath().equals(resendPath)) {
+                deleteTempFileSafely(resendPath, "보류분 암호화 임시 파일", 3);
+              }
+            }
           });
 
       // 2. 이번 회차 전송분 생성
@@ -1107,39 +1127,36 @@ public class MallSchedulerService {
       boolean uploadSuccess = false;
 
       try {
-        if (ftpEncryptEnabled && !publicKey.isEmpty()) {
-          String encryptedFilePath = ftpReadyFile + ".encrypted";
-          logger.info("쇼핑몰 seq={} FTP 업로드용 파일 암호화 시작", seq);
+        FtpEncryptionGate.Prepared prepared = gate.prepare(ftpReadyFile);
 
-          boolean encryptSuccess =
-              com.jiniebox.jangbogo.util.security.RsaFileEncryption.encryptFile(
-                  ftpReadyFile, encryptedFilePath, publicKey);
-
-          if (encryptSuccess) {
-            fileToUpload = encryptedFilePath;
-            fileEncrypted = true;
-            logger.info("쇼핑몰 seq={} FTP 업로드용 암호화 완료: {}", seq, encryptedFilePath);
-          } else {
-            logger.warn("쇼핑몰 seq={} FTP 업로드용 파일 암호화 실패 - 평문 업로드 진행", seq);
-          }
-        }
-
-        uploadSuccess =
-            com.jiniebox.jangbogo.util.FtpUploadUtil.uploadFile(
-                ftpAddress, ftpId, ftpPass, fileToUpload);
-
-        if (uploadSuccess) {
-          logger.info(
-              "쇼핑몰 seq={} 스케줄 수집 후 FTP 업로드 완료 - 서버: {}, 암호화: {}", seq, ftpAddress, fileEncrypted);
-          exportService.recordFtpUpload();
+        if (prepared.isRefused()) {
+          // 평문으로 강등해 보내지 않는다. 파일은 아래 finally 에서 보류 큐로 간다.
+          logger.error("쇼핑몰 seq={} 스케줄 수집 후 FTP 업로드를 중단했습니다 - {}", seq, prepared.getReason());
         } else {
-          logger.warn("쇼핑몰 seq={} 스케줄 수집 후 FTP 업로드 실패 - 서버: {}", seq, ftpAddress);
+          fileToUpload = prepared.getFileToUpload();
+          fileEncrypted = prepared.isEncrypted();
+          if (fileEncrypted) {
+            logger.info("쇼핑몰 seq={} FTP 업로드용 암호화 완료: {}", seq, fileToUpload);
+          }
+
+          uploadSuccess =
+              com.jiniebox.jangbogo.util.FtpUploadUtil.uploadFile(
+                  ftpAddress, ftpId, ftpPass, fileToUpload);
+
+          if (uploadSuccess) {
+            logger.info(
+                "쇼핑몰 seq={} 스케줄 수집 후 FTP 업로드 완료 - 서버: {}, 암호화: {}", seq, ftpAddress, fileEncrypted);
+            exportService.recordFtpUpload();
+          } else {
+            logger.warn("쇼핑몰 seq={} 스케줄 수집 후 FTP 업로드 실패 - 서버: {}", seq, ftpAddress);
+          }
         }
       } catch (Exception ftpUploadEx) {
         logger.error("쇼핑몰 seq={} FTP 업로드 중 오류: {}", seq, ftpUploadEx.getMessage(), ftpUploadEx);
       } finally {
         // 신규 주문분이 전송되지 못했으면 지우지 않고 보류 큐에 넣는다. 내보내기가 증분이라
-        // 여기서 지우면 그 주문들은 수신측에 영원히 도달하지 못한다.
+        // 여기서 지우면 그 주문들은 수신측에 영원히 도달하지 못한다. 관문이 거절해서 못 보낸 경우도
+        // 같다 — 그때 큐에 들어가는 것은 평문 원본이고, 다음 회차에 관문을 다시 통과한다.
         // 상태 파일은 "신규 없음" 하트비트라 뒤늦게 보내면 시각을 오도하므로 큐에 넣지 않는다.
         if (!uploadSuccess && hasNewOrders) {
           pendingQueue.enqueue(new java.io.File(fileToUpload));
