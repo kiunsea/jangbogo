@@ -5,6 +5,10 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
+import java.io.File;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -42,15 +46,66 @@ class PasswordEncryptorKeyTest {
   }
 
   @Test
-  @DisplayName("재정의가 없으면 기존 기본값을 쓴다 — 기존 암호문이 계속 복호화돼야 한다")
+  @DisplayName("재정의도 발급된 키도 없으면 기존 기본값으로 떨어진다 — 기존 암호문이 계속 복호화돼야 한다")
   void fallsBackToTheLegacyDefault() {
-    // 기본값을 바꾸면 이미 저장된 비밀번호를 못 읽는다. 이 값은 마이그레이션 전까지 고정이다.
+    // 기본값을 바꾸면 이미 저장된 비밀번호를 못 읽는다. 이 값은 고정이다.
+    //
+    // 이제 이 경로로 내려오는 것은 키를 발급하지 못한 설치본뿐이다. 발급이 정상인 경우의
+    // 계약은 CryptoKeyProvisioningTest 가 잰다. 여기서는 '있는 키 파일'을 일부러 치워
+    // 마지막 안전망만 본다 — 치우지 않으면 이 테스트가 다른 테스트의 발급 결과에 끌려간다.
     withProperty(
-        PasswordEncryptor.KEY_PROPERTY,
-        null,
+        CryptoKeyStore.KEY_FILE_PROPERTY,
+        new File(System.getProperty("java.io.tmpdir"), "jangbogo-absent-" + System.nanoTime())
+            .getAbsolutePath(),
         () ->
-            assertEquals(
-                "jangbogo2024SecretKeyForFtpPassword256bit", PasswordEncryptor.resolveKeySource()));
+            withProperty(
+                PasswordEncryptor.KEY_PROPERTY,
+                null,
+                () ->
+                    assertEquals(
+                        "jangbogo2024SecretKeyForFtpPassword256bit",
+                        PasswordEncryptor.resolveKeySource())));
+  }
+
+  @Test
+  @DisplayName("발급된 키가 있으면 공개 기본값보다 그것이 이긴다")
+  void aProvisionedKeyBeatsTheBuiltInDefault() throws IOException {
+    File keyFile =
+        File.createTempFile(
+            "jangbogo-crypto-", ".key", new File(System.getProperty("java.io.tmpdir")));
+    keyFile.deleteOnExit();
+    Files.writeString(keyFile.toPath(), "key=발급된키값\niv=발급된IV\n", StandardCharsets.UTF_8);
+
+    withProperty(
+        CryptoKeyStore.KEY_FILE_PROPERTY,
+        keyFile.getAbsolutePath(),
+        () ->
+            withProperty(
+                PasswordEncryptor.KEY_PROPERTY,
+                null,
+                () -> {
+                  assertEquals("발급된키값", PasswordEncryptor.resolveKeySource());
+                  assertEquals("발급된IV", PasswordEncryptor.resolveIvSource());
+                }));
+  }
+
+  @Test
+  @DisplayName("명시적 재정의는 발급된 키보다도 위다 — 되돌릴 수단이 밀리면 안 된다")
+  void anExplicitOverrideOutranksTheProvisionedKey() throws IOException {
+    File keyFile =
+        File.createTempFile(
+            "jangbogo-crypto-", ".key", new File(System.getProperty("java.io.tmpdir")));
+    keyFile.deleteOnExit();
+    Files.writeString(keyFile.toPath(), "key=발급된키값\n", StandardCharsets.UTF_8);
+
+    withProperty(
+        CryptoKeyStore.KEY_FILE_PROPERTY,
+        keyFile.getAbsolutePath(),
+        () ->
+            withProperty(
+                PasswordEncryptor.KEY_PROPERTY,
+                "명령줄로준키",
+                () -> assertEquals("명령줄로준키", PasswordEncryptor.resolveKeySource())));
   }
 
   @Test

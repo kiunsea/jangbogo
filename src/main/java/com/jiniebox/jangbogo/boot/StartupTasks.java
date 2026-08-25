@@ -1,5 +1,6 @@
 package com.jiniebox.jangbogo.boot;
 
+import com.jiniebox.jangbogo.dao.JbgExportConfigDataAccessObject;
 import com.jiniebox.jangbogo.dao.JbgMallDataAccessObject;
 import com.jiniebox.jangbogo.dao.SchemaMigrator;
 import com.jiniebox.jangbogo.svc.ExportPathMigrationService;
@@ -8,6 +9,7 @@ import com.jiniebox.jangbogo.svc.util.ExecutionContextDetector;
 import com.jiniebox.jangbogo.svc.util.ScreenshotUtil;
 import com.jiniebox.jangbogo.svc.util.SessionProfileGate;
 import com.jiniebox.jangbogo.svc.util.SessionProfilePolicy;
+import com.jiniebox.jangbogo.util.CryptoKeyProvisioning;
 import java.util.List;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -98,6 +100,28 @@ public class StartupTasks {
     List<JSONObject> get() throws Exception;
   }
 
+  /**
+   * 이 설치본의 암호화 키를 확보하고, 공개 기본키로 잠긴 FTP 비밀번호를 그 키로 옮긴다.
+   *
+   * <p>여기서 <b>실패해도 기동은 계속한다.</b> 키를 못 만들었다면 기본값으로 도는 것이고, 그건 지금까지와 같은 상태다 — 보호를 못 올린 것이지 기능이 깨진 것이
+   * 아니다. 키 하나 때문에 앱이 안 뜨면 수집이 통째로 멈춘다.
+   */
+  void provisionCryptoKey() {
+    try {
+      CryptoKeyProvisioning.ensureProvisioned();
+
+      JbgExportConfigDataAccessObject exportConfigDao = new JbgExportConfigDataAccessObject();
+      String stored = exportConfigDao.getEncryptedFtpPassword();
+      String migrated = CryptoKeyProvisioning.reEncryptIfLegacy(stored);
+      if (migrated != null) {
+        exportConfigDao.updateEncryptedFtpPassword(migrated);
+      }
+    } catch (Exception e) {
+      // 다음 기동이 다시 시도한다. 그때까지는 decrypt 의 기본키 되읽기가 비밀번호를 살려 둔다.
+      logger.error("암호화 키 확보·이전 중 오류: {} - 기동은 계속합니다", e.getMessage(), e);
+    }
+  }
+
   @EventListener(ApplicationReadyEvent.class)
   public void onApplicationReady() {
     try {
@@ -110,6 +134,13 @@ public class StartupTasks {
       //    CREATE TABLE 을 자바 문자열로 복제해 두고 있었다. 복제본은 원본과 어긋나기 마련이다.
       //    이제 SchemaMigrator 가 schema.sql 을 직접 읽어 대조하므로 선언은 한 곳뿐이다. (Phase 3-10)
       SchemaMigrator.ensureMigrated();
+
+      // 0-0-1. 이 설치본의 암호화 키를 확보하고, 공개 기본키로 잠긴 비밀번호를 옮긴다.
+      //
+      //        스키마 바로 뒤, 다른 무엇보다 먼저 둔다. 아래 경로 점검이 내보내기 설정을 읽고
+      //        수집이 FTP 비밀번호를 복호화하는데, 그 전에 키가 정해져 있어야 한다.
+      //        (jbg_export_config 가 있어야 하므로 스키마보다는 뒤다.)
+      provisionCryptoKey();
 
       // 0-1. 내보내기 경로가 이 장비 것인지 확인한다.
       //

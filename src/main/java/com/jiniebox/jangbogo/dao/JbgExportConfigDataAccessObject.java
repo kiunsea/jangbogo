@@ -338,4 +338,64 @@ public class JbgExportConfigDataAccessObject extends CommonDataAccessObject {
       }
     }
   }
+
+  /**
+   * 저장된 FTP 비밀번호 암호문을 그대로 조회한다 (복호화하지 않는다).
+   *
+   * <p>암호화 키 이전이 "지금 이 값이 어느 키로 잠겨 있는가" 를 판정하려면 복호화되지 않은 원본이 필요하다. {@link
+   * #getDecryptedFtpPassword()} 는 실패를 빈 문자열로 삼키므로 그 판정에 쓸 수 없다.
+   *
+   * @return 암호문. 없으면 빈 문자열
+   */
+  public String getEncryptedFtpPassword() throws Exception {
+    LocalDBConnection conn = null;
+    try {
+      conn = new LocalDBConnection();
+      ResultSet rset = conn.executeQuery("SELECT ftp_pass FROM jbg_export_config WHERE id=1");
+      if (rset != null && rset.next()) {
+        String encryptedPass = rset.getString("ftp_pass");
+        return (encryptedPass == null) ? "" : encryptedPass;
+      }
+      return "";
+    } catch (Exception e) {
+      log.error("FTP 비밀번호 암호문 조회 중 에러 발생");
+      log.error(ExceptionUtil.getExceptionInfo(e));
+      throw e;
+    } finally {
+      if (conn != null) {
+        conn.close();
+      }
+    }
+  }
+
+  /**
+   * FTP 비밀번호 암호문만 바꿔 쓴다.
+   *
+   * <p>{@link #updateConfig} 를 쓰지 않는 이유는 그것이 <b>전체 필드를 덮어쓰기</b> 때문이다. 특히 {@code publicKey} 는 null 을
+   * 넘기면 빈 값으로 덮여 FTP 암호화가 통째로 깨진다(v0.20.0 에서 겪었다). 키 이전은 이 한 칸만 건드려야 한다.
+   *
+   * @param encryptedPassword 새 암호문
+   */
+  public void updateEncryptedFtpPassword(String encryptedPassword) throws Exception {
+    LocalDBConnection conn = null;
+    try {
+      conn = new LocalDBConnection();
+      conn.txOpen();
+      conn.txPstmtExecuteUpdate(
+          "UPDATE jbg_export_config SET ftp_pass=? WHERE id=1", encryptedPassword);
+      conn.txCommit();
+      log.debug("FTP 비밀번호 암호문 갱신 완료");
+    } catch (Exception e) {
+      if (conn != null) {
+        conn.txRollBack();
+      }
+      log.error("FTP 비밀번호 암호문 갱신 중 에러 발생");
+      log.error(ExceptionUtil.getExceptionInfo(e));
+      throw e;
+    } finally {
+      if (conn != null) {
+        conn.close();
+      }
+    }
+  }
 }
