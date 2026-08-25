@@ -119,6 +119,20 @@ public final class FtpEncryptionGate {
    * @return 판정 결과. {@link Prepared#isRefused()} 면 업로드를 호출하지 말 것.
    */
   public Prepared prepare(String filePath) {
+    return prepare(filePath, (filePath == null) ? null : filePath + ENCRYPTED_SUFFIX);
+  }
+
+  /**
+   * 전송할 파일을 정하되, 암호문을 <b>지정한 자리</b>에 만든다.
+   *
+   * <p>보류분을 재전송할 때 쓴다. 암호문을 원본 옆에 만들면 그것이 보류 디렉터리 안에 떨어져, 정리 전에 프로세스가 죽으면 다음 회차의 목록에 짐인 척 섞인다. 그래서
+   * 재전송 경로는 큐 밖의 스테이징 자리를 넘긴다.
+   *
+   * @param filePath 보내려는 파일 경로
+   * @param encryptedTarget 암호문을 만들 자리. 상위 디렉터리는 여기서 만든다
+   * @return 판정 결과. {@link Prepared#isRefused()} 면 업로드를 호출하지 말 것.
+   */
+  public Prepared prepare(String filePath, String encryptedTarget) {
     if (filePath == null || filePath.isEmpty()) {
       return new Prepared(Decision.REFUSED, null, "보낼 파일 경로가 없습니다.");
     }
@@ -139,9 +153,19 @@ public final class FtpEncryptionGate {
       return new Prepared(Decision.REFUSED, null, reason);
     }
 
-    String encryptedFilePath = filePath + ENCRYPTED_SUFFIX;
+    String encryptedFilePath =
+        (encryptedTarget == null || encryptedTarget.isEmpty())
+            ? filePath + ENCRYPTED_SUFFIX
+            : encryptedTarget;
+
     boolean encrypted;
     try {
+      // 스테이징처럼 아직 없는 자리를 받을 수 있다. 없으면 암호화가 파일을 못 열고 실패하는데,
+      // 그 실패는 곧 거절이라 보낼 수 있는 것을 못 보내게 된다.
+      File parent = new File(encryptedFilePath).getParentFile();
+      if (parent != null && !parent.isDirectory() && !parent.mkdirs()) {
+        logger.error("암호문을 둘 디렉터리를 만들 수 없습니다: {}", parent.getAbsolutePath());
+      }
       encrypted = encryptor.encrypt(filePath, encryptedFilePath, publicKey);
     } catch (Exception e) {
       logger.error("FTP 전송용 암호화 중 오류: {}", e.getMessage(), e);
