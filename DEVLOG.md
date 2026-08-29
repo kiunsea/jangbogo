@@ -83,6 +83,15 @@ gh api "repos/kiunsea/jangbogo/actions/runs/33274611218/artifacts" -q '.total_co
 
 지연이 왜 이번엔 없었는지는 모른다. 지운 양이 두 배였다는 것 말고 짚을 근거가 없어서 **"지연은 없다" 로 일반화하지 않는다** — 다음에 같은 일을 겪으면 여전히 6~12시간을 각오하는 편이 맞다.
 
+**그 유보가 곧 옳았던 것으로 드러났다.** 같은 계정의 `doribox-studio` 를 같은 날 돌려 보니(run `33275743688`, 2026-08-29 21:22Z — 삭제 47분 뒤) **여전히 quota 에러였다.**
+
+```
+##[error]Failed to CreateArtifact: Artifact storage quota has been hit.
+         Unable to upload any new artifacts. Usage is recalculated every 6-12 hours.
+```
+
+즉 **지연은 실재하고, 저장소마다 다르게 걷힌다.** 20분 뒤에 이미 올라간 곳(지운 당사자인 이 저장소)과 47분 뒤에도 막힌 곳이 같은 계정에 공존했다. 지운 저장소 쪽이 먼저 풀리는 것으로 보이지만 근거가 이 한 쌍뿐이라 그 이상은 주장하지 않는다. **"우리 쪽이 됐으니 계정이 풀렸다" 로 읽으면 안 된다.**
+
 **`actions: write` 가 실제로 부여되는지도 확인했다**
 
 저장소의 `default_workflow_permissions` 는 `read` 다. 워크플로에 `permissions:` 로 그보다 높은 스코프를 적어도 부여되지 않는다면 정리는 403 으로 아무것도 못 지우면서 `continue-on-error` 때문에 초록으로 넘어간다 — 이 설계에서 가장 조용한 실패 자리다. 그래서 job 로그의 `Set up job` 이 찍는 실제 권한을 봤다:
