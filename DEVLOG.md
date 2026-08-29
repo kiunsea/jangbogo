@@ -68,17 +68,37 @@ Failed to CreateArtifact: Artifact storage quota has been hit
 
 이 저장소가 반복해서 겪은 "가드는 있는데 아무것도 안 지킨다" 와 같은 형태다. 이번엔 커밋 전에 잡았다.
 
-**남은 것 — 6~12시간 뒤 재확인이 필요하다**
+**검증 결과 — 지연을 각오했는데 즉시 풀렸다**
 
-**삭제 직후에는 업로드가 여전히 실패한다.** GitHub 의 usage 재계산이 6~12시간 지연된다(에러 문구가 그렇게 말한다). `doribox-studio` 에서 3,702MB 를 지운 직후 아티팩트 0개 상태로 CI 를 돌렸는데도 같은 quota 에러가 났다 — 실측이다.
+`doribox-studio` 실측을 근거로 **삭제 직후에는 업로드가 여전히 실패할 것**으로 보고 있었다. GitHub 의 usage 재계산이 6~12시간 지연되고(에러 문구가 그렇게 말한다), 그쪽은 3,702MB 를 지운 직후 아티팩트 0개 상태로 돌렸는데도 같은 quota 에러가 났기 때문이다. 그래서 이 커밋 직후의 CI 가 빨갛게 떨어지더라도 회귀가 아니라고 미리 적어 뒀다.
 
-그러므로 **이 커밋 직후의 CI 에서 업로드가 실패하더라도 회귀가 아니다.** 진짜 해소 증거는 하나뿐이다:
+**그런데 걸리지 않았다.** 삭제 약 1시간 뒤의 첫 Build(run `33274611218`)에서 업로드 두 개가 모두 성공했고, 그 run 의 아티팩트를 API 로 직접 세어 확인했다:
 
 ```
-gh api "repos/kiunsea/jangbogo/actions/runs/<id>/artifacts" -q '.total_count'
+gh api "repos/kiunsea/jangbogo/actions/runs/33274611218/artifacts" -q '.total_count'
+→ 2   (jangbogo-jar 69,048,384B · test-results 243,111B, 둘 다 expired=false)
 ```
 
-이 값이 6~12시간 뒤의 run 에서 0이 아닐 것. **스텝이 success 로 찍히는 것은 증거가 아니다** — `continue-on-error` 가 붙은 스텝은 실패해도 success 로 찍힌다.
+이것이 진짜 해소 증거다. **스텝이 success 로 찍히는 것은 증거가 아니다** — `continue-on-error` 가 붙은 스텝은 실패해도 success 로 찍힌다(이 저장소의 업로드에는 붙이지 않았지만, 정리 스텝에는 붙어 있다).
+
+지연이 왜 이번엔 없었는지는 모른다. 지운 양이 두 배였다는 것 말고 짚을 근거가 없어서 **"지연은 없다" 로 일반화하지 않는다** — 다음에 같은 일을 겪으면 여전히 6~12시간을 각오하는 편이 맞다.
+
+**`actions: write` 가 실제로 부여되는지도 확인했다**
+
+저장소의 `default_workflow_permissions` 는 `read` 다. 워크플로에 `permissions:` 로 그보다 높은 스코프를 적어도 부여되지 않는다면 정리는 403 으로 아무것도 못 지우면서 `continue-on-error` 때문에 초록으로 넘어간다 — 이 설계에서 가장 조용한 실패 자리다. 그래서 job 로그의 `Set up job` 이 찍는 실제 권한을 봤다:
+
+```
+##[group]GITHUB_TOKEN Permissions
+Actions: write
+Contents: read
+Metadata: read
+```
+
+저장소 기본값이 `read` 여도 워크플로가 명시한 스코프는 그대로 부여된다.
+
+**남은 것 — 삭제 경로는 아직 안 밟혔다**
+
+첫 회차의 정리 스텝은 앞·뒤 모두 `대상 0 벌` 이었다. 직전에 228벌을 전량 지워 남은 것이 없었기 때문이다. **즉 스크립트가 실제로 DELETE 를 부르는 경로는 아직 한 번도 안 돌았다.** 이 저장소가 반복해서 겪은 "초록인데 아무것도 안 한다" 가 정확히 이 자리라, 다음 회차 로그에 `pruned(all) jangbogo-jar artifact <id>` 가 찍히는지 확인해야 한다.
 
 ---
 
