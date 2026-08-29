@@ -10,7 +10,14 @@ jobs:
   build:
     name: Build and Test
     runs-on: windows-latest
-    
+    # 아래 "Prune build artifacts" 두 스텝이 아티팩트를 지우려면 actions: write 가 필요하다.
+    #
+    # permissions 를 명시하는 순간 **나열하지 않은 스코프는 none 이 된다.** 그래서 지금까지
+    # 암묵적으로 쓰던 contents: read(체크아웃) 도 함께 적어야 한다 — 빼면 checkout 이 404 로 죽는다.
+    permissions:
+      contents: read
+      actions: write
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v7
@@ -44,10 +51,40 @@ jobs:
     - name: Build distribution package (release path)
       run: .\gradlew bootJar createJre packageDist --no-daemon
       
+    # 정리는 업로드 "앞" 에서 한다 — 뒤에 두면 이번 회차 업로드를 위한 공간을 못 비운다.
+    #
+    # 왜 필요한가: 이 워크플로에는 정리가 아예 없었다. retention-days: 7 을 적어 뒀으니
+    # 알아서 사라질 것으로 봤지만 그렇지 않다 — **만료된 아티팩트는 GitHub 의 GC 가 실제로
+    # 걷어갈 때까지 목록에 남아 저장 quota 를 계속 잡는다.** 2026-08-29 실측: 이 저장소에
+    # 228벌 7,637MB 가 쌓여 있었고(jangbogo-jar 1벌이 약 66MB) 그중 6,046MB 는 이미 만료된
+    # 것이었으며 가장 오래된 것은 2025-11 자였다. 계정 단위 한도는 500MB 이므로 15배다.
+    #
+    # 피해는 이 저장소가 아니라 **같은 계정의 다른 저장소**에서 먼저 났다. quota 는 계정
+    # 단위라, doribox-studio 는 2026-08-07 이후 모든 Build 에서 업로드가
+    # "Failed to CreateArtifact: Artifact storage quota has been hit" 로 실패했다.
+    # 그쪽은 업로드에 continue-on-error: true 가 붙어 있어 Build 가 계속 초록이었고 3주간
+    # 아무도 몰랐다. 이 워크플로의 업로드에 continue-on-error 를 붙이지 않는 이유가 그것이다 —
+    # quota 로 못 올리면 빨갛게 죽는 편이 낫다. 정리 스텝에만 붙인다(정리는 편의 기능이고,
+    # gh api 가 한 번 흔들렸다고 빌드 결과가 바뀌면 안 된다).
+    #
+    # 이 회차가 곧 새 산출물을 올리므로 같은 이름의 이전 벌은 전부 지운다.
+    # 빌드·테스트가 성공했을 때만 돈다 — 실패한 회차가 마지막 성공 산출물을 지우면 안 된다.
+    # shell: bash 가 필수다. 이 job 은 windows-latest 라 기본 셸이 PowerShell 이다.
+    - name: Prune build artifacts before upload
+      if: success()
+      continue-on-error: true
+      shell: bash
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: bash .github/scripts/prune-artifacts.sh "${{ github.repository }}" all jangbogo-jar test-results
+
     # upload-artifact 는 v4 부터 한 워크플로 실행 안에서 같은 name 으로 두 번 올리면
     # 덮어쓰기가 아니라 그대로 실패한다(아티팩트가 불변이 됐다). 아래 두 스텝의 name 이
     # 서로 다른 것은 우연이 아니라 이 제약 때문이며, 새 업로드 스텝을 추가할 때도
     # name 을 반드시 다르게 잡아야 한다.
+    #
+    # 새 name 을 추가하면 위·아래 정리 스텝의 인자 목록에도 반드시 넣어라. 빠뜨리면 그 이름만
+    # 정리 대상 밖에서 무한히 쌓인다 — 이번 사태가 정확히 그 모양이었다.
     - name: Upload build artifacts
       if: success()
       uses: actions/upload-artifact@v7
@@ -63,4 +100,16 @@ jobs:
         name: test-results
         path: build/test-results/
         retention-days: 7
+
+    # 동시 실행 수렴 가드 — 정상 회차에서는 위 사전 정리 덕에 이 회차 산출물만 있어 무동작이다.
+    # 두 run 이 겹쳐 끝나면 같은 이름이 2벌 남을 수 있으므로 이름별 최신 1벌로 수렴시킨다.
+    # 판정(나열·최신 판별·삭제)은 사전 정리와 **같은 스크립트**를 쓴다 — 셸 블록을 복제하면
+    # 한쪽만 고쳐졌을 때 앞뒤 규칙이 갈리는 '판정 2구현' 이 된다.
+    - name: Prune older build artifacts
+      if: always()
+      continue-on-error: true
+      shell: bash
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: bash .github/scripts/prune-artifacts.sh "${{ github.repository }}" keep-newest jangbogo-jar test-results
 

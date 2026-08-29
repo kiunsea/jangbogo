@@ -10,6 +10,78 @@
 
 ## 주요 변경사항
 
+### [2026-08-30 05:48] 우리 CI 아티팩트가 계정 저장 한도를 먹어 다른 저장소를 3주간 멈춰 세웠다
+
+**작업 개요**
+
+`build.yml` 에 아티팩트 정리 스텝을 넣고, `release.yml` 의 중복 업로드를 제거하고, 쌓여 있던 228벌 7,637MB 를 전량 삭제했다. 런타임 코드는 건드리지 않았다. v0.22.1.
+
+**발단 — 아픈 곳과 원인이 다른 저장소였다**
+
+`doribox-studio` 는 2026-08-07 이후 모든 Build 에서 아티팩트 업로드가 실패하고 있었다:
+
+```
+Failed to CreateArtifact: Artifact storage quota has been hit
+```
+
+그런데 그 저장소의 아티팩트는 3,702MB 였고, 전부 지운 직후에도 같은 에러가 났다. 원인이 그쪽에 없었기 때문이다 — **GitHub Actions 의 저장 한도는 저장소가 아니라 계정 단위 500MB** 이고, 계정 합계 7,640MB 중 **7,637MB 가 이 저장소**였다.
+
+즉 이 저장소는 자기는 멀쩡한 채(2026-08-26 까지 업로드 성공) 남을 멈춰 세우고 있었다. 그리고 그쪽은 업로드에 `continue-on-error: true` 가 붙어 있어 Build 가 계속 초록이었고, **3주간 아무도 몰랐다.**
+
+**왜 쌓였나 — retention-days 는 quota 를 지켜 주지 않는다**
+
+`build.yml` 의 두 업로드에는 `retention-days: 7` 이 붙어 있다. 그래서 정리 스텝을 따로 두지 않았다. 그런데 실측하니 이랬다:
+
+| 이름 | 벌 | 크기 | 출처 |
+|---|---|---|---|
+| `jangbogo-jar` | 107 | 7,112MB (1벌 ≈ 66MB) | `build.yml` · retention-days: 7 |
+| `test-results` | 116 | 12MB | `build.yml` · retention-days: 7 |
+| `jangbogo-v*` 5종 | 5 | 509MB (각 ≈ 102MB) | `release.yml` · retention-days: 90 |
+
+만료 184벌 6,046MB / 미만료 44벌 1,591MB, 기간 2025-11-15 ~ 2026-08-26.
+
+`retention-days: 7` 인데 2025-11 자가 남아 있다. **만료돼도 GitHub 의 GC 가 실제로 걷어갈 때까지 목록에 남아 quota 를 계속 잡는다.** 그래서 만료분만 지우는 것으로는 해결되지 않는다 — 미만료 1,591MB 만으로도 한도의 3배다.
+
+**버전 태그 아티팩트는 Release 자산의 완전한 사본이었다**
+
+`release.yml` 은 같은 zip 을 두 번 올리고 있었다. `softprops/action-gh-release` 가 Release 자산으로 올린 **직후** `upload-artifact` 가 한 번 더 올린다. Releases API 로 확인하니 v0.7.0·v0.8.0·v0.10.2·v0.18.1·v0.22.0 전부 `Jangbogo-v<버전>.zip` 이 Release 자산으로 실재했다. 받는 곳은 Release 페이지이지 아티팩트 목록이 아니므로, 이 스텝은 처음부터 아무도 쓰지 않는 사본이었다. **Release 자산은 저장 quota 를 먹지 않고 아티팩트는 먹는다.** 릴리스마다 102MB 가 90일씩 쌓이고 있었다.
+
+**상세 내용**
+
+1. **삭제** — 228벌 전량. 삭제 후 `total_count` = 0 확인. 버전 태그 5벌도 위 근거로 잃는 것이 없다.
+2. **`.github/scripts/prune-artifacts.sh`** — 앞·뒤 두 스텝이 공유하는 단일 구현. `doribox-studio` 가 같은 문제를 고쳐 CI 로 검증한 설계(`4df6cc5`)를 가져왔고, 이 저장소 사정에 맞춰 셋을 바꿨다.
+3. **`build.yml`** — 사전 정리(`all`)를 업로드 앞에, 수렴 가드(`keep-newest`)를 뒤에. `permissions: contents: read` + `actions: write` 추가.
+4. **`release.yml`** — `Upload artifacts` 스텝 제거(주석으로 근거를 남겼다).
+5. **`WorkflowArtifactHygieneTest`**(9건) 신규.
+
+**가져오면서 바꿔야 했던 것**
+
+- **`shell: bash` 를 명시해야 한다.** 이 job 은 `runs-on: windows-latest` 라 기본 셸이 PowerShell 이다(참조 쪽은 ubuntu 라 필요 없었다). 빠뜨리면 PowerShell 이 `.sh` 를 해석하려 들어 스텝이 죽는데, `continue-on-error` 때문에 초록으로 넘어간다 — 정리가 통째로 멈춘 것을 아무도 모르게 된다. 그래서 테스트가 이 형태를 본다.
+- **`permissions:` 블록이 아예 없었다.** 아티팩트 삭제에 `actions: write` 가 필요한데, `permissions` 를 명시하는 순간 **나열하지 않은 스코프는 `none` 이 된다.** 그동안 암묵적으로 쓰던 `contents: read` 를 함께 적지 않으면 체크아웃이 죽는다.
+- **업로드에는 `continue-on-error` 를 붙이지 않았다.** 참조 쪽은 붙어 있고, 정확히 그것 때문에 3주간 조용히 실패했다. 정리 스텝에만 붙인다 — 정리는 편의 기능이고, quota 로 못 올리면 빨갛게 죽는 편이 낫다.
+
+**가드를 실제로 물게 만드는 데 한 번 실패했다**
+
+테스트를 다 쓰고 워크플로에 변이를 두 개 넣었다 — (1) 사전 정리 스텝에서 `shell: bash` 제거, (2) 사전 정리 인자에서 `jangbogo-jar` 제거. **하나만 걸렸다.**
+
+이름 검사가 앞·뒤 정리 스텝의 인자를 **합쳐서** 보고 있었기 때문이다. 뒤쪽 `keep-newest` 에 `jangbogo-jar` 가 남아 있으니 합집합에는 들어 있었다. 그런데 뒤쪽은 이미 올리고 난 다음이라 이번 회차의 공간을 비우지 못한다 — **즉 합집합으로 보는 순간 이 가드는 정확히 이번 사태의 형태를 통과시킨다.** 모드별로 나눠 보도록 고치고 다시 넣으니 두 건 다 걸렸다.
+
+이 저장소가 반복해서 겪은 "가드는 있는데 아무것도 안 지킨다" 와 같은 형태다. 이번엔 커밋 전에 잡았다.
+
+**남은 것 — 6~12시간 뒤 재확인이 필요하다**
+
+**삭제 직후에는 업로드가 여전히 실패한다.** GitHub 의 usage 재계산이 6~12시간 지연된다(에러 문구가 그렇게 말한다). `doribox-studio` 에서 3,702MB 를 지운 직후 아티팩트 0개 상태로 CI 를 돌렸는데도 같은 quota 에러가 났다 — 실측이다.
+
+그러므로 **이 커밋 직후의 CI 에서 업로드가 실패하더라도 회귀가 아니다.** 진짜 해소 증거는 하나뿐이다:
+
+```
+gh api "repos/kiunsea/jangbogo/actions/runs/<id>/artifacts" -q '.total_count'
+```
+
+이 값이 6~12시간 뒤의 run 에서 0이 아닐 것. **스텝이 success 로 찍히는 것은 증거가 아니다** — `continue-on-error` 가 붙은 스텝은 실패해도 success 로 찍힌다.
+
+---
+
 ### [2026-08-25 18:35] 태그를 밀고 나서야 릴리스가 깨져 있는 걸 알았다
 
 **작업 개요**

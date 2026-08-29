@@ -53,10 +53,14 @@ jobs:
         prerelease: false
         token: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v7
-      with:
-        name: jangbogo-v${{ steps.get_version.outputs.VERSION }}
-        path: Jangbogo-v*.zip
-        retention-days: 90
+    # 여기에 "Upload artifacts" 스텝이 있었다. 같은 zip 을 Release 자산으로 올린 **직후** 한 번 더
+    # 액션 아티팩트로 올리던 것이라, 릴리스마다 102MB 가 90일씩 그대로 중복돼 쌓였다.
+    #
+    # 지워도 잃는 것이 없다는 것은 실측으로 확인했다 — v0.7.0·v0.8.0·v0.10.2·v0.18.1·v0.22.0
+    # 다섯 벌(509MB)이 아티팩트로 남아 있었고, 그 전부가 위 Create Release 가 올린
+    # Jangbogo-v<버전>.zip 으로 Release 페이지에 그대로 있었다. 받는 곳이 Release 이지
+    # 아티팩트 목록이 아니므로 이 스텝은 처음부터 아무도 쓰지 않는 사본이었다.
+    #
+    # 아티팩트는 저장 quota 를 계정 단위(500MB)로 먹고 Release 자산은 먹지 않는다. 다시 넣지 마라.
+    # WorkflowArtifactHygieneTest 가 이 워크플로에 upload-artifact 가 되돌아오는 것을 감시한다.
 
