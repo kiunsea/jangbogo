@@ -3,7 +3,7 @@ plugins {
 	id 'application'
 	id 'org.springframework.boot' version '3.5.16'
 	id 'io.spring.dependency-management' version '1.1.7'
-	id 'com.diffplug.spotless' version '8.10.0'
+	id 'com.diffplug.spotless' version '8.10.1'
 }
 
 group = 'com.jiniebox'
@@ -57,7 +57,7 @@ dependencies {
 	// Log4j2 추가
 	implementation 'org.springframework.boot:spring-boot-starter-log4j2'
 	
-	implementation 'org.xerial:sqlite-jdbc:3.53.2.1'
+	implementation 'org.xerial:sqlite-jdbc:3.53.4.0'
 	
 	// Selenium WebDriver (selenium-java에 모든 드라이버 포함)
 	// 버전은 위 ext['selenium.version'] 으로 고정한다. 여기에 버전을 직접 쓰면 selenium-java(집합 POM)만
